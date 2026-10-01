@@ -4,20 +4,17 @@ Edit volume di sini otomatis memicu hitung ulang subtotal_biaya.
 """
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
     QTableWidgetItem, QPushButton, QLabel, QHeaderView, QAbstractItemView,
-    QDoubleSpinBox, QStackedWidget, QFrame
+    QDoubleSpinBox, QStackedWidget, QFrame, QMessageBox
 )
 from PySide6.QtCore import Qt
 
 from database.estimasi_repository import (
-    get_hasil_estimasi_by_proyek, update_volume_estimasi, get_total_rab,
+    get_hasil_estimasi_by_proyek, update_volume_estimasi, get_total_rab, PPN_RATE,
 )
-
-# Placeholder: belum ada layar Pengaturan Pajak/PPN (KF-11 masih perlu
-# dirapikan penomorannya). Tarif efektif PPN non-barang-mewah di Indonesia
-# per 2026 masih 11% -- ganti ini kalau KF-11 sudah punya tempatnya sendiri.
-PPN_RATE = 0.11
+from estimasi_service import jalankan_estimasi
+from gui.export_dialog import ExportDialog
 
 STYLE_SHEET = """
 QWidget {
@@ -28,8 +25,6 @@ QWidget {
 }
 QLabel#judulApp { font-size: 20px; font-weight: 700; color: #ffffff; }
 QLabel#subjudulApp { color: #7d92a8; font-size: 12px; }
-QLabel#labelStatusManual { color: #f7b955; font-size: 11px; font-weight: 600; }
-QLabel#labelStatusOtomatis { color: #7d92a8; font-size: 11px; }
 QLabel#labelRingkasan { color: #7d92a8; font-size: 13px; }
 QLabel#labelTotal { color: #ffffff; font-size: 18px; font-weight: 700; }
 QTableWidget {
@@ -59,12 +54,16 @@ QDoubleSpinBox {
 }
 QDoubleSpinBox:focus { border: 1px solid #4f9df7; }
 QPushButton { border-radius: 6px; padding: 9px 18px; font-weight: 600; }
+QPushButton#btnExport { background-color: #4f9df7; color: #0c1a26; }
+QPushButton#btnExport:hover { background-color: #6bacf9; }
 QPushButton#btnKembali {
     background-color: #223142;
     color: #e4ebf2;
     border: 1px solid #2f4356;
 }
 QPushButton#btnKembali:hover { background-color: #2a3947; }
+QPushButton#btnCTA { background-color: #4f9df7; color: #0c1a26; padding: 12px 24px; }
+QPushButton#btnCTA:hover { background-color: #6bacf9; }
 QFrame#panelRingkasan {
     background-color: #1c2733;
     border: 1px solid #2a3947;
@@ -92,6 +91,7 @@ class EstimasiWindow(QMainWindow):
         self.proyek_id = proyek_id
         self.nama_proyek = nama_proyek
         self.on_kembali = on_kembali
+        self._volume_terakhir = {}  # hasil_id -> volume terakhir, untuk deteksi perubahan nyata
 
         self.setWindowTitle(f"CostStruct — Estimasi: {nama_proyek}")
         self.resize(1040, 640)
@@ -122,6 +122,11 @@ class EstimasiWindow(QMainWindow):
         header_row.addSpacing(12)
         header_row.addLayout(judul_col)
         header_row.addStretch()
+        self.btn_export = QPushButton("Export RAB")
+        self.btn_export.setObjectName("btnExport")
+        self.btn_export.setCursor(Qt.PointingHandCursor)
+        self.btn_export.clicked.connect(self._buka_export)
+        header_row.addWidget(self.btn_export)
         root.addLayout(header_row)
 
         # --- Stacked: tabel ATAU empty state ---
@@ -148,7 +153,7 @@ class EstimasiWindow(QMainWindow):
             ["KATEGORI", "PEKERJAAN", "ELEMEN / LANTAI", "SATUAN", "VOLUME", "HARGA SATUAN", "SUBTOTAL", "STATUS"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)  # edit lewat spinbox, bukan cell langsung
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)  # edit lewat spinbox
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
         self.table.verticalHeader().setVisible(False)
@@ -173,14 +178,22 @@ class EstimasiWindow(QMainWindow):
         judul.setStyleSheet("font-size: 16px; font-weight: 600; color: #e4ebf2;")
         judul.setAlignment(Qt.AlignCenter)
 
-        deskripsi = QLabel(
-            "Proses parsing IFC & perhitungan rule-engine untuk proyek ini\nbelum dijalankan, jadi hasil_estimasi masih kosong."
+        self.label_info_kosong = QLabel(
+            "Parsing IFC & perhitungan rule-engine untuk proyek ini belum dijalankan\n"
+            "atau tidak menghasilkan elemen struktural."
         )
-        deskripsi.setStyleSheet("color: #7d92a8;")
-        deskripsi.setAlignment(Qt.AlignCenter)
+        self.label_info_kosong.setStyleSheet("color: #7d92a8;")
+        self.label_info_kosong.setAlignment(Qt.AlignCenter)
+
+        btn_jalankan = QPushButton("Jalankan Estimasi dari File IFC")
+        btn_jalankan.setObjectName("btnCTA")
+        btn_jalankan.setCursor(Qt.PointingHandCursor)
+        btn_jalankan.setFixedWidth(280)
+        btn_jalankan.clicked.connect(self._jalankan_estimasi)
 
         layout.addWidget(judul)
-        layout.addWidget(deskripsi)
+        layout.addWidget(self.label_info_kosong)
+        layout.addWidget(btn_jalankan, alignment=Qt.AlignCenter)
         return wrap
 
     def _buat_panel_ringkasan(self) -> QFrame:
@@ -190,34 +203,21 @@ class EstimasiWindow(QMainWindow):
         layout.setContentsMargins(20, 14, 20, 14)
         layout.setSpacing(4)
 
-        baris_subtotal = QHBoxLayout()
-        baris_subtotal.addWidget(QLabel("Subtotal RAB"))
-        self.label_subtotal = QLabel("Rp 0")
-        self.label_subtotal.setObjectName("labelRingkasan")
-        baris_subtotal.addStretch()
-        baris_subtotal.addWidget(self.label_subtotal)
-        for w in baris_subtotal.parentWidget() and [] or []:
-            pass
+        def baris(judul_teks, nama_objek_nilai, nama_objek_judul="labelRingkasan"):
+            row = QHBoxLayout()
+            judul = QLabel(judul_teks)
+            judul.setObjectName(nama_objek_judul)
+            nilai = QLabel("Rp 0")
+            nilai.setObjectName(nama_objek_nilai)
+            row.addWidget(judul)
+            row.addStretch()
+            row.addWidget(nilai)
+            layout.addLayout(row)
+            return nilai
 
-        baris_ppn = QHBoxLayout()
-        label_ppn_judul = QLabel(f"PPN {int(PPN_RATE * 100)}%")
-        label_ppn_judul.setObjectName("labelRingkasan")
-        self.label_ppn = QLabel("Rp 0")
-        self.label_ppn.setObjectName("labelRingkasan")
-        baris_ppn.addWidget(label_ppn_judul)
-        baris_ppn.addStretch()
-        baris_ppn.addWidget(self.label_ppn)
-
-        baris_total = QHBoxLayout()
-        baris_total.addWidget(QLabel("Total RAB"))
-        self.label_total = QLabel("Rp 0")
-        self.label_total.setObjectName("labelTotal")
-        baris_total.addStretch()
-        baris_total.addWidget(self.label_total)
-
-        layout.addLayout(baris_subtotal)
-        layout.addLayout(baris_ppn)
-        layout.addLayout(baris_total)
+        self.label_subtotal = baris("Subtotal RAB", "labelRingkasan")
+        self.label_ppn = baris(f"PPN {int(PPN_RATE * 100)}%", "labelRingkasan")
+        self.label_total = baris("Total RAB", "labelTotal", nama_objek_judul="labelTotal")
         return panel
 
     # ---------- Data ----------
@@ -227,10 +227,13 @@ class EstimasiWindow(QMainWindow):
         ada_data = len(data) > 0
         self.stack.setCurrentIndex(0 if ada_data else 1)
         self.panel_ringkasan.setVisible(ada_data)
+        self.btn_export.setVisible(ada_data)
+
+        self.table.setRowCount(0)
+        self._volume_terakhir = {}
         if not ada_data:
             return
 
-        self.table.setRowCount(0)
         for row_idx, row in enumerate(data):
             self.table.insertRow(row_idx)
             self.table.setItem(row_idx, KOL_KATEGORI, QTableWidgetItem(row["kategori"]))
@@ -245,6 +248,7 @@ class EstimasiWindow(QMainWindow):
             spin_volume.setRange(0, 1_000_000)
             spin_volume.setDecimals(3)
             spin_volume.setValue(row["volume_pekerjaan"])
+            self._volume_terakhir[row["hasil_id"]] = spin_volume.value()
             spin_volume.editingFinished.connect(
                 lambda r=row_idx, hid=row["hasil_id"], pid=row["pekerjaan_id"], sp=spin_volume:
                     self._volume_diubah(r, hid, pid, sp.value())
@@ -254,14 +258,16 @@ class EstimasiWindow(QMainWindow):
             harga_satuan = row["subtotal_biaya"] / row["volume_pekerjaan"] if row["volume_pekerjaan"] else 0
             self.table.setItem(row_idx, KOL_HARGA, QTableWidgetItem(format_rupiah(harga_satuan)))
             self.table.setItem(row_idx, KOL_SUBTOTAL, QTableWidgetItem(format_rupiah(row["subtotal_biaya"])))
-
-            status_item = QTableWidgetItem("Manual" if row["diedit_manual"] else "Otomatis")
-            self.table.setItem(row_idx, KOL_STATUS, status_item)
+            self.table.setItem(row_idx, KOL_STATUS, QTableWidgetItem("Manual" if row["diedit_manual"] else "Otomatis"))
 
         self._perbarui_ringkasan()
 
     def _volume_diubah(self, row_idx: int, hasil_id: int, pekerjaan_id: int, volume_baru: float):
+        # editingFinished juga terpicu saat fokus hilang tanpa perubahan -> abaikan
+        if abs(volume_baru - self._volume_terakhir.get(hasil_id, volume_baru)) < 1e-9:
+            return
         subtotal_baru = update_volume_estimasi(hasil_id, pekerjaan_id, volume_baru)
+        self._volume_terakhir[hasil_id] = volume_baru
         self.table.setItem(row_idx, KOL_SUBTOTAL, QTableWidgetItem(format_rupiah(subtotal_baru)))
         self.table.setItem(row_idx, KOL_STATUS, QTableWidgetItem("Manual"))
         self._perbarui_ringkasan()
@@ -269,10 +275,32 @@ class EstimasiWindow(QMainWindow):
     def _perbarui_ringkasan(self):
         subtotal = get_total_rab(self.proyek_id)
         ppn = subtotal * PPN_RATE
-        total = subtotal + ppn
         self.label_subtotal.setText(format_rupiah(subtotal))
         self.label_ppn.setText(format_rupiah(ppn))
-        self.label_total.setText(format_rupiah(total))
+        self.label_total.setText(format_rupiah(subtotal + ppn))
+
+    def _jalankan_estimasi(self):
+        """Parse ulang file IFC proyek ini lalu isi hasil_estimasi."""
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            r = jalankan_estimasi(self.proyek_id)
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "Parsing Gagal", str(e))
+            return
+        QApplication.restoreOverrideCursor()
+
+        self.muat_data()
+        if r["baris_hasil"] == 0:
+            QMessageBox.warning(
+                self, "Tidak Ada Hasil",
+                f"{r['elemen']} elemen struktural terbaca, tetapi tidak ada baris estimasi.\n"
+                "Pastikan file IFC berisi IfcColumn/IfcBeam/IfcSlab/IfcWall/IfcFooting "
+                "(model MEP biasanya tidak berisi elemen ini)."
+            )
+
+    def _buka_export(self):
+        ExportDialog(self.proyek_id, self.nama_proyek, self).exec()
 
     # ---------- Navigasi ----------
 

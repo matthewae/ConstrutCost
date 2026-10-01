@@ -1,10 +1,15 @@
-import ifcopenshell
-import ifcopenshell.util.element as element_util
-import ifcopenshell.util.unit as unit_util
-import ifcopenshell.util.shape as shape_util
-import ifcopenshell.geom as geom
+"""
+Parser IFC -> daftar elemen struktural (siap disimpan ke tabel elemen_proyek).
+Tidak ada kode yang jalan saat di-import; dipanggil dari estimasi_service.jalankan_estimasi().
+"""
 
-model = ifcopenshell.open("data/Duplex_A_20110907.ifc")
+import ifcopenshell
+import ifcopenshell.geom as geom
+import ifcopenshell.util.element as element_util
+import ifcopenshell.util.shape as shape_util
+import ifcopenshell.util.unit as unit_util
+
+STRUCTURAL_TYPES = ["IfcColumn", "IfcBeam", "IfcSlab", "IfcWall", "IfcFooting"]
 
 PSET_CANDIDATES = {
     "IfcWall": ["Qto_WallBaseQuantities", "PSet_Revit_Dimensions"],
@@ -14,56 +19,95 @@ PSET_CANDIDATES = {
     "IfcColumn": ["Qto_ColumnBaseQuantities", "PSet_Revit_Dimensions"],
 }
 
-settings = geom.settings()
-settings.set(settings.USE_WORLD_COORDS, True)
 
-def get_dimension(element, prop_name, pset_candidates):
+def _buat_settings():
+    settings = geom.settings()
+    try:
+        settings.set("use-world-coords", True)          # IfcOpenShell >= 0.8
+    except Exception:
+        settings.set(settings.USE_WORLD_COORDS, True)   # versi lama
+    return settings
+
+
+def _get_dimension(element, prop_name, pset_candidates):
     psets = element_util.get_psets(element)
     for pset_name in pset_candidates:
         if pset_name in psets and prop_name in psets[pset_name]:
             value = psets[pset_name][prop_name]
-            if value is not None:
-                return value
+            if isinstance(value, (int, float)):
+                return float(value)
     return None
 
-def get_volume_from_geometry(element):
-    """Fallback: hitung volume langsung dari mesh 3D kalau tidak ada di property set."""
+
+def _volume_from_geometry(element, settings):
+    """Fallback: volume dari mesh 3D. Geometri IfcOpenShell sudah dalam METER."""
     try:
         shape = geom.create_shape(settings, element)
         return shape_util.get_volume(shape.geometry)
-    except Exception as e:
-        print(f"  [!] Gagal hitung geometri untuk {element.GlobalId}: {e}")
+    except Exception:
         return None
 
-def extract_elements(model, ifc_type):
-    candidates = PSET_CANDIDATES.get(ifc_type, ["PSet_Revit_Dimensions"])
-    results = []
-    for elem in model.by_type(ifc_type):
-        volume = get_dimension(elem, "Volume", candidates)
-        source = "pset"
-        if volume is None:
-            volume = get_volume_from_geometry(elem)
-            source = "geometry" if volume is not None else "gagal"
 
-        results.append({
-            "id": elem.GlobalId,
-            "name": elem.Name,
-            "type": ifc_type,
-            "length": get_dimension(elem, "Length", candidates),
-            "area": get_dimension(elem, "Area", candidates),
-            "volume": volume,
-            "volume_source": source,
-        })
-    return results
+def _area_from_geometry(element, ifc_type, settings):
+    """Fallback luas (m2) dari mesh: pelat/fondasi = luas tapak, dinding = luas sisi."""
+    try:
+        shape = geom.create_shape(settings, element)
+        if ifc_type == "IfcWall":
+            return shape_util.get_side_area(shape.geometry)
+        if ifc_type in ("IfcSlab", "IfcFooting"):
+            return shape_util.get_footprint_area(shape.geometry)
+    except Exception:
+        pass
+    return None
 
-# --- Jalankan untuk semua tipe, tampilkan yang tadinya bolong ---
-for ifc_type in ["IfcColumn", "IfcBeam", "IfcSlab", "IfcWall", "IfcFooting"]:
-    data = extract_elements(model, ifc_type)
-    from_geom = [d for d in data if d["volume_source"] == "geometry"]
-    failed = [d for d in data if d["volume_source"] == "gagal"]
-    print(f"{ifc_type}: {len(data)} elemen | {len(from_geom)} dari geometri | {len(failed)} gagal total")
-    for d in from_geom:
-        print(f"   -> {d['name'][:40]}: volume dihitung dari mesh = {d['volume']}")
 
-for slab in model.by_type("IfcSlab"):
-    print(f"{slab.Name[:50]:50} | PredefinedType: {slab.PredefinedType}")
+def _nama_lantai(element):
+    node = element_util.get_container(element)
+    while node is not None and not node.is_a("IfcBuildingStorey"):
+        node = element_util.get_container(node)
+    return node.Name if node is not None else None
+
+
+def extract_elements(ifc_path: str):
+    """
+    Return (elemen, peringatan).
+    Semua nilai dikonversi ke meter / m2 / m3, sehingga nilai pset & geometri konsisten.
+    """
+    model = ifcopenshell.open(ifc_path)
+    skala = unit_util.calculate_unit_scale(model)  # meter per 1 satuan panjang proyek
+    settings = _buat_settings()
+
+    elemen, peringatan = [], []
+    for ifc_type in STRUCTURAL_TYPES:
+        kandidat = PSET_CANDIDATES[ifc_type]
+        for el in model.by_type(ifc_type):
+            panjang = _get_dimension(el, "Length", kandidat)
+            luas = _get_dimension(el, "Area", kandidat)
+            volume = _get_dimension(el, "Volume", kandidat)
+
+            panjang = panjang * skala if panjang is not None else None
+            if luas is not None:
+                luas = luas * skala ** 2
+            else:
+                luas = _area_from_geometry(el, ifc_type, settings)  # sudah dalam m2
+
+            if volume is not None:
+                volume, sumber = volume * skala ** 3, "pset"
+            else:
+                volume = _volume_from_geometry(el, settings)
+                sumber = "geometry" if volume is not None else "gagal"
+                if volume is None:
+                    peringatan.append(f"Volume gagal dihitung: {ifc_type} {el.Name} ({el.GlobalId})")
+
+            elemen.append({
+                "global_id": el.GlobalId,
+                "ifc_type": ifc_type,
+                "predefined_type": getattr(el, "PredefinedType", None),
+                "nama": el.Name,
+                "lantai": _nama_lantai(el),
+                "panjang": panjang,
+                "luas": luas,
+                "volume": volume,
+                "sumber_volume": sumber,
+            })
+    return elemen, peringatan

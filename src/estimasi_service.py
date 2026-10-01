@@ -2,7 +2,8 @@
 Pipeline KF-2 + KF-3 + KF-4:  file IFC -> elemen_proyek -> rule engine -> hasil_estimasi.
 """
 
-from database.estimasi_repository import _connect
+from database.estimasi_repository import _connect, BUK_RATE
+from database.seed_data import seed_pekerjaan
 from ifc_reader import extract_elements
 from rules import terapkan_rules
 
@@ -10,6 +11,7 @@ from rules import terapkan_rules
 def jalankan_estimasi(proyek_id: int) -> dict:
     """Parse ulang IFC proyek dan isi elemen_proyek + hasil_estimasi.
     PERHATIAN: menimpa hasil sebelumnya, termasuk edit manual (KF-19 bisa memperhalus ini nanti)."""
+    seed_pekerjaan()  # idempotent: memastikan master pekerjaan/harga ada
     conn = _connect()
     try:
         row = conn.execute("SELECT path_file_ifc FROM proyek WHERE id = ?", (proyek_id,)).fetchone()
@@ -18,7 +20,8 @@ def jalankan_estimasi(proyek_id: int) -> dict:
 
         elemen, peringatan = extract_elements(row["path_file_ifc"])
 
-        harga = {r["pekerjaan_id"]: r["h"] for r in conn.execute(
+        # harga satuan = jumlah komponen x (1 + BUK), sama dengan get_harga_satuan_pekerjaan()
+        harga = {r["pekerjaan_id"]: r["h"] * (1 + BUK_RATE) for r in conn.execute(
             "SELECT pekerjaan_id, SUM(koefisien*harga_satuan) AS h FROM komponen_harga GROUP BY pekerjaan_id")}
         kode_ke_id = {r["kode_ahsp"]: r["id"] for r in conn.execute("SELECT id, kode_ahsp FROM pekerjaan")}
 

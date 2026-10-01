@@ -7,6 +7,13 @@ from pathlib import Path
 
 DB_PATH = Path("data/coststruct.db")
 
+# Biaya Umum & Keuntungan (overhead + profit). HSPK Kota Bandung 2027 memakai 10% (rentang 10%-15%).
+# Harga satuan pekerjaan = (jumlah bahan + upah + alat) x (1 + BUK_RATE).
+BUK_RATE = 0.10
+
+# KF-11: PPN 11% otomatis pada total biaya, tanpa opsi ubah oleh pengguna.
+PPN_RATE = 0.11
+
 
 def _connect():
     conn = sqlite3.connect(DB_PATH)
@@ -47,7 +54,7 @@ def get_hasil_estimasi_by_proyek(proyek_id: int):
 
 
 def get_harga_satuan_pekerjaan(pekerjaan_id: int) -> float:
-    """Harga satuan AHSP: total (koefisien x harga_satuan) semua komponen bahan/upah/alat."""
+    """Harga satuan AHSP/HSPK: total (koefisien x harga_satuan) komponen bahan/upah/alat + BUK."""
     conn = _connect()
     try:
         row = conn.execute(
@@ -58,7 +65,8 @@ def get_harga_satuan_pekerjaan(pekerjaan_id: int) -> float:
             """,
             (pekerjaan_id,),
         ).fetchone()
-        return row["harga"] if row else 0.0
+        jumlah = row["harga"] if row else 0.0
+        return jumlah * (1 + BUK_RATE)
     finally:
         conn.close()
 
