@@ -30,7 +30,9 @@ def terapkan_rules(elemen: dict, rules=RULES):
             continue
         nilai = elemen.get(rule.basis)
         if nilai is None or nilai <= 0:
-            dilewati.append(f"{rule.kode}: '{rule.basis}' kosong pada {elemen.get('nama')}")
+            dilewati.append(
+                f"{rule.kode}: '{rule.basis}' kosong pada {elemen.get('nama')}"
+            )
             continue
         hasil.append(HasilRule(rule.kode, nilai * rule.faktor, rule.keterangan))
     return hasil, dilewati

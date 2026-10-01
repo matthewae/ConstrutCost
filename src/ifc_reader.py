@@ -23,9 +23,9 @@ PSET_CANDIDATES = {
 def _buat_settings():
     settings = geom.settings()
     try:
-        settings.set("use-world-coords", True)          # IfcOpenShell >= 0.8
+        settings.set("use-world-coords", True)  # IfcOpenShell >= 0.8
     except Exception:
-        settings.set(settings.USE_WORLD_COORDS, True)   # versi lama
+        settings.set(settings.USE_WORLD_COORDS, True)  # versi lama
     return settings
 
 
@@ -87,27 +87,31 @@ def extract_elements(ifc_path: str):
 
             panjang = panjang * skala if panjang is not None else None
             if luas is not None:
-                luas = luas * skala ** 2
+                luas = luas * skala**2
             else:
                 luas = _area_from_geometry(el, ifc_type, settings)  # sudah dalam m2
 
             if volume is not None:
-                volume, sumber = volume * skala ** 3, "pset"
+                volume, sumber = volume * skala**3, "pset"
             else:
                 volume = _volume_from_geometry(el, settings)
                 sumber = "geometry" if volume is not None else "gagal"
                 if volume is None:
-                    peringatan.append(f"Volume gagal dihitung: {ifc_type} {el.Name} ({el.GlobalId})")
+                    peringatan.append(
+                        f"Volume gagal dihitung: {ifc_type} {el.Name} ({el.GlobalId})"
+                    )
 
-            elemen.append({
-                "global_id": el.GlobalId,
-                "ifc_type": ifc_type,
-                "predefined_type": getattr(el, "PredefinedType", None),
-                "nama": el.Name,
-                "lantai": _nama_lantai(el),
-                "panjang": panjang,
-                "luas": luas,
-                "volume": volume,
-                "sumber_volume": sumber,
-            })
+            elemen.append(
+                {
+                    "global_id": el.GlobalId,
+                    "ifc_type": ifc_type,
+                    "predefined_type": getattr(el, "PredefinedType", None),
+                    "nama": el.Name,
+                    "lantai": _nama_lantai(el),
+                    "panjang": panjang,
+                    "luas": luas,
+                    "volume": volume,
+                    "sumber_volume": sumber,
+                }
+            )
     return elemen, peringatan

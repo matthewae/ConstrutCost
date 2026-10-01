@@ -30,10 +30,13 @@ _SQL_HASIL = """
 
 # ---------------------------------------------------------------- data
 
+
 def ambil_data_export(proyek_id: int) -> dict:
     conn = _connect()
     try:
-        pr = conn.execute("SELECT nama_proyek, path_file_ifc FROM proyek WHERE id = ?", (proyek_id,)).fetchone()
+        pr = conn.execute(
+            "SELECT nama_proyek, path_file_ifc FROM proyek WHERE id = ?", (proyek_id,)
+        ).fetchone()
         if pr is None:
             raise ValueError("Proyek tidak ditemukan.")
         baris = [dict(r) for r in conn.execute(_SQL_HASIL, (proyek_id,)).fetchall()]
@@ -41,7 +44,11 @@ def ambil_data_export(proyek_id: int) -> dict:
         conn.close()
     if not baris:
         raise ValueError("Belum ada hasil estimasi untuk di-export.")
-    return {"nama_proyek": pr["nama_proyek"], "path_ifc": pr["path_file_ifc"], "baris": baris}
+    return {
+        "nama_proyek": pr["nama_proyek"],
+        "path_ifc": pr["path_file_ifc"],
+        "baris": baris,
+    }
 
 
 def kelompokkan(baris: list) -> list:
@@ -49,9 +56,17 @@ def kelompokkan(baris: list) -> list:
     Return: [{'kategori', 'items': [{'kode','nama','satuan','volume','harga','jumlah'}], 'total'}]"""
     per_pekerjaan = {}
     for r in baris:
-        d = per_pekerjaan.setdefault(r["pekerjaan_id"], {
-            "kategori": r["kategori"], "kode": r["kode_ahsp"] or "", "nama": r["nama_pekerjaan"],
-            "satuan": r["satuan"], "volume": 0.0, "jumlah": 0.0})
+        d = per_pekerjaan.setdefault(
+            r["pekerjaan_id"],
+            {
+                "kategori": r["kategori"],
+                "kode": r["kode_ahsp"] or "",
+                "nama": r["nama_pekerjaan"],
+                "satuan": r["satuan"],
+                "volume": 0.0,
+                "jumlah": 0.0,
+            },
+        )
         d["volume"] += r["volume_pekerjaan"]
         d["jumlah"] += r["subtotal_biaya"]
 
@@ -61,12 +76,17 @@ def kelompokkan(baris: list) -> list:
         per_kategori.setdefault(d["kategori"], []).append(d)
 
     def urutan(k):
-        return (URUTAN_KATEGORI.index(k) if k in URUTAN_KATEGORI else len(URUTAN_KATEGORI), k)
+        return (
+            URUTAN_KATEGORI.index(k) if k in URUTAN_KATEGORI else len(URUTAN_KATEGORI),
+            k,
+        )
 
     hasil = []
     for k in sorted(per_kategori, key=urutan):
         items = sorted(per_kategori[k], key=lambda x: x["nama"])
-        hasil.append({"kategori": k, "items": items, "total": sum(i["jumlah"] for i in items)})
+        hasil.append(
+            {"kategori": k, "items": items, "total": sum(i["jumlah"] for i in items)}
+        )
     return hasil
 
 
@@ -75,16 +95,28 @@ def baris_detail(baris: list) -> list:
     hasil = []
     for r in baris:
         v = r["volume_pekerjaan"]
-        hasil.append({
-            "lantai": r["lantai"] or "-", "elemen": r["nama_elemen"] or "-", "kategori": r["kategori"],
-            "pekerjaan": r["nama_pekerjaan"], "satuan": r["satuan"], "volume": v,
-            "harga": r["subtotal_biaya"] / v if v else 0.0, "jumlah": r["subtotal_biaya"],
-            "status": "Manual" if r["diedit_manual"] else "Otomatis"})
-    return sorted(hasil, key=lambda x: (x["lantai"], x["elemen"], x["kategori"], x["pekerjaan"]))
+        hasil.append(
+            {
+                "lantai": r["lantai"] or "-",
+                "elemen": r["nama_elemen"] or "-",
+                "kategori": r["kategori"],
+                "pekerjaan": r["nama_pekerjaan"],
+                "satuan": r["satuan"],
+                "volume": v,
+                "harga": r["subtotal_biaya"] / v if v else 0.0,
+                "jumlah": r["subtotal_biaya"],
+                "status": "Manual" if r["diedit_manual"] else "Otomatis",
+            }
+        )
+    return sorted(
+        hasil, key=lambda x: (x["lantai"], x["elemen"], x["kategori"], x["pekerjaan"])
+    )
 
 
 def nama_file_default(nama_proyek: str, ekstensi: str) -> str:
-    slug = re.sub(r"[^\w\-]+", "_", nama_proyek, flags=re.UNICODE).strip("_") or "Proyek"
+    slug = (
+        re.sub(r"[^\w\-]+", "_", nama_proyek, flags=re.UNICODE).strip("_") or "Proyek"
+    )
     return f"RAB_{slug}_{datetime.now():%Y%m%d}.{ekstensi}"
 
 
@@ -122,7 +154,10 @@ CATATAN = [
 
 # ---------------------------------------------------------------- Excel
 
-def export_excel(path, data: dict, meta: dict, rekap: bool = True, detail: bool = True) -> str:
+
+def export_excel(
+    path, data: dict, meta: dict, rekap: bool = True, detail: bool = True
+) -> str:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
@@ -155,7 +190,9 @@ def export_excel(path, data: dict, meta: dict, rekap: bool = True, detail: bool 
         for c, teks in enumerate(judul_kolom, 1):
             sel = ws.cell(r, c, teks)
             sel.font, sel.fill, sel.border = f_bold, fill_head, kotak
-            sel.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            sel.alignment = Alignment(
+                horizontal="center", vertical="center", wrap_text=True
+            )
 
     def atur_cetak(ws, baris_header, orientasi="portrait"):
         ws.page_setup.orientation = orientasi
@@ -174,7 +211,19 @@ def export_excel(path, data: dict, meta: dict, rekap: bool = True, detail: bool 
         ws.column_dimensions[kolom].width = lebar
     r = judul_sheet(ws, "RENCANA ANGGARAN BIAYA (RAB)", 7)
     baris_header = r
-    header(ws, r, ["No", "Kode Analisa", "Uraian Pekerjaan", "Volume", "Sat", "Harga Satuan (Rp)", "Jumlah Harga (Rp)"])
+    header(
+        ws,
+        r,
+        [
+            "No",
+            "Kode Analisa",
+            "Uraian Pekerjaan",
+            "Volume",
+            "Sat",
+            "Harga Satuan (Rp)",
+            "Jumlah Harga (Rp)",
+        ],
+    )
     r += 1
 
     baris_total_kategori = []
@@ -211,7 +260,9 @@ def export_excel(path, data: dict, meta: dict, rekap: bool = True, detail: bool 
     r += 1
     baris_jumlah = r
     ws.cell(r, 3, "JUMLAH TOTAL")
-    ws.cell(r, 7, "=" + "+".join(f"G{x}" for x in baris_total_kategori)).number_format = FMT_ANGKA
+    ws.cell(
+        r, 7, "=" + "+".join(f"G{x}" for x in baris_total_kategori)
+    ).number_format = FMT_ANGKA
     r += 1
     baris_ppn = r
     ws.cell(r, 3, "PPN")
@@ -251,7 +302,9 @@ def export_excel(path, data: dict, meta: dict, rekap: bool = True, detail: bool 
             wr.cell(r, 1, i).alignment = Alignment(horizontal="center")
             wr.cell(r, 2, k["kategori"])
             wr.cell(r, 3, f"=RAB!G{baris_rab}").number_format = FMT_ANGKA
-            wr.cell(r, 4, f"=IF(C${baris_tot_rekap}=0,0,C{r}/C${baris_tot_rekap})").number_format = "0.0%"
+            wr.cell(
+                r, 4, f"=IF(C${baris_tot_rekap}=0,0,C{r}/C${baris_tot_rekap})"
+            ).number_format = "0.0%"
             for c in range(1, 5):
                 wr.cell(r, c).font, wr.cell(r, c).border = f_norm, kotak
             r += 1
@@ -277,14 +330,38 @@ def export_excel(path, data: dict, meta: dict, rekap: bool = True, detail: bool 
             wd.column_dimensions[kolom].width = w
         r = judul_sheet(wd, "DETAIL VOLUME PER ELEMEN & LANTAI", 10)
         hdr = r
-        header(wd, r, ["No", "Lantai", "Elemen", "Kategori", "Pekerjaan", "Volume", "Sat",
-                       "Harga Satuan (Rp)", "Jumlah (Rp)", "Status"])
+        header(
+            wd,
+            r,
+            [
+                "No",
+                "Lantai",
+                "Elemen",
+                "Kategori",
+                "Pekerjaan",
+                "Volume",
+                "Sat",
+                "Harga Satuan (Rp)",
+                "Jumlah (Rp)",
+                "Status",
+            ],
+        )
         r += 1
         awal = r
         det = baris_detail(data["baris"])
         for n, d in enumerate(det, 1):
-            nilai = [n, d["lantai"], d["elemen"], d["kategori"], d["pekerjaan"], d["volume"], d["satuan"],
-                     d["harga"], f"=F{r}*H{r}", d["status"]]
+            nilai = [
+                n,
+                d["lantai"],
+                d["elemen"],
+                d["kategori"],
+                d["pekerjaan"],
+                d["volume"],
+                d["satuan"],
+                d["harga"],
+                f"=F{r}*H{r}",
+                d["status"],
+            ]
             for c, v in enumerate(nilai, 1):
                 sel = wd.cell(r, c, v)
                 sel.font, sel.border = f_norm, kotak
@@ -300,7 +377,9 @@ def export_excel(path, data: dict, meta: dict, rekap: bool = True, detail: bool 
         baris_det_total = r
         r += 2
         wd.cell(r, 5, "Selisih terhadap sheet RAB (harus 0)").font = f_catatan
-        wd.cell(r, 9, f"=I{baris_det_total}-RAB!G{baris_jumlah}").number_format = FMT_ANGKA
+        wd.cell(
+            r, 9, f"=I{baris_det_total}-RAB!G{baris_jumlah}"
+        ).number_format = FMT_ANGKA
         wd.cell(r, 9).font = f_catatan
         atur_cetak(wd, hdr, "landscape")
 
@@ -311,36 +390,64 @@ def export_excel(path, data: dict, meta: dict, rekap: bool = True, detail: bool 
 
 # ---------------------------------------------------------------- PDF
 
-def export_pdf(path, data: dict, meta: dict, rekap: bool = True, detail: bool = True) -> str:
+
+def export_pdf(
+    path, data: dict, meta: dict, rekap: bool = True, detail: bool = True
+) -> str:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm
-    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import (
+        PageBreak,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
 
     kelompok = kelompokkan(data["baris"])
     nama = meta.get("nama_proyek") or data["nama_proyek"]
     total = sum(k["total"] for k in kelompok)
     ppn = total * PPN_RATE
 
-    s_judul = ParagraphStyle("judul", fontName="Helvetica-Bold", fontSize=13, alignment=1, spaceAfter=6)
+    s_judul = ParagraphStyle(
+        "judul", fontName="Helvetica-Bold", fontSize=13, alignment=1, spaceAfter=6
+    )
     s_info = ParagraphStyle("info", fontName="Helvetica", fontSize=9, leading=12)
     s_sel = ParagraphStyle("sel", fontName="Helvetica", fontSize=8, leading=10)
     s_selb = ParagraphStyle("selb", parent=s_sel, fontName="Helvetica-Bold")
     s_head = ParagraphStyle("head", parent=s_selb, alignment=1)
-    s_bag = ParagraphStyle("bag", fontName="Helvetica-Bold", fontSize=10, spaceBefore=14, spaceAfter=6)
-    s_cat = ParagraphStyle("cat", fontName="Helvetica-Oblique", fontSize=7.5, leading=9, textColor=colors.HexColor("#444444"))
+    s_bag = ParagraphStyle(
+        "bag", fontName="Helvetica-Bold", fontSize=10, spaceBefore=14, spaceAfter=6
+    )
+    s_cat = ParagraphStyle(
+        "cat",
+        fontName="Helvetica-Oblique",
+        fontSize=7.5,
+        leading=9,
+        textColor=colors.HexColor("#444444"),
+    )
 
     abu, biru = colors.HexColor("#D9D9D9"), colors.HexColor("#EEF3F8")
-    dasar = [("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#808080")),
-             ("BACKGROUND", (0, 0), (-1, 0), abu), ("VALIGN", (0, 0), (-1, -1), "TOP"),
-             ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5)]
+    dasar = [
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#808080")),
+        ("BACKGROUND", (0, 0), (-1, 0), abu),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+    ]
 
     def footer(canvas, doc):
         canvas.saveState()
         canvas.setFont("Helvetica", 7)
         canvas.setFillColor(colors.HexColor("#666666"))
-        canvas.drawString(1.4 * cm, 0.9 * cm, f"{nama}  |  Dibuat dengan CostStruct, {datetime.now():%d-%m-%Y %H:%M}")
+        canvas.drawString(
+            1.4 * cm,
+            0.9 * cm,
+            f"{nama}  |  Dibuat dengan CostStruct, {datetime.now():%d-%m-%Y %H:%M}",
+        )
         canvas.drawRightString(A4[0] - 1.4 * cm, 0.9 * cm, f"Halaman {doc.page}")
         canvas.restoreState()
 
@@ -350,32 +457,90 @@ def export_pdf(path, data: dict, meta: dict, rekap: bool = True, detail: bool = 
     story.append(Spacer(1, 10))
 
     # --- tabel RAB ---
-    baris = [[Paragraph(t, s_head) for t in ("No", "Uraian Pekerjaan", "Volume", "Sat", "Harga Satuan (Rp)", "Jumlah Harga (Rp)")]]
+    baris = [
+        [
+            Paragraph(t, s_head)
+            for t in (
+                "No",
+                "Uraian Pekerjaan",
+                "Volume",
+                "Sat",
+                "Harga Satuan (Rp)",
+                "Jumlah Harga (Rp)",
+            )
+        ]
+    ]
     gaya = list(dasar)
     for i, k in enumerate(kelompok, 1):
-        baris.append([Paragraph(f"{_romawi(i)}.", s_selb), Paragraph(_esc(k["kategori"].upper()), s_selb), "", "", "", ""])
-        gaya += [("BACKGROUND", (0, len(baris) - 1), (-1, len(baris) - 1), biru),
-                 ("SPAN", (1, len(baris) - 1), (-1, len(baris) - 1))]
+        baris.append(
+            [
+                Paragraph(f"{_romawi(i)}.", s_selb),
+                Paragraph(_esc(k["kategori"].upper()), s_selb),
+                "",
+                "",
+                "",
+                "",
+            ]
+        )
+        gaya += [
+            ("BACKGROUND", (0, len(baris) - 1), (-1, len(baris) - 1), biru),
+            ("SPAN", (1, len(baris) - 1), (-1, len(baris) - 1)),
+        ]
         for n, it in enumerate(k["items"], 1):
-            baris.append([Paragraph(str(n), s_sel), Paragraph(_esc(it["nama"]), s_sel), _rp(it["volume"]),
-                          it["satuan"], _rp(it["harga"]), _rp(it["jumlah"])])
-        baris.append(["", Paragraph(f"Total {_romawi(i)}", s_selb), "", "", "", _rp(k["total"])])
-        gaya += [("FONTNAME", (5, len(baris) - 1), (5, len(baris) - 1), "Helvetica-Bold"),
-                 ("LINEABOVE", (0, len(baris) - 1), (-1, len(baris) - 1), 0.8, colors.black)]
+            baris.append(
+                [
+                    Paragraph(str(n), s_sel),
+                    Paragraph(_esc(it["nama"]), s_sel),
+                    _rp(it["volume"]),
+                    it["satuan"],
+                    _rp(it["harga"]),
+                    _rp(it["jumlah"]),
+                ]
+            )
+        baris.append(
+            ["", Paragraph(f"Total {_romawi(i)}", s_selb), "", "", "", _rp(k["total"])]
+        )
+        gaya += [
+            ("FONTNAME", (5, len(baris) - 1), (5, len(baris) - 1), "Helvetica-Bold"),
+            ("LINEABOVE", (0, len(baris) - 1), (-1, len(baris) - 1), 0.8, colors.black),
+        ]
         gaya.append(("ALIGN", (1, len(baris) - 1), (1, len(baris) - 1), "RIGHT"))
-    t = Table(baris, colWidths=[1.0 * cm, 7.2 * cm, 2.2 * cm, 1.4 * cm, 3.0 * cm, 3.4 * cm], repeatRows=1)
-    gaya += [("ALIGN", (2, 1), (2, -1), "RIGHT"), ("ALIGN", (4, 1), (5, -1), "RIGHT"),
-             ("ALIGN", (3, 1), (3, -1), "CENTER"), ("ALIGN", (0, 1), (0, -1), "CENTER"),
-             ("FONTSIZE", (2, 1), (-1, -1), 8)]
+    t = Table(
+        baris,
+        colWidths=[1.0 * cm, 7.2 * cm, 2.2 * cm, 1.4 * cm, 3.0 * cm, 3.4 * cm],
+        repeatRows=1,
+    )
+    gaya += [
+        ("ALIGN", (2, 1), (2, -1), "RIGHT"),
+        ("ALIGN", (4, 1), (5, -1), "RIGHT"),
+        ("ALIGN", (3, 1), (3, -1), "CENTER"),
+        ("ALIGN", (0, 1), (0, -1), "CENTER"),
+        ("FONTSIZE", (2, 1), (-1, -1), 8),
+    ]
     t.setStyle(TableStyle(gaya))
     story.append(t)
     story.append(Spacer(1, 8))
 
-    ringkas = Table([["JUMLAH TOTAL", _rp(total)], [f"PPN {PPN_RATE:.0%}", _rp(ppn)], ["TOTAL + PPN", _rp(total + ppn)]],
-                    colWidths=[11.8 * cm, 3.4 * cm], hAlign="RIGHT")
-    ringkas.setStyle(TableStyle([("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 9),
-                                 ("ALIGN", (0, 0), (-1, -1), "RIGHT"), ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#808080")),
-                                 ("BACKGROUND", (0, 2), (-1, 2), abu)]))
+    ringkas = Table(
+        [
+            ["JUMLAH TOTAL", _rp(total)],
+            [f"PPN {PPN_RATE:.0%}", _rp(ppn)],
+            ["TOTAL + PPN", _rp(total + ppn)],
+        ],
+        colWidths=[11.8 * cm, 3.4 * cm],
+        hAlign="RIGHT",
+    )
+    ringkas.setStyle(
+        TableStyle(
+            [
+                ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#808080")),
+                ("BACKGROUND", (0, 2), (-1, 2), abu),
+            ]
+        )
+    )
     story.append(ringkas)
     story.append(Spacer(1, 10))
     story.append(Paragraph("Catatan:", s_cat))
@@ -385,31 +550,93 @@ def export_pdf(path, data: dict, meta: dict, rekap: bool = True, detail: bool = 
     # --- rekapitulasi ---
     if rekap:
         story.append(Paragraph("REKAPITULASI", s_bag))
-        rb = [[Paragraph(t, s_head) for t in ("No", "Kategori Pekerjaan", "Jumlah (Rp)", "%")]]
+        rb = [
+            [
+                Paragraph(t, s_head)
+                for t in ("No", "Kategori Pekerjaan", "Jumlah (Rp)", "%")
+            ]
+        ]
         for i, k in enumerate(kelompok, 1):
             persen = k["total"] / total * 100 if total else 0
-            rb.append([str(i), k["kategori"], _rp(k["total"]), f"{persen:.1f}".replace(".", ",") + "%"])
+            rb.append(
+                [
+                    str(i),
+                    k["kategori"],
+                    _rp(k["total"]),
+                    f"{persen:.1f}".replace(".", ",") + "%",
+                ]
+            )
         rb.append(["", "JUMLAH TOTAL", _rp(total), "100,0%"])
         rt = Table(rb, colWidths=[1.0 * cm, 8.0 * cm, 4.5 * cm, 2.2 * cm])
-        rt.setStyle(TableStyle(dasar + [("ALIGN", (2, 1), (3, -1), "RIGHT"), ("ALIGN", (0, 1), (0, -1), "CENTER"),
-                                        ("FONTSIZE", (0, 1), (-1, -1), 8), ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold")]))
+        rt.setStyle(
+            TableStyle(
+                dasar
+                + [
+                    ("ALIGN", (2, 1), (3, -1), "RIGHT"),
+                    ("ALIGN", (0, 1), (0, -1), "CENTER"),
+                    ("FONTSIZE", (0, 1), (-1, -1), 8),
+                    ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ]
+            )
+        )
         story.append(rt)
 
     # --- detail per elemen ---
     if detail:
         story.append(PageBreak())
         story.append(Paragraph("DETAIL VOLUME PER ELEMEN & LANTAI", s_bag))
-        db = [[Paragraph(t, s_head) for t in ("Lantai", "Elemen", "Pekerjaan", "Volume", "Sat", "Jumlah (Rp)")]]
+        db = [
+            [
+                Paragraph(t, s_head)
+                for t in (
+                    "Lantai",
+                    "Elemen",
+                    "Pekerjaan",
+                    "Volume",
+                    "Sat",
+                    "Jumlah (Rp)",
+                )
+            ]
+        ]
         for d in baris_detail(data["baris"]):
-            db.append([Paragraph(_esc(d["lantai"]), s_sel), Paragraph(_esc(d["elemen"]), s_sel),
-                       Paragraph(_esc(d["pekerjaan"]), s_sel), _rp(d["volume"], 3), d["satuan"], _rp(d["jumlah"])])
-        dt = Table(db, colWidths=[2.2 * cm, 3.8 * cm, 5.8 * cm, 2.2 * cm, 1.2 * cm, 3.0 * cm], repeatRows=1)
-        dt.setStyle(TableStyle(dasar + [("ALIGN", (3, 1), (3, -1), "RIGHT"), ("ALIGN", (5, 1), (5, -1), "RIGHT"),
-                                        ("ALIGN", (4, 1), (4, -1), "CENTER"), ("FONTSIZE", (3, 1), (-1, -1), 8)]))
+            db.append(
+                [
+                    Paragraph(_esc(d["lantai"]), s_sel),
+                    Paragraph(_esc(d["elemen"]), s_sel),
+                    Paragraph(_esc(d["pekerjaan"]), s_sel),
+                    _rp(d["volume"], 3),
+                    d["satuan"],
+                    _rp(d["jumlah"]),
+                ]
+            )
+        dt = Table(
+            db,
+            colWidths=[2.2 * cm, 3.8 * cm, 5.8 * cm, 2.2 * cm, 1.2 * cm, 3.0 * cm],
+            repeatRows=1,
+        )
+        dt.setStyle(
+            TableStyle(
+                dasar
+                + [
+                    ("ALIGN", (3, 1), (3, -1), "RIGHT"),
+                    ("ALIGN", (5, 1), (5, -1), "RIGHT"),
+                    ("ALIGN", (4, 1), (4, -1), "CENTER"),
+                    ("FONTSIZE", (3, 1), (-1, -1), 8),
+                ]
+            )
+        )
         story.append(dt)
 
-    doc = SimpleDocTemplate(str(path), pagesize=A4, leftMargin=1.4 * cm, rightMargin=1.4 * cm,
-                            topMargin=1.4 * cm, bottomMargin=1.6 * cm, title=f"RAB {nama}", author="CostStruct")
+    doc = SimpleDocTemplate(
+        str(path),
+        pagesize=A4,
+        leftMargin=1.4 * cm,
+        rightMargin=1.4 * cm,
+        topMargin=1.4 * cm,
+        bottomMargin=1.6 * cm,
+        title=f"RAB {nama}",
+        author="CostStruct",
+    )
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
     log.info("Export PDF: %s", path)
     return str(path)

@@ -15,10 +15,10 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Rule:
     ifc_type: str
-    kode: str                      # = pekerjaan.kode_ahsp
+    kode: str  # = pekerjaan.kode_ahsp
     basis: str
     faktor: float = 1.0
-    hanya_predefined: tuple = ()   # kosong = semua tipe
+    hanya_predefined: tuple = ()  # kosong = semua tipe
     kecuali_predefined: tuple = ()
     keterangan: str = ""
 
@@ -28,15 +28,34 @@ ATAP = ("ROOF",)
 RULES = [
     # --- Kolom ---
     Rule("IfcColumn", "BTN.KOLOM", "volume", keterangan="Volume beton kolom"),
-    Rule("IfcColumn", "BSI.KOLOM", "volume", 150.0, keterangan="Pembesian = vol beton x 150 kg/m3 (asumsi)"),
+    Rule(
+        "IfcColumn",
+        "BSI.KOLOM",
+        "volume",
+        150.0,
+        keterangan="Pembesian = vol beton x 150 kg/m3 (asumsi)",
+    ),
     # --- Balok ---
     Rule("IfcBeam", "BTN.BALOK", "volume"),
     Rule("IfcBeam", "BSI.BALOK", "volume", 130.0, keterangan="asumsi 130 kg/m3"),
     # --- Pelat lantai (slab selain atap) ---
     Rule("IfcSlab", "BTN.PELAT", "volume", kecuali_predefined=ATAP),
-    Rule("IfcSlab", "BSI.PELAT", "volume", 90.0, kecuali_predefined=ATAP, keterangan="asumsi 90 kg/m3"),
+    Rule(
+        "IfcSlab",
+        "BSI.PELAT",
+        "volume",
+        90.0,
+        kecuali_predefined=ATAP,
+        keterangan="asumsi 90 kg/m3",
+    ),
     # --- Atap (slab ROOF) ---
-    Rule("IfcSlab", "ATP.PENUTUP", "luas", hanya_predefined=ATAP, keterangan="Luas penutup atap"),
+    Rule(
+        "IfcSlab",
+        "ATP.PENUTUP",
+        "luas",
+        hanya_predefined=ATAP,
+        keterangan="Luas penutup atap",
+    ),
     # --- Dinding ---
     Rule("IfcWall", "DND.BATA", "luas", keterangan="Pasangan dinding bata (m2)"),
     Rule("IfcWall", "PLS.DINDING", "luas", 2.0, keterangan="Plester + aci, 2 sisi"),
