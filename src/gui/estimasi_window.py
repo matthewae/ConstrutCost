@@ -17,7 +17,6 @@ Logika data (baca, edit volume, hitung ulang, export) tidak diubah.
 """
 
 from PySide6.QtWidgets import (
-    QApplication,
     QMainWindow,
     QWidget,
     QVBoxLayout,
@@ -58,6 +57,8 @@ from database.estimasi_repository import (
 )
 from estimasi_service import jalankan_estimasi
 from gui.export_dialog import ExportDialog
+from gui.import_dialog import tampilkan_hasil_proses
+from gui.proses_latar import jalankan_di_latar
 
 STYLE_SHEET = """
 QWidget {
@@ -803,25 +804,21 @@ class EstimasiWindow(QMainWindow):
         self.kartu_item.set_data(str(jumlah), ket)
 
     def _jalankan_estimasi(self):
-        """Parse ulang file IFC proyek ini lalu isi hasil_estimasi."""
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        """Validasi + parse ulang file IFC proyek ini lalu isi hasil_estimasi (KF-1..KF-4)."""
         try:
-            r = jalankan_estimasi(self.proyek_id)
+            r = jalankan_di_latar(
+                self,
+                "Membaca elemen & menghitung kuantitas...",
+                jalankan_estimasi,
+                self.proyek_id,
+                pakai_progress=True,
+            )
         except Exception as e:
-            QApplication.restoreOverrideCursor()
             QMessageBox.critical(self, "Parsing Gagal", str(e))
             return
-        QApplication.restoreOverrideCursor()
 
         self.muat_data()
-        if r["baris_hasil"] == 0:
-            QMessageBox.warning(
-                self,
-                "Tidak Ada Hasil",
-                f"{r['elemen']} elemen struktural terbaca, tetapi tidak ada baris estimasi.\n"
-                "Pastikan file IFC berisi IfcColumn/IfcBeam/IfcSlab/IfcWall/IfcFooting "
-                "(model MEP biasanya tidak berisi elemen ini).",
-            )
+        tampilkan_hasil_proses(self, "Hasil Estimasi", r)
 
     def _fokus_cari(self):
         if self.baris_filter.isVisible():

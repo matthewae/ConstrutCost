@@ -41,7 +41,16 @@ CREATE TABLE IF NOT EXISTS elemen_proyek (
     panjang REAL,
     luas REAL,
     volume REAL,
-    sumber_volume TEXT             -- 'pset' atau 'geometry'
+    sumber_volume TEXT,            -- 'qto', 'geometri', atau 'gagal'
+    kelas TEXT,                    -- hasil klasifikasi KF-2 (COLUMN, BEAM, SLAB, ROOF, WALL, ...)
+    lebar REAL,
+    tinggi REAL,
+    tebal REAL,
+    keliling REAL,
+    kemiringan REAL,               -- derajat, khusus atap
+    luas_bukaan REAL,              -- luas pintu/jendela pada dinding (info Rumus 2.17)
+    elevasi_lantai REAL,
+    sumber_dimensi TEXT            -- JSON: asal tiap dimensi ('qto' / 'geometri' / 'atribut')
 );
 
 -- hasil_estimasi: output rule-engine, per elemen per pekerjaan
@@ -52,7 +61,8 @@ CREATE TABLE IF NOT EXISTS hasil_estimasi (
     pekerjaan_id INTEGER NOT NULL REFERENCES pekerjaan(id),
     volume_pekerjaan REAL NOT NULL,
     subtotal_biaya REAL NOT NULL,
-    diedit_manual INTEGER DEFAULT 0   -- untuk KF-6
+    diedit_manual INTEGER DEFAULT 0,  -- untuk KF-6
+    rumus TEXT                        -- uraian perhitungan rule (dasar KF-18)
 );
 
 -- preferensi_pengguna: KF-10 (tema, direktori default, format laporan)

@@ -11,9 +11,11 @@ Peningkatan tampilan:
 - Tombol Pengaturan (Ctrl+,) untuk menyimpan material, merk, dan harga
 - Pintasan keyboard: Ctrl+N (proyek baru), Ctrl+F (cari)
 
-Logika aplikasi (KF-7 & KF-9) tidak diubah.
+Import proyek baru mengikuti UC-01: validasi file -> ringkasan & konfirmasi -> parsing
+(proses latar dengan indikator) -> halaman hasil estimasi. File .ifc juga bisa diseret ke jendela.
 """
 
+import multiprocessing
 import sys
 from pathlib import Path
 
@@ -50,7 +52,10 @@ from PySide6.QtGui import (
 from database.proyek_repository import get_all_proyek, create_proyek, delete_proyek
 from estimasi_service import jalankan_estimasi
 from gui.estimasi_window import EstimasiWindow
+from gui.import_dialog import RingkasanImportDialog, tampilkan_hasil_proses
 from gui.pengaturan_dialog import PengaturanDialog
+from gui.proses_latar import jalankan_di_latar
+from ifc_reader import FileIFCTidakValid, buka_dan_validasi
 
 
 STYLE_SHEET = """
@@ -320,7 +325,9 @@ class DashboardWindow(QMainWindow):
         self.btn_baru = QPushButton("+  Proyek Baru")
         self.btn_baru.setObjectName("btnPrimary")
         self.btn_baru.setCursor(Qt.PointingHandCursor)
-        self.btn_baru.setToolTip("Import file IFC dan buat proyek baru (Ctrl+N)")
+        self.btn_baru.setToolTip(
+            "Import file IFC dan buat proyek baru (Ctrl+N). File .ifc juga bisa diseret ke jendela ini."
+        )
         self.btn_baru.clicked.connect(self.proyek_baru)
         header_row.addWidget(self.btn_baru)
         root.addLayout(header_row)
@@ -383,8 +390,30 @@ class DashboardWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self._fokus_cari)
         QShortcut(QKeySequence("Ctrl+,"), self, activated=self.buka_pengaturan)
 
+        self.setAcceptDrops(True)  # drag-and-drop file IFC (UC-01)
         self._perbarui_tombol_aksi()
         self.muat_daftar_proyek()
+
+    # ---------- Drag & drop file IFC ----------
+
+    @staticmethod
+    def _path_ifc_dari(event):
+        urls = event.mimeData().urls() if event.mimeData().hasUrls() else []
+        if len(urls) == 1 and urls[0].isLocalFile():
+            return urls[0].toLocalFile()
+        return None
+
+    def dragEnterEvent(self, event):
+        if self._path_ifc_dari(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        path = self._path_ifc_dari(event)
+        if path:
+            event.acceptProposedAction()
+            self.proyek_baru(path)
 
     # ---------- Konstruksi UI ----------
 
@@ -583,29 +612,58 @@ class DashboardWindow(QMainWindow):
         """Buka dialog Pengaturan (material, merk, dan harga)."""
         PengaturanDialog(self).exec()
 
-    def proyek_baru(self):
-        """KF-7: Buat proyek baru dengan import file IFC, lalu langsung parsing + hitung estimasi."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Pilih File IFC", "", "IFC Files (*.ifc)"
-        )
+    def proyek_baru(self, file_path: str | None = None):
+        """KF-1 (UC-01): pilih file IFC -> validasi -> ringkasan & konfirmasi -> parsing + rule engine
+        (KF-2..KF-4) -> buka halaman hasil estimasi."""
+        if not file_path:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Pilih File IFC", "", "IFC Files (*.ifc);;Semua file (*)"
+            )
         if not file_path:
             return
-        nama_default = Path(file_path).stem
-        proyek_id = create_proyek(nama_proyek=nama_default, path_file_ifc=file_path)
 
-        QApplication.setOverrideCursor(Qt.WaitCursor)  # parsing IFC bisa beberapa detik
+        # 1. Validasi file (ekstensi, header, integritas, versi IFC2x3/IFC4)
         try:
-            r = jalankan_estimasi(proyek_id)
-            pesan = f"{r['elemen']} elemen terbaca, {r['baris_hasil']} baris estimasi dibuat."
-            if r["peringatan"]:
-                pesan += f"\n{len(r['peringatan'])} peringatan (mis. data luas/volume kosong)."
+            info = jalankan_di_latar(
+                self, "Memvalidasi file IFC...", buka_dan_validasi, file_path, terisolasi=True
+            )
+        except FileIFCTidakValid as e:
+            QMessageBox.critical(self, "File Tidak Valid", str(e))
+            return
         except Exception as e:
-            pesan = f"Proyek dibuat, tetapi parsing gagal:\n{e}"
-        finally:
-            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "File Tidak Valid", f"File IFC tidak dapat dibuka.\n\nDetail: {e}")
+            return
+
+        # 2. Ringkasan file + konfirmasi
+        dialog = RingkasanImportDialog(info, self)
+        if not dialog.exec():
+            return
+        nama = dialog.nama_proyek() or Path(file_path).stem
+
+        # 3. Simpan proyek, lalu parsing + klasifikasi + rule engine + QTO di thread terpisah
+        proyek_id = create_proyek(nama_proyek=nama, path_file_ifc=info.path)
+        try:
+            r = jalankan_di_latar(
+                self,
+                "Membaca elemen & menghitung kuantitas...",
+                jalankan_estimasi,
+                proyek_id,
+                model=info.model,
+                pakai_progress=True,
+            )
+        except Exception as e:
+            self.muat_daftar_proyek()
+            QMessageBox.critical(
+                self,
+                f"Proyek '{nama}'",
+                f"Proyek dibuat, tetapi parsing gagal:\n{e}\n\n"
+                "Proyek tetap tersimpan; estimasi dapat dijalankan ulang dari halaman proyek.",
+            )
+            return
 
         self.muat_daftar_proyek()
-        QMessageBox.information(self, f"Proyek '{nama_default}'", pesan)
+        tampilkan_hasil_proses(self, f"Proyek '{nama}'", r)
+        self._buka_window_estimasi(proyek_id, nama)  # UC-01 langkah 12
 
     def buka_proyek(self):
         """KF-9: Buka proyek yang dipilih."""
@@ -617,7 +675,9 @@ class DashboardWindow(QMainWindow):
             return
         proyek = next((p for p in self._semua_proyek if p["id"] == proyek_id), None)
         nama_proyek = proyek["nama_proyek"] if proyek else "Proyek"
+        self._buka_window_estimasi(proyek_id, nama_proyek)
 
+    def _buka_window_estimasi(self, proyek_id: int, nama_proyek: str):
         self._window_estimasi = EstimasiWindow(
             proyek_id, nama_proyek, on_kembali=self._kembali_dari_estimasi
         )
@@ -667,4 +727,5 @@ def main():
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # validasi IFC memakai proses anak (juga saat dibundel PyInstaller)
     main()

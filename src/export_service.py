@@ -14,7 +14,18 @@ from database.estimasi_repository import _connect, BUK_RATE, PPN_RATE
 log = logging.getLogger("coststruct.export")
 
 # Urutan bagian dalam dokumen (kategori lain menyusul sesuai abjad)
-URUTAN_KATEGORI = ["Tanah", "Fondasi", "Beton", "Dinding", "Atap", "Cat", "Air Limbah"]
+URUTAN_KATEGORI = [
+    "Tanah",
+    "Fondasi",
+    "Beton",
+    "Dinding",
+    "Lantai",
+    "Pintu & Jendela",
+    "Atap",
+    "Plafon",
+    "Cat",
+    "Air Limbah",
+]
 
 _SQL_HASIL = """
     SELECT he.id AS hasil_id, he.pekerjaan_id, he.volume_pekerjaan, he.subtotal_biaya, he.diedit_manual,

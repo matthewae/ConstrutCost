@@ -12,6 +12,7 @@ Peningkatan dari versi sebelumnya:
 - Pengecekan database tetap nyata, dengan pesan error yang jelas
 """
 
+import multiprocessing
 import sys
 
 from PySide6.QtWidgets import (
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRectF
 from PySide6.QtGui import QColor, QPainter, QLinearGradient, QBrush, QPen
 
+from database.init_db import init_db
 from database.proyek_repository import get_all_proyek
 from gui.dashboard_window import DashboardWindow
 
@@ -272,9 +274,10 @@ class SplashScreen(QWidget):
         self.status.setText(teks)
         self._animasikan_bar(persen)
 
-        # Tahap pertama sekalian jadi pengecekan nyata: pastikan DB bisa diakses.
+        # Tahap pertama sekalian jadi pengecekan nyata: siapkan & pastikan DB bisa diakses.
         if self._tahap_index == 0:
             try:
+                init_db()  # idempotent: membuat / melengkapi skema bila belum ada
                 get_all_proyek()
             except Exception as e:
                 self.timer.stop()
@@ -284,7 +287,7 @@ class SplashScreen(QWidget):
                     self,
                     "Database Bermasalah",
                     f"CostStruct tidak bisa mengakses database.\n\n"
-                    f"Pastikan sudah menjalankan init_db.py.\n\nDetail: {e}",
+                    f"Periksa izin tulis folder data aplikasi.\n\nDetail: {e}",
                 )
                 QApplication.quit()
                 return
@@ -305,4 +308,5 @@ def main():
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # validasi IFC memakai proses anak (juga saat dibundel PyInstaller)
     main()

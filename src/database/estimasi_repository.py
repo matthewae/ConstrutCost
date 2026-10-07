@@ -5,7 +5,8 @@ Data access layer untuk hasil_estimasi (QTO & RAB per proyek).
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("data/coststruct.db")
+# Selalu <root proyek>/data/coststruct.db, tidak bergantung pada folder tempat aplikasi dijalankan.
+DB_PATH = Path(__file__).resolve().parents[2] / "data" / "coststruct.db"
 
 # Biaya Umum & Keuntungan (overhead + profit). HSPK Kota Bandung 2027 memakai 10% (rentang 10%-15%).
 # Harga satuan pekerjaan = (jumlah bahan + upah + alat) x (1 + BUK_RATE).
