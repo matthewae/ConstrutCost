@@ -27,33 +27,119 @@ from PySide6.QtWidgets import (
 
 # ---------------------------------------------------------------- token warna
 
-W = {
-    "latar": "#111a24",
-    "sidebar": "#0d151d",
-    "permukaan": "#18232f",
-    "permukaan_2": "#1d2a38",
-    "permukaan_3": "#233344",
-    "garis": "#26384a",
-    "garis_kuat": "#33495f",
-    "teks": "#e4ebf2",
-    "teks_kuat": "#ffffff",
-    "teks_redup": "#8094a9",
-    "teks_samar": "#5d7287",
-    "aksen": "#4f9df7",
-    "aksen_hover": "#6bacf9",
-    "aksen_teks": "#0b1824",
-    "aksen_lembut": "#1e3a5c",
-    "sukses": "#6fcf97",
-    "sukses_lembut": "#173a2a",
-    "peringatan": "#f5b84f",
-    "peringatan_lembut": "#3a2e17",
-    "bahaya": "#f48b8b",
-    "bahaya_lembut": "#3a2229",
+PALET = {
+    "gelap": {
+        "latar": "#111a24",
+        "sidebar": "#0d151d",
+        "permukaan": "#18232f",
+        "permukaan_2": "#1d2a38",
+        "permukaan_3": "#233344",
+        "garis": "#26384a",
+        "garis_kuat": "#33495f",
+        "garis_hover": "#4a6a8c",
+        "teks": "#e4ebf2",
+        "teks_kuat": "#ffffff",
+        "teks_redup": "#8094a9",
+        "teks_samar": "#5d7287",
+        "aksen": "#4f9df7",
+        "aksen_hover": "#6bacf9",
+        "aksen_tekan": "#3f8ce6",
+        "aksen_teks": "#0b1824",
+        "aksen_lembut": "#1e3a5c",
+        "aksen_garis": "#2c5585",
+        "pilih": "#25456a",
+        "seleksi_teks": "#2a4a6e",
+        "fokus_latar": "#1b2d40",
+        "sekunder_hover": "#2b3f54",
+        "gulir": "#34495e",
+        "gulir_hover": "#4a6580",
+        "sukses": "#6fcf97",
+        "sukses_lembut": "#173a2a",
+        "peringatan": "#f5b84f",
+        "peringatan_lembut": "#3a2e17",
+        "peringatan_garis": "#5a4620",
+        "bahaya": "#f48b8b",
+        "bahaya_lembut": "#3a2229",
+        "bahaya_garis": "#54343d",
+        "info_teks": "#b8d4f5",
+        "info_tombol": "#6c9ad0",
+        "utama_awal": "#24518a",
+        "utama_akhir": "#1b3a63",
+        "utama_garis": "#3a6ba8",
+        "utama_judul": "#b8d4f5",
+        "utama_ket": "#9fc0e8",
+    },
+    "terang": {
+        "latar": "#f3f5f8",
+        "sidebar": "#ffffff",
+        "permukaan": "#ffffff",
+        "permukaan_2": "#f7f9fb",
+        "permukaan_3": "#edf1f5",
+        "garis": "#e1e6ec",
+        "garis_kuat": "#cfd7e0",
+        "garis_hover": "#9fb1c4",
+        "teks": "#1f2a37",
+        "teks_kuat": "#0e1621",
+        "teks_redup": "#5b6b7c",
+        "teks_samar": "#8a97a6",
+        "aksen": "#2f7de1",
+        "aksen_hover": "#4a92ec",
+        "aksen_tekan": "#2468c0",
+        "aksen_teks": "#ffffff",
+        "aksen_lembut": "#e4eefc",
+        "aksen_garis": "#9cc2f2",
+        "pilih": "#d6e6fb",
+        "seleksi_teks": "#bcd5f5",
+        "fokus_latar": "#ffffff",
+        "sekunder_hover": "#e4e9f0",
+        "gulir": "#c3ccd6",
+        "gulir_hover": "#a5b2c0",
+        "sukses": "#16884d",
+        "sukses_lembut": "#e1f4e9",
+        "peringatan": "#a86a00",
+        "peringatan_lembut": "#fdf2dc",
+        "peringatan_garis": "#f0d9a8",
+        "bahaya": "#cc3b3b",
+        "bahaya_lembut": "#fde7e7",
+        "bahaya_garis": "#efc2c2",
+        "info_teks": "#1f5fae",
+        "info_tombol": "#6c9ad0",
+        "utama_awal": "#2f7de1",
+        "utama_akhir": "#1f5fae",
+        "utama_garis": "#2a6fc9",
+        "utama_judul": "#dbe9fb",
+        "utama_ket": "#cfe1f8",
+    },
 }
 
 # warna per kategori pekerjaan / jenis sumber daya (dipakai konsisten di semua tabel)
-WARNA_KATEGORI = ["#6bb2ff", "#7fd1b9", "#f5b84f", "#c39bf5", "#f48b8b", "#9bd16b", "#f0a6ca", "#8fd3f4"]
-WARNA_TIPE = {"bahan": "#6bb2ff", "upah": "#7fd1b9", "alat": "#f5b84f"}
+_KATEGORI = {
+    "gelap": ["#6bb2ff", "#7fd1b9", "#f5b84f", "#c39bf5", "#f48b8b", "#9bd16b", "#f0a6ca", "#8fd3f4"],
+    "terang": ["#1f6fd1", "#138a6b", "#b26b00", "#7a4cc2", "#c63d3d", "#4e8a1e", "#b8467f", "#1b84a8"],
+}
+_TIPE = {
+    "gelap": {"bahan": "#6bb2ff", "upah": "#7fd1b9", "alat": "#f5b84f"},
+    "terang": {"bahan": "#1f6fd1", "upah": "#138a6b", "alat": "#b26b00"},
+}
+
+# Token aktif. Diubah di tempat oleh pilih_tema(), sehingga semua modul yang memakai
+# tema.W[...] / tema.WARNA_KATEGORI langsung mendapat warna tema terpilih.
+W = dict(PALET["gelap"])
+WARNA_KATEGORI = list(_KATEGORI["gelap"])
+WARNA_TIPE = dict(_TIPE["gelap"])
+TEMA_AKTIF = "gelap"
+
+
+def pilih_tema(nama: str) -> None:
+    global TEMA_AKTIF
+    nama = nama if nama in PALET else "gelap"
+    W.clear()
+    W.update(PALET[nama])
+    WARNA_KATEGORI[:] = _KATEGORI[nama]
+    WARNA_TIPE.clear()
+    WARNA_TIPE.update(_TIPE[nama])
+    TEMA_AKTIF = nama
+
 
 FONT = '"Segoe UI", "Inter", "Noto Sans", sans-serif'
 
@@ -148,14 +234,15 @@ QLabel#chip[jenis="bahaya"] {{ background-color: {c['bahaya_lembut']}; color: {c
 QFrame#kartu, QFrame#panel {{ background-color: {c['permukaan']}; border: 1px solid {c['garis']}; border-radius: 12px; }}
 QFrame#kartuStat {{ background-color: {c['permukaan']}; border: 1px solid {c['garis']}; border-radius: 12px; }}
 QFrame#kartuStatUtama {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #24518a, stop:1 #1b3a63);
-    border: 1px solid #3a6ba8; border-radius: 12px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {c['utama_awal']}, stop:1 {c['utama_akhir']});
+    border: 1px solid {c['utama_garis']}; border-radius: 12px;
 }}
 QLabel#statJudul {{ color: {c['teks_redup']}; font-size: 11px; font-weight: 700; letter-spacing: 1px; }}
 QLabel#statNilai {{ color: {c['teks_kuat']}; font-size: 21px; font-weight: 700; }}
 QLabel#statKet {{ color: {c['teks_samar']}; font-size: 11px; }}
-QFrame#kartuStatUtama QLabel#statJudul {{ color: #b8d4f5; }}
-QFrame#kartuStatUtama QLabel#statKet {{ color: #9fc0e8; }}
+QFrame#kartuStatUtama QLabel#statJudul {{ color: {c['utama_judul']}; }}
+QFrame#kartuStatUtama QLabel#statNilai {{ color: #ffffff; }}
+QFrame#kartuStatUtama QLabel#statKet {{ color: {c['utama_ket']}; }}
 QFrame#kartuKosong {{ background-color: {c['permukaan']}; border: 1px dashed {c['garis_kuat']}; border-radius: 14px; }}
 QLabel#kosongJudul {{ font-size: 17px; font-weight: 700; color: {c['teks_kuat']}; }}
 QLabel#kosongDeskripsi {{ color: {c['teks_redup']}; }}
@@ -163,10 +250,10 @@ QFrame#garis {{ background-color: {c['garis']}; max-height: 1px; min-height: 1px
 
 /* ---------- banner ---------- */
 QFrame#banner {{ border-radius: 10px; }}
-QFrame#banner[jenis="peringatan"] {{ background-color: {c['peringatan_lembut']}; border: 1px solid #5a4620; }}
-QFrame#banner[jenis="info"] {{ background-color: {c['aksen_lembut']}; border: 1px solid #2c5585; }}
+QFrame#banner[jenis="peringatan"] {{ background-color: {c['peringatan_lembut']}; border: 1px solid {c['peringatan_garis']}; }}
+QFrame#banner[jenis="info"] {{ background-color: {c['aksen_lembut']}; border: 1px solid {c['aksen_garis']}; }}
 QFrame#banner[jenis="peringatan"] QLabel {{ color: {c['peringatan']}; }}
-QFrame#banner[jenis="info"] QLabel {{ color: #b8d4f5; }}
+QFrame#banner[jenis="info"] QLabel {{ color: {c['info_teks']}; }}
 
 /* ---------- toast ---------- */
 QFrame#toast {{ background-color: {c['permukaan_3']}; border: 1px solid {c['garis_kuat']}; border-radius: 10px; }}
@@ -176,20 +263,20 @@ QFrame#toast QLabel {{ color: {c['teks_kuat']}; font-weight: 600; }}
 QPushButton {{ border-radius: 8px; padding: 9px 18px; font-weight: 600; border: none; }}
 QPushButton#btnPrimary {{ background-color: {c['aksen']}; color: {c['aksen_teks']}; }}
 QPushButton#btnPrimary:hover {{ background-color: {c['aksen_hover']}; }}
-QPushButton#btnPrimary:pressed {{ background-color: #3f8ce6; }}
+QPushButton#btnPrimary:pressed {{ background-color: {c['aksen_tekan']}; }}
 QPushButton#btnPrimary:disabled {{ background-color: {c['permukaan_3']}; color: {c['teks_samar']}; }}
 QPushButton#btnSecondary {{ background-color: {c['permukaan_3']}; color: {c['teks']}; border: 1px solid {c['garis_kuat']}; }}
-QPushButton#btnSecondary:hover {{ background-color: #2b3f54; }}
+QPushButton#btnSecondary:hover {{ background-color: {c['sekunder_hover']}; }}
 QPushButton#btnSecondary:disabled {{ color: {c['teks_samar']}; background-color: {c['permukaan']}; border: 1px solid {c['garis']}; }}
 QPushButton#btnGhost {{ background: transparent; color: {c['teks_redup']}; padding: 8px 12px; }}
 QPushButton#btnGhost:hover {{ background-color: {c['permukaan']}; color: {c['teks']}; }}
 QPushButton#btnGhost:disabled {{ color: {c['teks_samar']}; }}
-QPushButton#btnDanger {{ background: transparent; color: {c['bahaya']}; border: 1px solid #54343d; }}
+QPushButton#btnDanger {{ background: transparent; color: {c['bahaya']}; border: 1px solid {c['bahaya_garis']}; }}
 QPushButton#btnDanger:hover {{ background-color: {c['bahaya_lembut']}; }}
 QPushButton#btnDanger:disabled {{ color: {c['teks_samar']}; border: 1px solid {c['garis']}; }}
 QPushButton#btnBanner {{ background: transparent; border: 1px solid currentColor; padding: 6px 14px; }}
 QFrame#banner[jenis="peringatan"] QPushButton#btnBanner {{ color: {c['peringatan']}; border: 1px solid {c['peringatan']}; }}
-QFrame#banner[jenis="info"] QPushButton#btnBanner {{ color: #b8d4f5; border: 1px solid #6c9ad0; }}
+QFrame#banner[jenis="info"] QPushButton#btnBanner {{ color: {c['info_teks']}; border: 1px solid {c['info_tombol']}; }}
 QPushButton#segmen {{
     background: transparent; color: {c['teks_redup']}; border: 1px solid {c['garis_kuat']};
     border-radius: 0; padding: 8px 16px;
@@ -197,23 +284,23 @@ QPushButton#segmen {{
 QPushButton#segmen[posisi="kiri"] {{ border-top-left-radius: 8px; border-bottom-left-radius: 8px; }}
 QPushButton#segmen[posisi="kanan"] {{ border-top-right-radius: 8px; border-bottom-right-radius: 8px; border-left: none; }}
 QPushButton#segmen:hover {{ color: {c['teks']}; }}
-QPushButton#segmen:checked {{ background-color: {c['aksen_lembut']}; color: {c['teks_kuat']}; border-color: #2c5585; }}
+QPushButton#segmen:checked {{ background-color: {c['aksen_lembut']}; color: {c['teks_kuat']}; border-color: {c['aksen_garis']}; }}
 QPushButton:focus {{ outline: none; }}
 
 /* ---------- input ---------- */
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit {{
     background-color: {c['permukaan']}; border: 1px solid {c['garis_kuat']}; border-radius: 8px;
-    padding: 7px 12px; color: {c['teks']}; selection-background-color: #2a4a6e;
+    padding: 7px 12px; color: {c['teks']}; selection-background-color: {c['seleksi_teks']};
 }}
-QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover {{ border: 1px solid #4a6a8c; }}
-QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border: 1px solid {c['aksen']}; background-color: #1b2d40; }}
+QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover {{ border: 1px solid {c['garis_hover']}; }}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border: 1px solid {c['aksen']}; background-color: {c['fokus_latar']}; }}
 QLineEdit:disabled, QDoubleSpinBox:disabled {{ color: {c['teks_samar']}; }}
 QComboBox {{ padding-right: 30px; }}
 QComboBox::drop-down {{ border: none; width: 28px; }}
 QComboBox::down-arrow {{ image: {panah}; width: 14px; height: 14px; }}
 QComboBox QAbstractItemView {{
     background-color: {c['permukaan_2']}; border: 1px solid {c['garis_kuat']}; color: {c['teks']};
-    selection-background-color: #25456a; outline: none; padding: 4px;
+    selection-background-color: {c['pilih']}; selection-color: {c['teks_kuat']}; outline: none; padding: 4px;
 }}
 QCheckBox {{ spacing: 9px; }}
 QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 5px; border: 1px solid {c['garis_kuat']}; background-color: {c['permukaan']}; }}
@@ -224,26 +311,26 @@ QCheckBox::indicator:checked {{ background-color: {c['aksen']}; border: 1px soli
 QTableWidget, QListWidget {{
     background-color: {c['permukaan']}; border: 1px solid {c['garis']}; border-radius: 12px;
     gridline-color: transparent; outline: none; alternate-background-color: {c['permukaan_2']};
-    selection-background-color: #25456a; selection-color: {c['teks_kuat']};
+    selection-background-color: {c['pilih']}; selection-color: {c['teks_kuat']};
 }}
 QTableWidget::item {{ padding: 6px 10px; border: none; }}
 QTableWidget::item:hover {{ background-color: {c['permukaan_3']}; }}
-QTableWidget::item:selected {{ background-color: #25456a; }}
+QTableWidget::item:selected {{ background-color: {c['pilih']}; color: {c['teks_kuat']}; }}
 QHeaderView {{ background-color: transparent; }}
 QHeaderView::section {{
     background-color: {c['permukaan']}; color: {c['teks_redup']}; padding: 10px; border: none;
     border-bottom: 1px solid {c['garis']}; font-weight: 700; font-size: 11px;
 }}
 QTableWidget QDoubleSpinBox {{ background-color: {c['permukaan_3']}; border-radius: 6px; padding: 3px 8px; margin: 5px 6px; }}
-QTableWidget QDoubleSpinBox:focus {{ background-color: #1e3a5a; }}
+QTableWidget QDoubleSpinBox:focus {{ background-color: {c['fokus_latar']}; }}
 
 /* ---------- scrollbar ---------- */
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 4px 2px; }}
-QScrollBar::handle:vertical {{ background: #34495e; border-radius: 4px; min-height: 36px; }}
-QScrollBar::handle:vertical:hover {{ background: #4a6580; }}
+QScrollBar::handle:vertical {{ background: {c['gulir']}; border-radius: 4px; min-height: 36px; }}
+QScrollBar::handle:vertical:hover {{ background: {c['gulir_hover']}; }}
 QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px 4px; }}
-QScrollBar::handle:horizontal {{ background: #34495e; border-radius: 4px; min-width: 36px; }}
-QScrollBar::handle:horizontal:hover {{ background: #4a6580; }}
+QScrollBar::handle:horizontal {{ background: {c['gulir']}; border-radius: 4px; min-width: 36px; }}
+QScrollBar::handle:horizontal:hover {{ background: {c['gulir_hover']}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 QScrollArea {{ background: transparent; border: none; }}
@@ -253,14 +340,17 @@ QWidget#isiPanel {{ background: transparent; }}
 /* ---------- dialog ---------- */
 QMessageBox {{ background-color: {c['permukaan']}; }}
 QMessageBox QPushButton {{ background-color: {c['permukaan_3']}; border: 1px solid {c['garis_kuat']}; min-width: 90px; padding: 8px 16px; }}
-QMessageBox QPushButton:hover {{ background-color: #2b3f54; }}
+QMessageBox QPushButton:hover {{ background-color: {c['sekunder_hover']}; }}
 QProgressDialog {{ background-color: {c['permukaan']}; }}
 QProgressBar {{ background-color: {c['latar']}; border: 1px solid {c['garis_kuat']}; border-radius: 6px; height: 14px; text-align: center; }}
 QProgressBar::chunk {{ background-color: {c['aksen']}; border-radius: 5px; }}
 """
 
 
-def terapkan(app) -> None:
+def terapkan(app, nama_tema: str | None = None) -> None:
+    """Pasang tema ke seluruh aplikasi. `nama_tema` = 'gelap' / 'terang' (None = tema aktif)."""
+    if nama_tema:
+        pilih_tema(nama_tema)
     # angka di kotak input mengikuti format Indonesia: 1.234,56
     QLocale.setDefault(QLocale(QLocale.Indonesian, QLocale.Indonesia))
     app.setStyleSheet(stylesheet())
@@ -304,6 +394,14 @@ def _gambar_ikon(nama: str, p: QPainter, warna: QColor):
         p.drawArc(QRectF(4, 4, 12, 12), 30 * 16, 290 * 16)
         p.drawLine(16, 4, 16, 8)
         p.drawLine(16, 8, 12, 8)
+    elif nama == "pengaturan":  # roda gigi: lingkaran + 8 gigi
+        import math as _m
+
+        for i in range(8):
+            a = _m.radians(i * 45)
+            p.drawLine(QPointF(10 + 5.5 * _m.cos(a), 10 + 5.5 * _m.sin(a)), QPointF(10 + 7.8 * _m.cos(a), 10 + 7.8 * _m.sin(a)))
+        p.drawEllipse(QRectF(4.5, 4.5, 11, 11))
+        p.drawEllipse(QRectF(8, 8, 4, 4))
     elif nama == "file":
         path = QPainterPath()
         path.moveTo(5, 3)

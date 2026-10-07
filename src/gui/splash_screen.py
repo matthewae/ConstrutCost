@@ -295,6 +295,12 @@ class SplashScreen(QWidget):
         self._tahap_index += 1
 
     def _buka_dashboard(self):
+        from database.preferensi_repository import muat_preferensi
+
+        try:
+            tema.terapkan(QApplication.instance(), muat_preferensi().tema)  # KF-10
+        except Exception:
+            pass  # tetap pakai tema bawaan bila preferensi tidak terbaca
         self.dashboard = MainWindow()
         self.dashboard.show()
         self.close()

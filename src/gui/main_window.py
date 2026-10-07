@@ -1,6 +1,7 @@
 """
-Jendela utama CostStruct: sidebar navigasi + halaman (Proyek, Hasil Estimasi, Harga Satuan).
+Jendela utama CostStruct: sidebar navigasi + halaman (Proyek, Hasil Estimasi, Harga Satuan, Pengaturan).
 Semua halaman tinggal di satu jendela, sehingga berpindah halaman tidak membuka jendela baru.
+Saat tema diganti (KF-10), isi jendela dibangun ulang dan pengguna kembali ke halaman yang sama.
 """
 
 from PySide6.QtCore import Qt
@@ -19,10 +20,11 @@ from PySide6.QtWidgets import (
 from gui import tema
 from gui.estimasi_page import EstimasiPage
 from gui.harga_page import HargaPage
+from gui.pengaturan_page import PengaturanPage
 from gui.proyek_page import ProyekPage
 
-VERSI_APLIKASI = "v1.2.0"
-NAV_PROYEK, NAV_HARGA = 0, 1
+VERSI_APLIKASI = "v1.3.0"
+NAV_PROYEK, NAV_HARGA, NAV_PENGATURAN = 0, 1, 2
 
 
 class MainWindow(QMainWindow):
@@ -35,9 +37,21 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1080, 640)
         self.setAcceptDrops(True)
         self._estimasi = None  # EstimasiPage yang sedang terbuka
+        self.toast = None
 
+        self._bangun_isi()
+
+        QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self._ke_proyek_lalu_import())
+        QShortcut(QKeySequence("Ctrl+1"), self, activated=self.tampilkan_proyek)
+        QShortcut(QKeySequence("Ctrl+2"), self, activated=lambda: self.tampilkan_harga())
+        QShortcut(QKeySequence("Ctrl+3"), self, activated=self.tampilkan_pengaturan)
+        QShortcut(QKeySequence("Ctrl+,"), self, activated=self.tampilkan_pengaturan)
+        self.tampilkan_proyek()
+
+    def _bangun_isi(self):
+        """Buat sidebar dan semua halaman. Dipanggil ulang saat tema berganti."""
+        self._estimasi = None
         pusat = QWidget()
-        self.setCentralWidget(pusat)
         lay = QHBoxLayout(pusat)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
@@ -47,18 +61,18 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.stack, stretch=1)
         self.hal_proyek = ProyekPage()
         self.hal_harga = HargaPage()
-        self.stack.addWidget(self.hal_proyek)
-        self.stack.addWidget(self.hal_harga)
+        self.hal_pengaturan = PengaturanPage()
+        for hal in (self.hal_proyek, self.hal_harga, self.hal_pengaturan):
+            self.stack.addWidget(hal)
+        self.setCentralWidget(pusat)  # pusat lama (bila ada) dihapus Qt
 
         self.hal_proyek.minta_buka.connect(self.buka_estimasi)
         self.hal_harga.harga_diterapkan.connect(self._setelah_harga_diterapkan)
+        self.hal_pengaturan.tersimpan.connect(self._setelah_pengaturan_disimpan)
 
+        if self.toast is not None:
+            self.toast.deleteLater()
         self.toast = tema.Toast(self)
-
-        QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self._ke_proyek_lalu_import())
-        QShortcut(QKeySequence("Ctrl+1"), self, activated=self.tampilkan_proyek)
-        QShortcut(QKeySequence("Ctrl+2"), self, activated=lambda: self.tampilkan_harga())
-        self.tampilkan_proyek()
 
     # ---------------------------------------------------------------- sidebar
 
@@ -88,6 +102,7 @@ class MainWindow(QMainWindow):
         for idx, (teks_nav, nama_ikon, pintas) in enumerate((
             ("Proyek", "proyek", "Ctrl+1"),
             ("Harga Satuan", "harga", "Ctrl+2"),
+            ("Pengaturan", "pengaturan", "Ctrl+3"),
         )):
             b = QPushButton(f"  {teks_nav}")
             b.setObjectName("navItem")
@@ -108,8 +123,10 @@ class MainWindow(QMainWindow):
     def _nav_diklik(self, idx: int):
         if idx == NAV_PROYEK:
             self.tampilkan_proyek()
-        else:
+        elif idx == NAV_HARGA:
             self.tampilkan_harga()
+        else:
+            self.tampilkan_pengaturan()
 
     # ---------------------------------------------------------------- navigasi
 
@@ -142,6 +159,21 @@ class MainWindow(QMainWindow):
         if pekerjaan_id is not None:
             self.hal_harga.fokus_pekerjaan(pekerjaan_id)
         self.stack.setCurrentWidget(self.hal_harga)
+
+    def tampilkan_pengaturan(self):
+        self.grup_nav.button(NAV_PENGATURAN).setChecked(True)
+        self.hal_pengaturan.muat()
+        self.stack.setCurrentWidget(self.hal_pengaturan)
+
+    def _setelah_pengaturan_disimpan(self, tema_berubah: bool, pesan: str):
+        """UC-07 langkah 5: perubahan langsung diterapkan ke antarmuka."""
+        if tema_berubah:
+            from PySide6.QtWidgets import QApplication
+
+            tema.terapkan(QApplication.instance(), self.hal_pengaturan.preferensi.tema)
+            self._bangun_isi()
+            self.tampilkan_pengaturan()
+        self.toast.tampilkan(pesan)
 
     def _setelah_harga_diterapkan(self):
         # UC-04 langkah 10: kembali ke hasil estimasi yang sedang dikerjakan dengan total terbaru
@@ -179,7 +211,7 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self.toast.isVisible():
+        if self.toast is not None and self.toast.isVisible():
             self.toast.posisikan()
 
 
@@ -191,10 +223,12 @@ def main():
 
     from database.init_db import siapkan_database
 
+    from database.preferensi_repository import muat_preferensi
+
     multiprocessing.freeze_support()
     app = QApplication(sys.argv)
-    tema.terapkan(app)
     siapkan_database()
+    tema.terapkan(app, muat_preferensi().tema)
     w = MainWindow()
     w.show()
     sys.exit(app.exec())

@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from database.estimasi_repository import PPN_RATE
-from database.preferensi_repository import get_pref, set_pref
+from database.preferensi_repository import folder_export, muat_preferensi
 from gui import tema
 from export_service import (
     ambil_data_export,
@@ -107,12 +107,13 @@ class ExportDialog(QDialog):
         # --- Format file & isi dokumen (dua kolom) ---
         self.cek_excel = QCheckBox("Excel (.xlsx)")
         self.cek_pdf = QCheckBox("PDF (.pdf)")
-        self.cek_excel.setChecked(True)
-        self.cek_pdf.setChecked(True)
+        pref = muat_preferensi()  # KF-10: format laporan & folder default
+        self.cek_excel.setChecked(pref.format_excel)
+        self.cek_pdf.setChecked(pref.format_pdf)
         self.cek_rekap = QCheckBox("Rekapitulasi per kategori")
         self.cek_detail = QCheckBox("Detail volume per elemen && lantai")
-        self.cek_rekap.setChecked(True)
-        self.cek_detail.setChecked(True)
+        self.cek_rekap.setChecked(pref.isi_rekap)
+        self.cek_detail.setChecked(pref.isi_detail)
         for cek in (self.cek_excel, self.cek_pdf):
             cek.setCursor(Qt.PointingHandCursor)
             cek.toggled.connect(self._perbarui_tombol)
@@ -141,9 +142,7 @@ class ExportDialog(QDialog):
         root.addLayout(baris_opsi)
 
         # --- Folder tujuan ---
-        folder_default = get_pref("export_dir", str(Path.home() / "Documents"))
-        if not Path(folder_default).exists():
-            folder_default = str(Path.home())
+        folder_default = folder_export(pref)
         baris_folder = QHBoxLayout()
         baris_folder.setSpacing(10)
         self.edit_folder = QLineEdit(folder_default)
@@ -315,8 +314,6 @@ class ExportDialog(QDialog):
             except Exception as e:  # KF-14: pesan jelas bila ada kesalahan
                 log.exception("Export %s gagal", label)
                 gagal.append(f"{label}: {e}")
-        if berhasil:
-            set_pref("export_dir", str(folder))
         return berhasil, gagal
 
     def _export(self):

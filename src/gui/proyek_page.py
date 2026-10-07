@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from database.estimasi_repository import PPN_RATE
 from database.harga_repository import jumlah_estimasi_kedaluwarsa, terapkan_ke_estimasi
+from database.preferensi_repository import folder_ifc, muat_preferensi
 from database.proyek_repository import create_proyek, delete_proyek, get_all_proyek
 from estimasi_service import jalankan_estimasi
 from gui import tema
@@ -269,7 +270,7 @@ class ProyekPage(QWidget):
         """KF-1 (UC-01)."""
         if not file_path:
             file_path, _ = QFileDialog.getOpenFileName(
-                self, "Pilih File IFC", "", "File IFC (*.ifc);;Semua file (*)"
+                self, "Pilih File IFC", folder_ifc(muat_preferensi()), "File IFC (*.ifc);;Semua file (*)"
             )
         if not file_path:
             return
