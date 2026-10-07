@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS elemen_proyek (
     luas_bukaan REAL,              -- luas pintu/jendela pada dinding (info Rumus 2.17)
     elevasi_lantai REAL,
     sumber_dimensi TEXT,           -- JSON: asal tiap dimensi ('qto' / 'geometri' / 'atribut' / 'manual')
-    dimensi_manual INTEGER DEFAULT 0  -- KF-19: dimensi diubah pengguna lalu QTO dihitung ulang
+    dimensi_manual INTEGER DEFAULT 0, -- KF-19: dimensi diubah pengguna lalu QTO dihitung ulang
+    tipe_id INTEGER                -- tipe_penulangan.id (kolom/balok/sloof/pelat/dak/fondasi)
 );
 
 -- hasil_estimasi: output rule-engine, per elemen per pekerjaan
@@ -91,7 +92,38 @@ CREATE TABLE IF NOT EXISTS hasil_estimasi (
     volume_pekerjaan REAL NOT NULL,
     subtotal_biaya REAL NOT NULL,
     diedit_manual INTEGER DEFAULT 0,  -- untuk KF-6
-    rumus TEXT                        -- uraian perhitungan rule (dasar KF-18)
+    rumus TEXT,                       -- uraian perhitungan rule (dasar KF-18)
+    uraian TEXT,                      -- rincian item, mis. 'Tulangan utama 6 D13'
+    diameter REAL                     -- mm, khusus pembesian
+);
+
+-- tipe_penulangan: konfigurasi tulangan per tipe elemen dalam satu proyek (K1 20/25, P1 t=12, ...)
+CREATE TABLE IF NOT EXISTS tipe_penulangan (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proyek_id INTEGER NOT NULL,
+    kelompok TEXT NOT NULL,        -- KOLOM, BALOK, SLOOF, PELAT, DAK, FONDASI
+    kode TEXT NOT NULL,            -- K1, B1, S1, P1, D1, F1
+    b_cm INTEGER NOT NULL,         -- lebar penampang (0 untuk pelat/dak/fondasi)
+    h_cm INTEGER NOT NULL,         -- tinggi penampang / tebal
+    n_utama INTEGER,
+    d_utama REAL,                  -- mm
+    jarak_utama REAL,              -- m (pelat/dak/fondasi)
+    lapis INTEGER,
+    d_sengkang REAL,               -- mm
+    jarak_sengkang REAL,           -- m
+    selimut REAL,                  -- m
+    diubah INTEGER DEFAULT 0,      -- 1 = konfigurasi diubah pengguna (dipertahankan saat estimasi ulang)
+    UNIQUE (proyek_id, kelompok, b_cm, h_cm)
+);
+
+-- biaya_tidak_langsung: KF-13, diisi pengguna (perencanaan, pengawasan, SMKK, perizinan, ...)
+CREATE TABLE IF NOT EXISTS biaya_tidak_langsung (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proyek_id INTEGER NOT NULL,
+    uraian TEXT NOT NULL,
+    jenis TEXT NOT NULL,           -- 'persen' (dari biaya langsung) atau 'nilai' (Rp)
+    nilai REAL NOT NULL,
+    urutan INTEGER DEFAULT 0
 );
 
 -- preferensi_pengguna: KF-10 (tema, direktori default, format laporan)

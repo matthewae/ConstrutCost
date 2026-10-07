@@ -37,6 +37,8 @@ def get_hasil_estimasi_by_proyek(proyek_id: int):
                 he.subtotal_biaya,
                 he.diedit_manual,
                 he.rumus,
+                he.uraian,
+                he.diameter,
                 p.kode_ahsp,
                 p.nama_pekerjaan,
                 p.kategori,
@@ -56,10 +58,16 @@ def get_hasil_estimasi_by_proyek(proyek_id: int):
                 ep.kemiringan,
                 ep.luas_bukaan,
                 ep.sumber_dimensi,
-                COALESCE(ep.dimensi_manual, 0) AS dimensi_manual
+                COALESCE(ep.dimensi_manual, 0) AS dimensi_manual,
+                ep.tipe_id,
+                tp.kode AS kode_tipe,
+                tp.kelompok AS kelompok_tipe,
+                tp.b_cm AS tipe_b_cm,
+                tp.h_cm AS tipe_h_cm
             FROM hasil_estimasi he
             JOIN pekerjaan p ON p.id = he.pekerjaan_id
             LEFT JOIN elemen_proyek ep ON ep.id = he.elemen_id
+            LEFT JOIN tipe_penulangan tp ON tp.id = ep.tipe_id
             WHERE he.proyek_id = ?
             ORDER BY p.kategori, p.nama_pekerjaan, ep.lantai, ep.nama
             """,

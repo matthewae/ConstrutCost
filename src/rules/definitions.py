@@ -14,6 +14,7 @@ Bentuk umum satu aturan:
              sehingga setiap kuantitas bisa ditelusuri (dasar KF-18).
 
 Satu elemen dapat memicu banyak pekerjaan (mis. kolom -> beton + pembesian + bekisting).
+`hitung` juga boleh mengembalikan daftar item (pembesian: satu item per diameter tulangan).
 Untuk menambah pekerjaan baru: tambah satu Rule di sini + data harganya di database/seed_data.py.
 Nomor rumus mengacu pada BAB II subbab 2.4.9.
 """
@@ -25,6 +26,7 @@ from typing import Callable
 
 from klasifikasi import ElementType as T
 
+from . import penulangan
 from .konteks import Konteks
 from .parameter import ParameterEstimasi
 
@@ -62,6 +64,29 @@ def _besi(nama_rasio):
         rasio = getattr(p, nama_rasio)
         nilai = e["volume"] * rasio
         return nilai, f"Berat = V × rasio = {_n(e['volume'])} m³ × {_n(rasio, 0)} kg/m³ = {_n(nilai, 2)} kg"
+
+    return f
+
+
+def _pembesian(nama_rasio):
+    """Pembesian rinci per diameter dari tipe penulangan elemen (Rumus 2.30 - 2.33).
+    Bila penampang/panjang elemen tidak diketahui, kembali ke asumsi rasio kg/m³."""
+
+    def f(e, p):
+        items = penulangan.hitung(e, e.get("penulangan"), p.batas_kemiringan_dak)
+        if items:
+            return items
+        nilai, rumus = _besi(nama_rasio)(e, p)
+        kelompok = {
+            "rasio_besi_kolom": "KOLOM", "rasio_besi_balok": "BALOK", "rasio_besi_sloof": "SLOOF",
+            "rasio_besi_fondasi": "FONDASI",
+        }.get(nama_rasio, "DAK" if e.get("kelas") == "ROOF" else "PELAT")
+        return [penulangan.ItemBesi(
+            penulangan.KODE_PEKERJAAN[kelompok], nilai,
+            rumus + " (tulangan rinci tidak dihitung: penampang tidak lengkap atau terlalu kecil untuk "
+            "beton bertulang, dipakai asumsi rasio)",
+            f"Pembesian (asumsi {getattr(p, nama_rasio):.0f} kg/m³)", None,
+        )]
 
     return f
 
@@ -252,24 +277,24 @@ SLOOF = ("FOOTING_BEAM",)
 RULES = [
     # ===== Kolom (Rumus 2.10) =====
     Rule("BTN.KOLOM", T.COLUMN, _volume(), ("volume",), keterangan="Volume beton kolom"),
-    Rule("BSI.KOLOM", T.COLUMN, _besi("rasio_besi_kolom"), ("volume",), keterangan="Pembesian (rasio asumsi)"),
+    Rule("BSI.KOLOM", T.COLUMN, _pembesian("rasio_besi_kolom"), ("volume",), keterangan="Pembesian per diameter"),
     Rule("BSK.KOLOM", T.COLUMN, _bekisting_kolom, ("lebar", "tebal", "tinggi"), keterangan="Bekisting kolom"),
     # Fondasi sumuran di bawah kolom lantai dasar (Rumus 2.36 - 2.39)
     Rule("BTN.SUMURAN", T.COLUMN, _sumuran, syarat=_fondasi_turunan, keterangan="Fondasi sumuran (turunan)"),
     # ===== Balok (Rumus 2.9) =====
     Rule("BTN.BALOK", T.BEAM, _volume(), ("volume",)),
-    Rule("BSI.BALOK", T.BEAM, _besi("rasio_besi_balok"), ("volume",)),
+    Rule("BSI.BALOK", T.BEAM, _pembesian("rasio_besi_balok"), ("volume",)),
     Rule("BSK.BALOK", T.BEAM, _bekisting_balok, ("lebar", "tinggi", "panjang")),
     # ===== Pelat lantai (Rumus 2.11 / 2.37) =====
     Rule("BTN.PELAT", T.SLAB, _volume(), ("volume",)),
-    Rule("BSI.PELAT", T.SLAB, _besi("rasio_besi_pelat"), ("volume",)),
+    Rule("BSI.PELAT", T.SLAB, _pembesian("rasio_besi_pelat"), ("volume",)),
     Rule("BSK.PELAT", T.SLAB, _luas("luas bidang bawah pelat"), ("luas",), syarat=_pelat_melayang),
     # ===== Atap miring: rangka baja ringan + genteng (Rumus 2.22 / 2.23 / 2.42) =====
     Rule("ATP.RANGKA", T.ROOF, _luas_atap, ("luas",), syarat=_atap_miring, keterangan="Rangka atap baja ringan per m² luas atap"),
     Rule("ATP.PENUTUP", T.ROOF, _luas_atap, ("luas",), syarat=_atap_miring, keterangan="Penutup atap genteng"),
     # ===== Atap datar: dak beton =====
     Rule("BTN.DAK", T.ROOF, _volume(), ("volume",), syarat=_dak),
-    Rule("BSI.DAK", T.ROOF, _besi("rasio_besi_pelat"), ("volume",), syarat=_dak),
+    Rule("BSI.DAK", T.ROOF, _pembesian("rasio_besi_pelat"), ("volume",), syarat=_dak),
     Rule("BSK.DAK", T.ROOF, _luas("luas bidang bawah dak"), ("luas",), syarat=_dak),
     # ===== Dinding (Rumus 2.17 - 2.19) =====
     Rule("DND.BATA", T.WALL, _luas_dinding, ("luas",), keterangan="Pasangan dinding bata (m²)"),
@@ -281,10 +306,10 @@ RULES = [
     # ===== Fondasi yang dimodelkan =====
     Rule("FDN.BATUKALI", T.FOOTING, _volume(), ("volume",), syarat=_pre(*FONDASI_MENERUS), keterangan="Fondasi menerus = batu kali"),
     Rule("BTN.SLOOF", T.FOOTING, _volume(), ("volume",), syarat=_pre(*SLOOF)),
-    Rule("BSI.SLOOF", T.FOOTING, _besi("rasio_besi_sloof"), ("volume",), syarat=_pre(*SLOOF)),
+    Rule("BSI.SLOOF", T.FOOTING, _pembesian("rasio_besi_sloof"), ("volume",), syarat=_pre(*SLOOF)),
     Rule("BSK.SLOOF", T.FOOTING, _bekisting_sisi, ("tebal", "panjang"), syarat=_pre(*SLOOF)),
     Rule("BTN.FONDASI", T.FOOTING, _volume(), ("volume",), syarat=_bukan_pre(*FONDASI_MENERUS, *SLOOF), keterangan="Footplate / pile cap"),
-    Rule("BSI.FONDASI", T.FOOTING, _besi("rasio_besi_fondasi"), ("volume",), syarat=_bukan_pre(*FONDASI_MENERUS, *SLOOF)),
+    Rule("BSI.FONDASI", T.FOOTING, _pembesian("rasio_besi_fondasi"), ("volume",), syarat=_bukan_pre(*FONDASI_MENERUS, *SLOOF)),
     Rule("BSK.FONDASI", T.FOOTING, _bekisting_keliling, ("keliling", "tebal"), syarat=_bukan_pre(*FONDASI_MENERUS, *SLOOF)),
     Rule("BTN.SUMURAN", T.PILE, _volume(), ("volume",)),
     # ===== Pintu (susunan HSPK: daun + kusen + kunci + engsel) & jendela =====

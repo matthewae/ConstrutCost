@@ -50,7 +50,7 @@ Uji kewajaran:
 | Kelas | Syarat | Kode | Kuantitas | Rumus |
 |---|---|---|---|---|
 | COLUMN | – | BTN.KOLOM | V | 2.10 |
-| COLUMN | – | BSI.KOLOM | V × rasio besi | |
+| COLUMN | – | BSI.KOLOM.P / .U | tulangan utama + sengkang per diameter (lihat `docs/Penulangan-KF13-KF17.md`) | 2.30–2.33 |
 | COLUMN | – | BSK.KOLOM | 2(b + h) × H | |
 | COLUMN | lantai dasar & model tanpa fondasi | BTN.SUMURAN | n·πd²/4·H + P·L·T | 2.36–2.39 |
 | BEAM | – | BTN / BSI / BSK.BALOK | V; V × rasio; (b + 2h) × L | 2.9 |
@@ -70,6 +70,9 @@ Uji kewajaran:
 | FLOOR / SPACE / SLAB | sumber lantai* | KRM.LANTAI | A | 2.12–2.13 |
 | SPACE | nama ruang basah (KM, WC, dapur, ...) | KRM.DINDING | keliling × tinggi keramik | 2.14–2.15 |
 | CEILING / SPACE / SLAB | sumber plafon* | PLF.RANGKA, PLF.GYPSUM | A | 2.16 |
+
+Pembesian (BSI.*) dihitung per diameter dari tipe penulangan elemen (Rumus 2.30–2.33). Asumsi rasio kg/m³
+hanya dipakai bila penampang elemen tidak diketahui atau terlalu kecil untuk beton bertulang.
 
 \*Preprocessor memilih **satu** sumber agar tidak terhitung ganda, dengan prioritas: penutup lantai/plafon
 yang dimodelkan → luas ruang (IfcSpace) → luas pelat.

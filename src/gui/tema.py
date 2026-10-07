@@ -207,6 +207,15 @@ QPushButton#navItem {{
 QPushButton#navItem:hover {{ background-color: {c['permukaan']}; color: {c['teks']}; }}
 QPushButton#navItem:checked {{ background-color: {c['aksen_lembut']}; color: {c['teks_kuat']}; }}
 
+/* ---------- tab ---------- */
+QTabWidget::pane {{ border: none; border-top: 1px solid {c['garis']}; top: -1px; }}
+QTabBar::tab {{
+    background: transparent; color: {c['teks_redup']}; font-weight: 600; padding: 8px 16px;
+    border: none; border-bottom: 2px solid transparent; margin-right: 4px;
+}}
+QTabBar::tab:hover {{ color: {c['teks']}; }}
+QTabBar::tab:selected {{ color: {c['teks_kuat']}; border-bottom: 2px solid {c['aksen']}; }}
+
 /* ---------- tipografi halaman ---------- */
 QLabel#judulHalaman {{ font-size: 22px; font-weight: 700; color: {c['teks_kuat']}; }}
 QLabel#subjudul {{ font-size: 12px; color: {c['teks_redup']}; }}
@@ -217,6 +226,7 @@ QLabel#formLabel {{ color: {c['teks_redup']}; }}
 QLabel#namaFile {{ color: {c['teks_redup']}; font-size: 12px; }}
 QLabel#galat {{ color: {c['bahaya']}; font-size: 12px; }}
 QLabel#peringatan {{ color: {c['peringatan']}; font-size: 12px; }}
+QLabel#sukses {{ color: {c['sukses']}; font-size: 12px; font-weight: 600; }}
 QLabel#judulPanel {{ font-size: 15px; font-weight: 700; color: {c['teks_kuat']}; }}
 QLabel#nilaiBesar {{ font-size: 20px; font-weight: 700; color: {c['teks_kuat']}; }}
 QLabel#rumus {{
@@ -283,6 +293,7 @@ QPushButton#segmen {{
 }}
 QPushButton#segmen[posisi="kiri"] {{ border-top-left-radius: 8px; border-bottom-left-radius: 8px; }}
 QPushButton#segmen[posisi="kanan"] {{ border-top-right-radius: 8px; border-bottom-right-radius: 8px; border-left: none; }}
+QPushButton#segmen[posisi="tengah"] {{ border-radius: 0; border-left: none; }}
 QPushButton#segmen:hover {{ color: {c['teks']}; }}
 QPushButton#segmen:checked {{ background-color: {c['aksen_lembut']}; color: {c['teks_kuat']}; border-color: {c['aksen_garis']}; }}
 QPushButton:focus {{ outline: none; }}

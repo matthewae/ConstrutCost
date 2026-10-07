@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from database.estimasi_repository import BUK_RATE, PPN_RATE
 from database.preferensi_repository import (
+    KOLOM_LAPORAN,
     TEMA,
     Preferensi,
     PreferensiTidakValid,
@@ -36,6 +38,7 @@ from database.preferensi_repository import (
 from gui import tema
 
 LABEL_TEMA = {"gelap": "Gelap", "terang": "Terang"}
+LABEL_KOLOM = {"no": "No", "kode": "Kode analisa", "harga": "Harga satuan", "bobot": "Bobot (%)", "rumus": "Uraian rumus"}
 
 
 class PengaturanPage(QWidget):
@@ -95,24 +98,36 @@ class PengaturanPage(QWidget):
         kartu, f = self._kartu("FORMAT LAPORAN DEFAULT")
         self.cek_excel = QCheckBox("Excel (.xlsx)")
         self.cek_pdf = QCheckBox("PDF (.pdf)")
-        self.cek_rekap = QCheckBox("Rekapitulasi per kategori")
-        self.cek_detail = QCheckBox("Detail volume per elemen && lantai")
-        for cek in (self.cek_excel, self.cek_pdf, self.cek_rekap, self.cek_detail):
+        self.cek_rekap = QCheckBox("Rekapitulasi biaya")
+        self.cek_rinci = QCheckBox("RAB rinci per tipe elemen")
+        self.cek_besi = QCheckBox("Kebutuhan besi")
+        self.cek_detail = QCheckBox("Detail per elemen && lantai")
+        self.cek_kolom = {k: QCheckBox(LABEL_KOLOM[k]) for k in KOLOM_LAPORAN}
+        semua_cek = (self.cek_excel, self.cek_pdf, self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_detail,
+                     *self.cek_kolom.values())
+        for cek in semua_cek:
             cek.setCursor(Qt.PointingHandCursor)
             cek.toggled.connect(self._berubah)
-        baris_format = QHBoxLayout()
-        baris_format.setSpacing(24)
-        baris_format.addWidget(self.cek_excel)
-        baris_format.addWidget(self.cek_pdf)
-        baris_format.addStretch()
-        baris_isi = QHBoxLayout()
-        baris_isi.setSpacing(24)
-        baris_isi.addWidget(self.cek_rekap)
-        baris_isi.addWidget(self.cek_detail)
-        baris_isi.addStretch()
-        f.addRow(tema.label("Format file", "formLabel"), baris_format)
-        f.addRow(tema.label("Isi dokumen", "formLabel"), baris_isi)
-        f.addRow(QWidget(), tema.label("Dipakai sebagai pilihan awal di dialog Export RAB.", "infoKecil"))
+        self.combo_orientasi = QComboBox()
+        self.combo_orientasi.addItem("PDF tegak (portrait)", "portrait")
+        self.combo_orientasi.addItem("PDF mendatar (landscape)", "landscape")
+        self.combo_orientasi.currentIndexChanged.connect(self._berubah)
+
+        def baris(*widget):
+            b = QHBoxLayout()
+            b.setSpacing(24)
+            for w in widget:
+                b.addWidget(w)
+            b.addStretch()
+            return b
+
+        f.addRow(tema.label("Format file", "formLabel"), baris(self.cek_excel, self.cek_pdf, self.combo_orientasi))
+        f.addRow(tema.label("Isi dokumen", "formLabel"), baris(self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_detail))
+        f.addRow(tema.label("Kolom laporan", "formLabel"), baris(*self.cek_kolom.values()))
+        f.addRow(QWidget(), tema.label(
+            "Dipakai sebagai pilihan awal di dialog Export RAB (KF-17). Uraian, volume, satuan, dan jumlah harga "
+            "selalu ditampilkan.", "infoKecil", wrap=True,
+        ))
         root.addWidget(kartu)
 
         root.addWidget(
@@ -188,10 +203,15 @@ class PengaturanPage(QWidget):
             format_pdf=self.cek_pdf.isChecked(),
             isi_rekap=self.cek_rekap.isChecked(),
             isi_detail=self.cek_detail.isChecked(),
+            isi_rinci=self.cek_rinci.isChecked(),
+            isi_besi=self.cek_besi.isChecked(),
+            kolom_laporan=",".join(k for k, c in self.cek_kolom.items() if c.isChecked()),
+            orientasi_pdf=self.combo_orientasi.currentData(),
         )
 
     def _ke_form(self, p: Preferensi):
-        widget = (self.grup_tema, self.edit_ifc, self.edit_export, self.cek_excel, self.cek_pdf, self.cek_rekap, self.cek_detail)
+        widget = (self.grup_tema, self.edit_ifc, self.edit_export, self.cek_excel, self.cek_pdf, self.cek_rekap,
+                  self.cek_detail, self.cek_rinci, self.cek_besi, self.combo_orientasi, *self.cek_kolom.values())
         for w in widget:
             w.blockSignals(True)
         self.grup_tema.button(TEMA.index(p.tema)).setChecked(True)
@@ -201,6 +221,11 @@ class PengaturanPage(QWidget):
         self.cek_pdf.setChecked(p.format_pdf)
         self.cek_rekap.setChecked(p.isi_rekap)
         self.cek_detail.setChecked(p.isi_detail)
+        self.cek_rinci.setChecked(p.isi_rinci)
+        self.cek_besi.setChecked(p.isi_besi)
+        for k, c in self.cek_kolom.items():
+            c.setChecked(k in p.kolom)
+        self.combo_orientasi.setCurrentIndex(1 if p.orientasi_pdf == "landscape" else 0)
         for w in widget:
             w.blockSignals(False)
         self._berubah()

@@ -23,8 +23,9 @@ KOLOM_TAMBAHAN = {
         "elevasi_lantai": "REAL",
         "sumber_dimensi": "TEXT",
         "dimensi_manual": "INTEGER DEFAULT 0",
+        "tipe_id": "INTEGER",
     },
-    "hasil_estimasi": {"rumus": "TEXT"},
+    "hasil_estimasi": {"rumus": "TEXT", "uraian": "TEXT", "diameter": "REAL"},
     "komponen_harga": {"sumber_daya_id": "INTEGER REFERENCES sumber_daya(id)"},
 }
 

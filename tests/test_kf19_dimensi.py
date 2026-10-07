@@ -144,7 +144,13 @@ def test_ubah_dimensi_pelat_menghitung_ulang_qto(proyek_ac20):
 
     h = _hasil(conn, el["id"])
     assert h["BTN.PELAT"]["volume_pekerjaan"] == pytest.approx(12.0)
-    assert h["BSI.PELAT"]["volume_pekerjaan"] == pytest.approx(12.0 * 90)
+    # pelat 10 x 8 m t = 15 cm -> tipe bawaan Ø10-150 dua arah 2 lapis, selimut 2 cm
+    nx, ny = math.floor(7.96 / 0.15) + 1, math.floor(9.96 / 0.15) + 1
+    panjang = (nx * (9.96 + 0.24) + ny * (7.96 + 0.24)) * 2
+    besi = h["BSI.PELAT.P"]
+    assert besi["volume_pekerjaan"] == pytest.approx(panjang * math.pi * 10**2 / 4 * 7850e-6 * 1.05)
+    assert besi["uraian"] == "Tulangan Ø10-150 dua arah, atas & bawah"
+    assert besi["diameter"] == 10
     assert h["BSK.PELAT"]["volume_pekerjaan"] == pytest.approx(80.0)
     assert "12" in h["BTN.PELAT"]["rumus"]
     assert all(x["subtotal_biaya"] > 0 for x in h.values())

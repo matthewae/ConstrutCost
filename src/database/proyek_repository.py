@@ -18,9 +18,18 @@ def get_all_proyek():
             ORDER BY p.tanggal_diubah DESC, p.id DESC
             """
         ).fetchall()
-        return [dict(r) for r in rows]
+        hasil = [dict(r) for r in rows]
+        biaya = {}
+        for b in conn.execute("SELECT * FROM biaya_tidak_langsung ORDER BY urutan, id"):
+            biaya.setdefault(b["proyek_id"], []).append(dict(b))
     finally:
         conn.close()
+    from database.biaya_repository import hitung_ringkasan
+
+    for p in hasil:
+        # KF-13: total RAB = biaya langsung + biaya tidak langsung + PPN
+        p["total_rab"] = hitung_ringkasan(p["subtotal_rab"], biaya.get(p["id"], []))["total"] if p["subtotal_rab"] else 0.0
+    return hasil
 
 
 def get_proyek(proyek_id: int) -> dict | None:
@@ -47,6 +56,8 @@ def delete_proyek(proyek_id: int) -> None:
     try:
         conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ?", (proyek_id,))
         conn.execute("DELETE FROM elemen_proyek WHERE proyek_id = ?", (proyek_id,))
+        conn.execute("DELETE FROM tipe_penulangan WHERE proyek_id = ?", (proyek_id,))
+        conn.execute("DELETE FROM biaya_tidak_langsung WHERE proyek_id = ?", (proyek_id,))
         conn.execute("DELETE FROM proyek WHERE id = ?", (proyek_id,))
         conn.commit()
     finally:

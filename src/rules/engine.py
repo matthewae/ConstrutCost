@@ -19,6 +19,8 @@ class HasilRule:
     volume: float
     rumus: str
     keterangan: str = ""
+    uraian: str = ""  # rincian item, mis. "Tulangan utama 6 D13"
+    diameter: float | None = None  # mm, khusus pembesian
 
 
 def _cocok(rule, elemen, konteks, parameter) -> bool:
@@ -41,7 +43,15 @@ def terapkan_rules(elemen: dict, konteks: Konteks = None, parameter=PARAMETER_DE
                 f"{rule.kode}: {', '.join(kosong)} kosong pada {label} '{elemen.get('nama')}'"
             )
             continue
-        nilai, uraian = rule.hitung(elemen, parameter)
+        keluaran = rule.hitung(elemen, parameter)
+        if isinstance(keluaran, list):  # satu aturan -> beberapa item (pembesian per diameter)
+            hasil.extend(
+                HasilRule(it.kode, it.berat, it.rumus, rule.keterangan, it.uraian, it.diameter)
+                for it in keluaran
+                if it.berat > 0
+            )
+            continue
+        nilai, uraian = keluaran
         if nilai is None or nilai <= 0:
             continue
         hasil.append(HasilRule(rule.kode, nilai, uraian, rule.keterangan))

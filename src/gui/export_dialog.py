@@ -1,6 +1,7 @@
 """
-Halaman Export Hasil Estimasi RAB (KF-8) untuk CostStruct.
-Dibuka dari layar estimasi: pilih format (Excel/PDF), isi dokumen, dan folder tujuan.
+Halaman Export Hasil Estimasi RAB (KF-8, KF-17) untuk CostStruct.
+Dibuka dari layar estimasi: pilih format (Excel/PDF), isi dokumen, kolom laporan, dan folder tujuan.
+Pilihan terakhir diingat sebagai bawaan export berikutnya (KF-10).
 
 Tampilan memakai tema global (gui/tema.py): tiga kartu angka (Subtotal, PPN, Total RAB),
 pilihan format & isi dokumen dua kolom, pratinjau nama file, dan tombol Export yang menyebut
@@ -17,9 +18,10 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
-    QFormLayout,
+    QGridLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -31,10 +33,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from dataclasses import replace
+
 from database.estimasi_repository import PPN_RATE
-from database.preferensi_repository import folder_export, muat_preferensi
+from database.preferensi_repository import folder_export, muat_preferensi, simpan_pilihan_export
 from gui import tema
 from export_service import (
+    KOLOM_OPSIONAL,
+    OpsiExport,
     ambil_data_export,
     export_excel,
     export_pdf,
@@ -55,7 +61,7 @@ class ExportDialog(QDialog):
         )
         self.setWindowTitle("Export RAB")
         self.setModal(True)
-        self.setMinimumWidth(780)
+        self.setMinimumWidth(1000)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 24, 28, 22)
@@ -74,33 +80,41 @@ class ExportDialog(QDialog):
         kartu_layout = QHBoxLayout(self.baris_kartu)
         kartu_layout.setContentsMargins(0, 0, 0, 0)
         kartu_layout.setSpacing(12)
-        self.kartu_subtotal = tema.KartuStat("Subtotal")
+        self.kartu_subtotal = tema.KartuStat("A. Biaya Langsung")
+        self.kartu_btl = tema.KartuStat("B. Biaya Tidak Langsung")
         self.kartu_ppn = tema.KartuStat(f"PPN {PPN_RATE:.0%}")
         self.kartu_total = tema.KartuStat("Total RAB", utama=True)
-        for kartu in (self.kartu_subtotal, self.kartu_ppn, self.kartu_total):
+        for kartu in (self.kartu_subtotal, self.kartu_btl, self.kartu_ppn, self.kartu_total):
             kartu_layout.addWidget(kartu, stretch=1)
         root.addWidget(self.baris_kartu)
 
         # --- Informasi dokumen ---
         kartu_info = QFrame()
         kartu_info.setObjectName("kartu")
-        form = QFormLayout(kartu_info)
-        form.setContentsMargins(18, 16, 18, 16)
-        form.setHorizontalSpacing(18)
+        form = QGridLayout(kartu_info)
+        form.setContentsMargins(18, 14, 18, 14)
+        form.setHorizontalSpacing(14)
         form.setVerticalSpacing(10)
-        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form.setColumnStretch(1, 1)
+        form.setColumnStretch(3, 1)
         self.edit_nama = QLineEdit(nama_proyek)
         self.edit_nama.textChanged.connect(self._perbarui_nama_file)
         self.edit_lokasi = QLineEdit()
         self.edit_lokasi.setPlaceholderText("Opsional, mis. Kota Bandung, Jawa Barat")
+        self.edit_pemilik = QLineEdit()
+        self.edit_pemilik.setPlaceholderText("Opsional, mis. nama pemilik rumah atau instansi")
         self.spin_tahun = QSpinBox()
         self.spin_tahun.setRange(2000, 2100)
         self.spin_tahun.setValue(datetime.now().year)
         self.spin_tahun.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.spin_tahun.setMaximumWidth(120)
-        form.addRow(self._label_form("Nama pekerjaan"), self.edit_nama)
-        form.addRow(self._label_form("Lokasi"), self.edit_lokasi)
-        form.addRow(self._label_form("Tahun anggaran"), self.spin_tahun)
+        for i, (teks, w) in enumerate((
+            ("Nama pekerjaan", self.edit_nama), ("Lokasi", self.edit_lokasi),
+            ("Pemilik / instansi", self.edit_pemilik), ("Tahun anggaran", self.spin_tahun),
+        )):
+            baris, kol = divmod(i, 2)
+            form.addWidget(self._label_form(teks), baris, kol * 2)
+            form.addWidget(w, baris, kol * 2 + 1, alignment=Qt.AlignLeft if w is self.spin_tahun else Qt.Alignment())
         root.addWidget(self._bagian("INFORMASI DOKUMEN"))
         root.addWidget(kartu_info)
 
@@ -110,36 +124,72 @@ class ExportDialog(QDialog):
         pref = muat_preferensi()  # KF-10: format laporan & folder default
         self.cek_excel.setChecked(pref.format_excel)
         self.cek_pdf.setChecked(pref.format_pdf)
-        self.cek_rekap = QCheckBox("Rekapitulasi per kategori")
+        self.cek_rekap = QCheckBox("Rekapitulasi biaya")
+        self.cek_rinci = QCheckBox("RAB rinci per tipe elemen")
+        self.cek_besi = QCheckBox("Kebutuhan besi per diameter")
         self.cek_detail = QCheckBox("Detail volume per elemen && lantai")
         self.cek_rekap.setChecked(pref.isi_rekap)
+        self.cek_rinci.setChecked(pref.isi_rinci)
+        self.cek_besi.setChecked(pref.isi_besi)
         self.cek_detail.setChecked(pref.isi_detail)
         for cek in (self.cek_excel, self.cek_pdf):
             cek.setCursor(Qt.PointingHandCursor)
             cek.toggled.connect(self._perbarui_tombol)
             cek.toggled.connect(self._perbarui_nama_file)
-        for cek in (self.cek_rekap, self.cek_detail):
+        for cek in (self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_detail):
             cek.setCursor(Qt.PointingHandCursor)
+        self.combo_orientasi = QComboBox()
+        self.combo_orientasi.addItem("PDF tegak (portrait)", "portrait")
+        self.combo_orientasi.addItem("PDF mendatar (landscape)", "landscape")
+        self.combo_orientasi.setCurrentIndex(1 if pref.orientasi_pdf == "landscape" else 0)
+        self.cek_pdf.toggled.connect(self.combo_orientasi.setEnabled)
+        self.combo_orientasi.setEnabled(pref.format_pdf)
+
+        # KF-17: kolom laporan. Uraian, volume, satuan, dan jumlah harga selalu ada.
+        self.cek_kolom = {}
+        for kunci, teks in KOLOM_OPSIONAL.items():
+            cek = QCheckBox(teks)
+            cek.setCursor(Qt.PointingHandCursor)
+            cek.setChecked(kunci in pref.kolom)
+            self.cek_kolom[kunci] = cek
 
         kolom_format = self._kolom_opsi(
             "FORMAT FILE",
             [
                 (self.cek_excel, "Rumus aktif, bisa diedit"),
                 (self.cek_pdf, "Siap cetak"),
+                (self.combo_orientasi, "Orientasi halaman PDF"),
             ],
         )
         kolom_isi = self._kolom_opsi(
             "ISI DOKUMEN",
             [
-                (self.cek_rekap, "Total tiap kategori pekerjaan"),
-                (self.cek_detail, "Rincian volume tiap elemen dan lantai"),
+                (self.cek_rekap, "A, B, PPN, total, terbilang"),
+                (self.cek_rinci, "Beton, bekisting, tulangan per tipe"),
+                (self.cek_besi, "Berat & batang 12 m per Ø/D"),
+                (self.cek_detail, "Volume tiap elemen dan lantai"),
             ],
+        )
+        kolom_kolom = self._kolom_opsi(
+            "KOLOM LAPORAN",
+            [
+                (self.cek_kolom["no"], ""),
+                (self.cek_kolom["kode"], "Kode analisa HSPK"),
+                (self.cek_kolom["harga"], "Jumlah = volume × harga"),
+                (self.cek_kolom["bobot"], "Persentase terhadap biaya A"),
+                (self.cek_kolom["rumus"], "Jejak rumus (KF-18)"),
+            ],
+            rapat=True,
         )
         baris_opsi = QHBoxLayout()
         baris_opsi.setSpacing(14)
         baris_opsi.addLayout(kolom_format, stretch=1)
         baris_opsi.addLayout(kolom_isi, stretch=1)
+        baris_opsi.addLayout(kolom_kolom, stretch=1)
         root.addLayout(baris_opsi)
+        root.addWidget(QLabel(
+            "Uraian, volume, satuan, dan jumlah harga selalu ditampilkan. Pilihan ini diingat untuk export berikutnya."
+        , objectName="infoKecil"))
 
         # --- Folder tujuan ---
         folder_default = folder_export(pref)
@@ -196,7 +246,7 @@ class ExportDialog(QDialog):
         label.setObjectName("formLabel")
         return label
 
-    def _kolom_opsi(self, judul_bagian: str, opsi) -> QVBoxLayout:
+    def _kolom_opsi(self, judul_bagian: str, opsi, rapat: bool = False) -> QVBoxLayout:
         """Satu kolom: judul bagian + kartu berisi kotak centang beserta penjelasan singkat."""
         kolom = QVBoxLayout()
         kolom.setSpacing(8)
@@ -209,11 +259,13 @@ class ExportDialog(QDialog):
         lay.setSpacing(2)
         for i, (cek, deskripsi) in enumerate(opsi):
             if i > 0:
-                lay.addSpacing(10)
+                lay.addSpacing(4 if rapat else 8)
             lay.addWidget(cek)
+            if not deskripsi:
+                continue
             baris_desk = QHBoxLayout()
             baris_desk.setContentsMargins(0, 0, 0, 0)
-            baris_desk.addSpacing(28)  # sejajar dengan teks kotak centang
+            baris_desk.addSpacing(28 if isinstance(cek, QCheckBox) else 2)  # sejajar dengan teks kotak centang
             info = QLabel(deskripsi)
             info.setObjectName("infoKecil")
             baris_desk.addWidget(info)
@@ -227,15 +279,16 @@ class ExportDialog(QDialog):
         try:
             data = ambil_data_export(self.proyek_id)
             kelompok = kelompokkan(data["baris"])
-            subtotal = sum(k["total"] for k in kelompok)
             n_pekerjaan = sum(len(k["items"]) for k in kelompok)
             self.label_ringkasan.setText(
                 f"{n_pekerjaan} item pekerjaan dalam {len(kelompok)} kategori  •  "
-                f"Periksa isi dokumen, pilih format, lalu tentukan folder tujuan."
+                f"Periksa isi dokumen, pilih format dan kolom, lalu tentukan folder tujuan."
             )
-            self.kartu_subtotal.set_data(tema.format_rupiah(subtotal))
-            self.kartu_ppn.set_data(tema.format_rupiah(subtotal * PPN_RATE))
-            self.kartu_total.set_data(tema.format_rupiah(subtotal * (1 + PPN_RATE)))
+            r = data["ringkasan"]
+            self.kartu_subtotal.set_data(tema.format_rupiah(r["langsung"]))
+            self.kartu_btl.set_data(tema.format_rupiah(r["tidak_langsung"]))
+            self.kartu_ppn.set_data(tema.format_rupiah(r["ppn"]))
+            self.kartu_total.set_data(tema.format_rupiah(r["dibulatkan"]), "dibulatkan")
         except Exception as e:
             self._data_ok = False
             self.baris_kartu.setVisible(False)
@@ -286,14 +339,12 @@ class ExportDialog(QDialog):
         meta = {
             "nama_proyek": self.edit_nama.text().strip() or data["nama_proyek"],
             "lokasi": self.edit_lokasi.text().strip(),
+            "pemilik": self.edit_pemilik.text().strip(),
             "tahun": self.spin_tahun.value(),
         }
         folder = Path(self.edit_folder.text().strip())
         folder.mkdir(parents=True, exist_ok=True)
-        opsi = {
-            "rekap": self.cek_rekap.isChecked(),
-            "detail": self.cek_detail.isChecked(),
-        }
+        opsi = self.opsi()
 
         tugas = []
         if self.cek_excel.isChecked():
@@ -305,7 +356,7 @@ class ExportDialog(QDialog):
         for label, ekstensi, fungsi in tugas:
             tujuan = folder / nama_file_default(meta["nama_proyek"], ekstensi)
             try:
-                fungsi(tujuan, data, meta, **opsi)
+                fungsi(tujuan, data, meta, opsi)
                 berhasil.append(tujuan)
             except PermissionError:
                 gagal.append(
@@ -314,7 +365,33 @@ class ExportDialog(QDialog):
             except Exception as e:  # KF-14: pesan jelas bila ada kesalahan
                 log.exception("Export %s gagal", label)
                 gagal.append(f"{label}: {e}")
+        if berhasil:
+            self._ingat_pilihan()
         return berhasil, gagal
+
+    def opsi(self) -> OpsiExport:
+        return OpsiExport(
+            kolom=tuple(k for k, c in self.cek_kolom.items() if c.isChecked()),
+            rekap=self.cek_rekap.isChecked(),
+            rinci=self.cek_rinci.isChecked(),
+            besi=self.cek_besi.isChecked(),
+            detail=self.cek_detail.isChecked(),
+            orientasi_pdf=self.combo_orientasi.currentData(),
+        )
+
+    def _ingat_pilihan(self):
+        """KF-10: pilihan export ini menjadi bawaan berikutnya."""
+        o = self.opsi()
+        try:
+            simpan_pilihan_export(replace(
+                muat_preferensi(),
+                format_excel=self.cek_excel.isChecked(), format_pdf=self.cek_pdf.isChecked(),
+                isi_rekap=o.rekap, isi_rinci=o.rinci, isi_besi=o.besi, isi_detail=o.detail,
+                kolom_laporan=",".join(o.kolom), orientasi_pdf=o.orientasi_pdf,
+                direktori_export=self.edit_folder.text().strip(),
+            ))
+        except Exception:  # preferensi gagal disimpan tidak membatalkan export
+            log.exception("Pilihan export gagal disimpan")
 
     def _export(self):
         QApplication.setOverrideCursor(Qt.WaitCursor)

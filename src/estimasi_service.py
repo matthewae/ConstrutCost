@@ -1,16 +1,20 @@
 """
 Pipeline KF-1 s.d. KF-4:  file IFC -> validasi -> elemen_proyek -> rule engine -> hasil_estimasi.
 KF-19: dimensi satu elemen diubah pengguna -> rule engine dijalankan ulang untuk elemen itu saja.
+Penulangan: tipe elemen (K1, B1, P1, ...) ditetapkan sebelum rule engine; mengubah konfigurasi
+tipe menghitung ulang pembesian seluruh proyek (hitung_ulang_penulangan).
 """
 
 import json
 
 from database.estimasi_repository import BUK_RATE, _connect
 from database.init_db import pastikan_skema
+from database.penulangan_repository import pasang_tipe, rapikan_tipe
 from database.seed_data import seed_pekerjaan
 from ifc_reader import buka_dan_validasi, ekstrak_elemen
 from klasifikasi import ElementType
 from rules import PARAMETER_DEFAULT, proses_semua, siapkan_konteks, terapkan_rules
+from rules.definitions import RULES
 from rules.dimensi import DimensiTidakValid, kolom_dimensi, turunkan_dari, validasi
 
 _KOLOM_ELEMEN = (
@@ -32,7 +36,9 @@ _KOLOM_ELEMEN = (
     "luas_bukaan",
     "sumber_volume",
     "sumber_dimensi",
+    "tipe_id",
 )
+RULES_PEMBESIAN = [r for r in RULES if r.kode.startswith("BSI.")]
 
 
 def _harga_dan_kode(conn):
@@ -46,6 +52,24 @@ def _harga_dan_kode(conn):
     }
     kode_ke_id = {r["kode_ahsp"]: r["id"] for r in conn.execute("SELECT id, kode_ahsp FROM pekerjaan")}
     return harga, kode_ke_id
+
+
+def _simpan_hasil(conn, proyek_id, elemen_id, hasil, harga, kode_ke_id, peringatan) -> int:
+    n = 0
+    for h in hasil:
+        pid = kode_ke_id.get(h.kode)
+        if pid is None:
+            peringatan.append(f"Kode pekerjaan '{h.kode}' belum ada di tabel pekerjaan (jalankan seed).")
+            continue
+        conn.execute(
+            """INSERT INTO hasil_estimasi
+                   (proyek_id, elemen_id, pekerjaan_id, volume_pekerjaan, subtotal_biaya, rumus, uraian, diameter)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (proyek_id, elemen_id, pid, h.volume, h.volume * harga.get(pid, 0.0), h.rumus,
+             h.uraian or None, h.diameter),
+        )
+        n += 1
+    return n
 
 
 def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=PARAMETER_DEFAULT) -> dict:
@@ -75,13 +99,13 @@ def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=PARAM
             model = buka_dan_validasi(row["path_file_ifc"], terisolasi=True).model
 
         elemen, peringatan = ekstrak_elemen(model, progress)
-        konteks, keluaran, dilewati = proses_semua(elemen, parameter)
-        peringatan.extend(dilewati)
-
         harga, kode_ke_id = _harga_dan_kode(conn)
 
         conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ?", (proyek_id,))
         conn.execute("DELETE FROM elemen_proyek WHERE proyek_id = ?", (proyek_id,))
+        pasang_tipe(conn, proyek_id, elemen, parameter.batas_kemiringan_dak)
+        konteks, keluaran, dilewati = proses_semua(elemen, parameter)
+        peringatan.extend(dilewati)
 
         kolom = ", ".join(_KOLOM_ELEMEN)
         tanda = ", ".join("?" * (len(_KOLOM_ELEMEN) + 1))
@@ -95,23 +119,9 @@ def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=PARAM
                 f"INSERT INTO elemen_proyek (proyek_id, {kolom}) VALUES ({tanda})",
                 (proyek_id, *nilai),
             )
-            elemen_id = cur.lastrowid
+            n_hasil += _simpan_hasil(conn, proyek_id, cur.lastrowid, hasil, harga, kode_ke_id, peringatan)
 
-            for h in hasil:
-                pid = kode_ke_id.get(h.kode)
-                if pid is None:
-                    peringatan.append(
-                        f"Kode pekerjaan '{h.kode}' belum ada di tabel pekerjaan (jalankan seed)."
-                    )
-                    continue
-                conn.execute(
-                    """INSERT INTO hasil_estimasi
-                           (proyek_id, elemen_id, pekerjaan_id, volume_pekerjaan, subtotal_biaya, rumus)
-                       VALUES (?,?,?,?,?,?)""",
-                    (proyek_id, elemen_id, pid, h.volume, h.volume * harga.get(pid, 0.0), h.rumus),
-                )
-                n_hasil += 1
-
+        rapikan_tipe(conn, proyek_id)
         conn.execute(
             "UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?",
             (proyek_id,),
@@ -194,6 +204,7 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=PARAMETER_DEFAU
             for r in conn.execute("SELECT * FROM elemen_proyek WHERE proyek_id = ?", (el["proyek_id"],))
         ]
         konteks = siapkan_konteks(semua)
+        pasang_tipe(conn, el["proyek_id"], [el], parameter.batas_kemiringan_dak)  # penampang bisa berubah
         hasil, dilewati = terapkan_rules(el, konteks, parameter)
 
         harga, kode_ke_id = _harga_dan_kode(conn)
@@ -201,28 +212,49 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=PARAMETER_DEFAU
                              "kemiringan", "luas_bukaan") if k in gabung]
         conn.execute(
             f"UPDATE elemen_proyek SET {', '.join(f'{k} = ?' for k in kolom)}, sumber_volume = ?, "
-            "sumber_dimensi = ?, dimensi_manual = 1 WHERE id = ?",
+            "sumber_dimensi = ?, dimensi_manual = 1, tipe_id = ? WHERE id = ?",
             (*[el[k] for k in kolom], el.get("sumber_volume"),
-             json.dumps(el["sumber_dimensi"], ensure_ascii=False), elemen_id),
+             json.dumps(el["sumber_dimensi"], ensure_ascii=False), el["tipe_id"], elemen_id),
         )
         conn.execute("DELETE FROM hasil_estimasi WHERE elemen_id = ?", (elemen_id,))
-        n = 0
-        for h in hasil:
-            pid = kode_ke_id.get(h.kode)
-            if pid is None:
-                dilewati.append(f"Kode pekerjaan '{h.kode}' belum ada di tabel pekerjaan.")
-                continue
-            conn.execute(
-                """INSERT INTO hasil_estimasi
-                       (proyek_id, elemen_id, pekerjaan_id, volume_pekerjaan, subtotal_biaya, rumus)
-                   VALUES (?,?,?,?,?,?)""",
-                (el["proyek_id"], elemen_id, pid, h.volume, h.volume * harga.get(pid, 0.0), h.rumus),
-            )
-            n += 1
+        n = _simpan_hasil(conn, el["proyek_id"], elemen_id, hasil, harga, kode_ke_id, dilewati)
+        rapikan_tipe(conn, el["proyek_id"])
         conn.execute(
             "UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (el["proyek_id"],)
         )
         conn.commit()
         return {"baris": n, "dilewati": dilewati, "berubah": berubah}
+    finally:
+        conn.close()
+
+
+def hitung_ulang_penulangan(proyek_id: int, parameter=PARAMETER_DEFAULT) -> dict:
+    """Hitung ulang seluruh pembesian proyek dari elemen tersimpan setelah tipe penulangan diubah.
+    Pekerjaan lain (beton, bekisting, dinding, ...) dan edit volumenya tidak tersentuh; baris
+    pembesian yang volumenya diedit manual diganti hasil perhitungan baru.
+    Return {"baris": jumlah baris pembesian, "berat": total kg}."""
+    conn = _connect()
+    try:
+        semua = [_baris_ke_elemen(r) for r in conn.execute(
+            "SELECT * FROM elemen_proyek WHERE proyek_id = ?", (proyek_id,)
+        )]
+        konteks = siapkan_konteks(semua)
+        pasang_tipe(conn, proyek_id, semua, parameter.batas_kemiringan_dak)
+        harga, kode_ke_id = _harga_dan_kode(conn)
+        conn.execute(
+            """DELETE FROM hasil_estimasi WHERE proyek_id = ? AND pekerjaan_id IN
+                   (SELECT id FROM pekerjaan WHERE kode_ahsp LIKE 'BSI.%')""",
+            (proyek_id,),
+        )
+        n, berat, catatan = 0, 0.0, []
+        for el in semua:
+            conn.execute("UPDATE elemen_proyek SET tipe_id = ? WHERE id = ?", (el["tipe_id"], el["id"]))
+            hasil, _ = terapkan_rules(el, konteks, parameter, RULES_PEMBESIAN)
+            n += _simpan_hasil(conn, proyek_id, el["id"], hasil, harga, kode_ke_id, catatan)
+            berat += sum(h.volume for h in hasil)
+        rapikan_tipe(conn, proyek_id)
+        conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (proyek_id,))
+        conn.commit()
+        return {"baris": n, "berat": berat}
     finally:
         conn.close()

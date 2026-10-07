@@ -23,7 +23,7 @@ from database.estimasi_repository import _connect
 from database.hspk_bandung_2027 import AHSP, HSD, SUMBER
 from database.init_db import pastikan_skema
 
-SEED_VERSI = "5-hspk-bdg-2027-rapat-27-agustus"
+SEED_VERSI = "6-hspk-bdg-2027-penulangan-per-diameter"
 
 SUMBER_HSPK = "HSPK Kota Bandung 2027"
 
@@ -33,20 +33,20 @@ PEMETAAN = {
     "FDN.BATUKALI": ("Pasangan Fondasi Batu Belah 1SP : 4PP", "Fondasi", "m3", "2.2.2.1.6"),
     "BTN.SUMURAN": ("Fondasi Sumuran Beton Masif", "Fondasi", "m3", "2.2.2.2.6"),
     "BTN.FONDASI": ("Beton Fondasi Telapak f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
-    "BSI.FONDASI": ("Pembesian Fondasi Telapak BjTS < 12 mm", "Fondasi", "kg", "2.2.1.1.1a"),
+    "BSI.FONDASI": ("Pembesian Fondasi Telapak (Asumsi Rasio kg/m³)", "Fondasi", "kg", "2.2.1.1.1a"),
     "BSK.FONDASI": ("Bekisting Fondasi Telapak", "Fondasi", "m2", "2.2.1.3.1"),
     "BTN.SLOOF": ("Beton Sloof f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
-    "BSI.SLOOF": ("Pembesian Sloof BjTS < 12 mm", "Fondasi", "kg", "2.2.1.1.3a"),
+    "BSI.SLOOF": ("Pembesian Sloof (Asumsi Rasio kg/m³)", "Fondasi", "kg", "2.2.1.1.3a"),
     "BSK.SLOOF": ("Bekisting Sloof", "Fondasi", "m2", "2.2.1.3.2"),
     # ---------------- Struktur beton ----------------
     "BTN.KOLOM": ("Beton Kolom f'c 20 MPa", "Beton", "m3", "2.2.1.4.5"),
     "BTN.BALOK": ("Beton Balok f'c 20 MPa", "Beton", "m3", "2.2.1.4.5"),
     "BTN.PELAT": ("Beton Pelat Lantai f'c 20 MPa", "Beton", "m3", "2.2.1.4.5"),
     "BTN.DAK": ("Beton Pelat Atap (Dak) f'c 20 MPa", "Beton", "m3", "2.2.1.4.5"),
-    "BSI.KOLOM": ("Pembesian Kolom BjTS < 12 mm", "Beton", "kg", "2.2.1.1.3a"),
-    "BSI.BALOK": ("Pembesian Balok BjTS < 12 mm", "Beton", "kg", "2.2.1.1.3a"),
-    "BSI.PELAT": ("Pembesian Pelat Lantai BjTS < 12 mm", "Beton", "kg", "2.2.1.1.1a"),
-    "BSI.DAK": ("Pembesian Pelat Atap (Dak) BjTS < 12 mm", "Beton", "kg", "2.2.1.1.1a"),
+    "BSI.KOLOM": ("Pembesian Kolom (Asumsi Rasio kg/m³)", "Beton", "kg", "2.2.1.1.3a"),
+    "BSI.BALOK": ("Pembesian Balok (Asumsi Rasio kg/m³)", "Beton", "kg", "2.2.1.1.3a"),
+    "BSI.PELAT": ("Pembesian Pelat Lantai (Asumsi Rasio kg/m³)", "Beton", "kg", "2.2.1.1.1a"),
+    "BSI.DAK": ("Pembesian Pelat Atap (Dak) (Asumsi Rasio kg/m³)", "Beton", "kg", "2.2.1.1.1a"),
     "BSK.KOLOM": ("Bekisting Kolom", "Beton", "m2", "2.2.1.3.3"),
     "BSK.BALOK": ("Bekisting Balok", "Beton", "m2", "2.2.1.3.4"),
     "BSK.PELAT": ("Bekisting Pelat Lantai", "Beton", "m2", "2.2.1.3.5"),
@@ -73,6 +73,20 @@ PEMETAAN = {
     # ---------------- Cat ----------------
     "CAT.DINDING": ("Pengecatan Tembok Baru (1 Lapis Cat Dasar, 2 Lapis Cat Penutup)", "Cat", "m2", "3.8.10.1"),
 }
+
+# Pembesian rinci per jenis baja (rules/penulangan.py): Ø < 12 mm = baja polos BjTP, D >= 12 mm =
+# baja ulir/sirip BjTS. Kolom/balok/sloof memakai analisa penulangan kolom-balok, pelat/dak/fondasi
+# telapak memakai analisa penulangan slab.
+for _grup, _nama, _kategori, _hspk_p, _hspk_u in (
+    ("KOLOM", "Kolom", "Beton", "2.2.1.1.3", "2.2.1.1.4a"),
+    ("BALOK", "Balok", "Beton", "2.2.1.1.3", "2.2.1.1.4a"),
+    ("SLOOF", "Sloof", "Fondasi", "2.2.1.1.3", "2.2.1.1.4a"),
+    ("PELAT", "Pelat Lantai", "Beton", "2.2.1.1.1", "2.2.1.1.2a"),
+    ("DAK", "Pelat Atap (Dak)", "Beton", "2.2.1.1.1", "2.2.1.1.2a"),
+    ("FONDASI", "Fondasi Telapak", "Fondasi", "2.2.1.1.1", "2.2.1.1.2a"),
+):
+    PEMETAAN[f"BSI.{_grup}.P"] = (f"Pembesian {_nama} Besi Polos (BjTP) Ø < 12 mm", _kategori, "kg", _hspk_p)
+    PEMETAAN[f"BSI.{_grup}.U"] = (f"Pembesian {_nama} Besi Ulir (BjTS) D ≥ 12 mm", _kategori, "kg", _hspk_u)
 
 # Bab 6.2 Sistem Air Limbah (data asli, di luar lingkup rule engine; tersedia untuk input manual)
 for _kode in [k for k in AHSP if k.startswith("6.2.")]:

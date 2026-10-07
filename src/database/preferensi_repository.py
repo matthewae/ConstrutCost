@@ -11,6 +11,9 @@ from pathlib import Path
 from database.estimasi_repository import _connect
 
 TEMA = ("gelap", "terang")
+ORIENTASI = ("portrait", "landscape")
+# KF-17: kolom laporan yang bisa dipilih (sama dengan export_service.KOLOM_OPSIONAL)
+KOLOM_LAPORAN = ("no", "kode", "harga", "bobot", "rumus")
 _AWALAN = "pref."  # kunci tersimpan: pref.tema, pref.direktori_ifc, ...
 
 
@@ -51,6 +54,14 @@ class Preferensi:
     format_pdf: bool = True
     isi_rekap: bool = True
     isi_detail: bool = True
+    isi_rinci: bool = True  # RAB rinci per tipe elemen
+    isi_besi: bool = True  # kebutuhan besi per diameter
+    kolom_laporan: str = "no,kode,harga"  # KF-17, dipisah koma
+    orientasi_pdf: str = "portrait"
+
+    @property
+    def kolom(self) -> tuple:
+        return tuple(k for k in self.kolom_laporan.split(",") if k in KOLOM_LAPORAN)
 
 
 def folder_default() -> str:
@@ -89,6 +100,8 @@ def muat_preferensi() -> Preferensi:
         setattr(p, f.name, nilai == "1" if f.type in (bool, "bool") else nilai)
     if p.tema not in TEMA:
         p.tema = "gelap"
+    if p.orientasi_pdf not in ORIENTASI:
+        p.orientasi_pdf = "portrait"
     if not p.direktori_export and lama:  # folder export terakhir dari versi sebelumnya
         p.direktori_export = lama["nilai"]
     return p
@@ -102,6 +115,11 @@ def validasi_preferensi(p: Preferensi) -> None:
             raise PreferensiTidakValid(f"{label} tidak ditemukan:\n{folder}")
     if not (p.format_excel or p.format_pdf):
         raise PreferensiTidakValid("Pilih minimal satu format laporan (Excel atau PDF).")
+    tidak_dikenal = [k for k in p.kolom_laporan.split(",") if k and k not in KOLOM_LAPORAN]
+    if tidak_dikenal:
+        raise PreferensiTidakValid(f"Kolom laporan tidak dikenal: {', '.join(tidak_dikenal)}")
+    if p.orientasi_pdf not in ORIENTASI:
+        raise PreferensiTidakValid("Orientasi PDF harus portrait atau landscape.")
 
 
 def simpan_preferensi(p: Preferensi) -> None:
@@ -112,6 +130,23 @@ def simpan_preferensi(p: Preferensi) -> None:
         conn.executemany(
             "INSERT OR REPLACE INTO preferensi_pengguna (kunci, nilai) VALUES (?, ?)",
             [(_AWALAN + k, _ke_teks(v)) for k, v in asdict(p).items()],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def simpan_pilihan_export(p: Preferensi) -> None:
+    """Ingat pilihan dialog Export (format, isi, kolom, orientasi) sebagai bawaan berikutnya.
+    Folder tidak divalidasi di sini; pengaturan lain tidak berubah."""
+    kunci = ("format_excel", "format_pdf", "isi_rekap", "isi_detail", "isi_rinci", "isi_besi",
+             "kolom_laporan", "orientasi_pdf", "direktori_export")
+    conn = _connect()
+    try:
+        _pastikan_tabel(conn)
+        conn.executemany(
+            "INSERT OR REPLACE INTO preferensi_pengguna (kunci, nilai) VALUES (?, ?)",
+            [(_AWALAN + k, _ke_teks(getattr(p, k))) for k in kunci],
         )
         conn.commit()
     finally:

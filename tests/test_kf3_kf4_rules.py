@@ -26,7 +26,9 @@ KONTEKS_TANPA_FONDASI = Konteks(False, 0.0, "ruang", "ruang")
 def test_kolom_beton_besi_bekisting():
     h, _ = _hasil(_el("COLUMN", lebar=0.3, tebal=0.3, tinggi=3.0, volume=0.27))
     assert h["BTN.KOLOM"].volume == pytest.approx(0.27)
-    assert h["BSI.KOLOM"].volume == pytest.approx(0.27 * P.rasio_besi_kolom)
+    # kolom 30/30 -> tipe bawaan 8 D16 + sengkang Ø10-150 (rincian di test_penulangan.py)
+    assert h["BSI.KOLOM.U"].uraian == "Tulangan utama 8 D16"
+    assert h["BSI.KOLOM.P"].uraian == "Sengkang Ø10-150"
     assert h["BSK.KOLOM"].volume == pytest.approx(2 * (0.3 + 0.3) * 3.0)
     assert "2 × (b + h) × H" in h["BSK.KOLOM"].rumus
 
@@ -71,7 +73,7 @@ def test_fondasi_menerus_model_jadi_batu_kali_dan_footplate_jadi_beton():
     h, _ = _hasil(_el("FOOTING", predefined_type="STRIP_FOOTING", volume=4.9, panjang=17, lebar=0.9, tebal=0.3))
     assert set(h) == {"FDN.BATUKALI"}
     h, _ = _hasil(_el("FOOTING", predefined_type="PAD_FOOTING", volume=0.36, panjang=1.2, lebar=1.2, tebal=0.25, keliling=4.8))
-    assert set(h) == {"BTN.FONDASI", "BSI.FONDASI", "BSK.FONDASI"}
+    assert set(h) == {"BTN.FONDASI", "BSI.FONDASI.U", "BSK.FONDASI"}
     assert h["BSK.FONDASI"].volume == pytest.approx(4.8 * 0.25)
 
 

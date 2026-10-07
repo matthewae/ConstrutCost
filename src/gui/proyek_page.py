@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from database.estimasi_repository import PPN_RATE
 from database.harga_repository import jumlah_estimasi_kedaluwarsa, terapkan_ke_estimasi
 from database.preferensi_repository import folder_ifc, muat_preferensi
 from database.proyek_repository import create_proyek, delete_proyek, get_all_proyek
@@ -151,7 +150,7 @@ class ProyekPage(QWidget):
         self.baris_stat.setVisible(ada)
         self.baris_cari.setVisible(ada)
 
-        total_nilai = sum(p["subtotal_rab"] for p in self._semua) * (1 + PPN_RATE)
+        total_nilai = sum(p["total_rab"] for p in self._semua)
         dengan_ifc = sum(1 for p in self._semua if p["path_file_ifc"])
         self.stat_total.set_data(str(len(self._semua)), f"{dengan_ifc} proyek dengan file IFC")
         self.stat_nilai.set_data(tema.format_rupiah(total_nilai), "termasuk PPN 11%")
@@ -196,7 +195,7 @@ class ProyekPage(QWidget):
                 file.setForeground(QColor(tema.W["peringatan"]))
                 file.setToolTip(f"File tidak ditemukan:\n{path}")
             elemen = _SelAngka(str(p["jumlah_elemen"]) if p["jumlah_elemen"] else "-", p["jumlah_elemen"])
-            nilai = p["subtotal_rab"] * (1 + PPN_RATE)
+            nilai = p["total_rab"]
             total = _SelAngka(tema.format_rupiah(nilai) if nilai else "Belum dihitung", nilai)
             if not nilai:
                 total.setForeground(QColor(tema.W["teks_samar"]))
