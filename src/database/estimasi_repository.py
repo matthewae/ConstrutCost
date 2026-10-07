@@ -36,16 +36,31 @@ def get_hasil_estimasi_by_proyek(proyek_id: int):
                 he.volume_pekerjaan,
                 he.subtotal_biaya,
                 he.diedit_manual,
+                he.rumus,
+                p.kode_ahsp,
                 p.nama_pekerjaan,
                 p.kategori,
                 p.satuan,
                 ep.nama AS nama_elemen,
-                ep.lantai
+                ep.lantai,
+                ep.kelas,
+                ep.ifc_type,
+                ep.global_id,
+                ep.panjang,
+                ep.lebar,
+                ep.tinggi,
+                ep.tebal,
+                ep.luas,
+                ep.volume AS volume_elemen,
+                ep.keliling,
+                ep.kemiringan,
+                ep.luas_bukaan,
+                ep.sumber_dimensi
             FROM hasil_estimasi he
             JOIN pekerjaan p ON p.id = he.pekerjaan_id
             LEFT JOIN elemen_proyek ep ON ep.id = he.elemen_id
             WHERE he.proyek_id = ?
-            ORDER BY p.kategori, p.nama_pekerjaan
+            ORDER BY p.kategori, p.nama_pekerjaan, ep.lantai, ep.nama
             """,
             (proyek_id,),
         ).fetchall()

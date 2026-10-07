@@ -1,7 +1,7 @@
 """
 Splash screen CostStruct — tampil sebentar saat aplikasi dibuka,
 sambil melakukan pengecekan awal (koneksi database) sebelum
-masuk ke Dashboard.
+masuk ke jendela utama.
 
 Peningkatan dari versi sebelumnya:
 - Kartu bergradasi dengan sudut membulat dan bayangan (drop shadow)
@@ -29,12 +29,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRectF
 from PySide6.QtGui import QColor, QPainter, QLinearGradient, QBrush, QPen
 
-from database.init_db import init_db
+from database.init_db import siapkan_database
 from database.proyek_repository import get_all_proyek
-from gui.dashboard_window import DashboardWindow
+from gui import tema
+from gui.main_window import VERSI_APLIKASI, MainWindow
 
 
-VERSI_APLIKASI = "v1.1.3"
 
 # Tahapan loading yang ditampilkan ke user.
 # Format: (persen_selesai, teks_status)
@@ -277,7 +277,7 @@ class SplashScreen(QWidget):
         # Tahap pertama sekalian jadi pengecekan nyata: siapkan & pastikan DB bisa diakses.
         if self._tahap_index == 0:
             try:
-                init_db()  # idempotent: membuat / melengkapi skema bila belum ada
+                siapkan_database()  # idempotent: skema + data master harga
                 get_all_proyek()
             except Exception as e:
                 self.timer.stop()
@@ -295,13 +295,14 @@ class SplashScreen(QWidget):
         self._tahap_index += 1
 
     def _buka_dashboard(self):
-        self.dashboard = DashboardWindow()
+        self.dashboard = MainWindow()
         self.dashboard.show()
         self.close()
 
 
 def main():
     app = QApplication(sys.argv)
+    tema.terapkan(app)
     splash = SplashScreen()
     splash.show()
     sys.exit(app.exec())

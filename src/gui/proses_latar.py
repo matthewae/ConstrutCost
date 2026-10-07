@@ -13,19 +13,6 @@ Exception dari fungsi diteruskan ke pemanggil apa adanya.
 from PySide6.QtCore import QEventLoop, QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import QProgressDialog
 
-STYLE_SHEET = """
-QProgressDialog { background-color: #152030; }
-QLabel { color: #e4ebf2; background: transparent; font-size: 13px; }
-QProgressBar {
-    background-color: #1b2937;
-    border: 1px solid #2f4458;
-    border-radius: 6px;
-    height: 14px;
-    text-align: center;
-    color: #e4ebf2;
-}
-QProgressBar::chunk { background-color: #4f9df7; border-radius: 5px; }
-"""
 
 
 class _Pekerja(QObject):
@@ -66,7 +53,6 @@ class _Penerima(QObject):
 def jalankan_di_latar(parent, judul: str, fungsi, *args, pakai_progress=False, **kwargs):
     dialog = QProgressDialog(judul, None, 0, 0, parent)
     dialog.setWindowTitle("CostStruct")
-    dialog.setStyleSheet(STYLE_SHEET)
     dialog.setWindowModality(Qt.WindowModal)
     dialog.setCancelButton(None)  # proses tidak dapat dibatalkan di tengah jalan
     dialog.setMinimumDuration(0)

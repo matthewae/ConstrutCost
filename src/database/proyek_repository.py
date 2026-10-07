@@ -10,14 +10,21 @@ def get_all_proyek():
     try:
         rows = conn.execute(
             """
-            SELECT id, nama_proyek, path_file_ifc, tanggal_dibuat, tanggal_diubah
-            FROM proyek
-            ORDER BY tanggal_diubah DESC, id DESC
+            SELECT p.id, p.nama_proyek, p.path_file_ifc, p.tanggal_dibuat, p.tanggal_diubah,
+                   (SELECT COUNT(*) FROM elemen_proyek e WHERE e.proyek_id = p.id) AS jumlah_elemen,
+                   (SELECT COALESCE(SUM(h.subtotal_biaya), 0) FROM hasil_estimasi h
+                     WHERE h.proyek_id = p.id) AS subtotal_rab
+            FROM proyek p
+            ORDER BY p.tanggal_diubah DESC, p.id DESC
             """
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
+
+
+def get_proyek(proyek_id: int) -> dict | None:
+    return next((p for p in get_all_proyek() if p["id"] == proyek_id), None)
 
 
 def create_proyek(nama_proyek: str, path_file_ifc: str | None = None) -> int:

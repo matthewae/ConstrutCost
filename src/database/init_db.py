@@ -24,6 +24,7 @@ KOLOM_TAMBAHAN = {
         "sumber_dimensi": "TEXT",
     },
     "hasil_estimasi": {"rumus": "TEXT"},
+    "komponen_harga": {"sumber_daya_id": "INTEGER REFERENCES sumber_daya(id)"},
 }
 
 
@@ -45,6 +46,14 @@ def init_db():
         pastikan_skema(conn)
     finally:
         conn.close()
+
+
+def siapkan_database():
+    """Skema + data master pekerjaan & harga. Dipanggil saat aplikasi dibuka."""
+    from database.seed_data import seed_pekerjaan
+
+    init_db()
+    seed_pekerjaan()
 
 
 if __name__ == "__main__":

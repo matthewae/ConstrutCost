@@ -8,6 +8,33 @@ CREATE TABLE IF NOT EXISTS pekerjaan (
     catatan TEXT
 );
 
+-- sumber_daya: daftar harga satuan dasar bahan / upah / alat (KF-5).
+-- Satu baris dipakai bersama oleh semua analisa pekerjaan, jadi harga semen cukup diubah sekali.
+CREATE TABLE IF NOT EXISTS sumber_daya (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipe TEXT NOT NULL CHECK (tipe IN ('bahan', 'upah', 'alat')),
+    nama TEXT NOT NULL,
+    satuan TEXT NOT NULL,
+    harga REAL NOT NULL CHECK (harga >= 0),
+    harga_bawaan REAL,             -- harga dari seed; NULL untuk sumber daya tambahan pengguna
+    merk TEXT,
+    sumber TEXT,                   -- 'HSPK Kota Bandung 2027', 'Placeholder', 'Pengguna'
+    diubah_manual INTEGER DEFAULT 0,
+    tanggal_diubah TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (tipe, nama, satuan)
+);
+
+-- riwayat_harga: jejak setiap perubahan harga / merk dasar
+CREATE TABLE IF NOT EXISTS riwayat_harga (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sumber_daya_id INTEGER NOT NULL REFERENCES sumber_daya(id),
+    harga_lama REAL,
+    harga_baru REAL,
+    merk_lama TEXT,
+    merk_baru TEXT,
+    waktu TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 -- komponen_harga: rincian bahan/upah/alat per pekerjaan, sesuai struktur AHSP/SNI
 CREATE TABLE IF NOT EXISTS komponen_harga (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -16,8 +43,9 @@ CREATE TABLE IF NOT EXISTS komponen_harga (
     nama_komponen TEXT NOT NULL,   -- 'Semen PC 50kg', 'Tukang Batu', 'Molen'
     satuan TEXT NOT NULL,
     koefisien REAL NOT NULL,       -- indeks dari AHSP/SNI
-    harga_satuan REAL NOT NULL,    -- bisa diedit user (KF-5)
-    diubah_manual INTEGER DEFAULT 0
+    harga_satuan REAL NOT NULL,    -- salinan sumber_daya.harga, disinkronkan saat harga diubah
+    diubah_manual INTEGER DEFAULT 0,  -- 1 = komponen tambahan pengguna (tidak ditimpa seed)
+    sumber_daya_id INTEGER REFERENCES sumber_daya(id)
 );
 
 -- proyek: setiap proyek yang dibuat/dibuka user (KF-7, KF-9)

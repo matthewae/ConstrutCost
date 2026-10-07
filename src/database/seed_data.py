@@ -12,13 +12,17 @@ SUMBER DATA
   perlu diverifikasi. Kebutuhan keramik & genteng per m2 diturunkan dari rumus BAB II (rules/parameter.py).
 
 Naikkan SEED_VERSI setiap kali isi SEED diubah; seed otomatis diperbarui saat aplikasi berjalan.
-Komponen yang sudah diedit pengguna (diubah_manual = 1) tidak ditimpa.
+Bahan/upah/alat disimpan sekali di tabel sumber_daya (daftar harga dasar, KF-5) lalu ditautkan ke
+komponen setiap pekerjaan. Harga dasar yang diubah pengguna dan komponen tambahan pengguna tidak ditimpa.
 """
 
+import sqlite3
+
 from database.estimasi_repository import _connect
+from database.init_db import pastikan_skema
 from rules.parameter import PARAMETER_DEFAULT as _P
 
-SEED_VERSI = "3-kf234-lingkup-rumah"
+SEED_VERSI = "4-kf5-harga-dasar"
 
 # --- Tarif upah HSPK Kota Bandung 2027 (Rp/OH) ---
 UPAH = {
@@ -386,13 +390,49 @@ for _kode, (_uraian, _sat, _lab, _bahan, _f) in HSPK_AIR_LIMBAH.items():
 HARGA_HSPK_REFERENSI = {k: v[4] for k, v in HSPK_AIR_LIMBAH.items()}  # untuk verifikasi
 
 
+def _sumber_harga(tipe: str, nama: str) -> str:
+    if "[PLACEHOLDER]" in nama:
+        return "Placeholder"
+    if "proxy" in nama.lower():
+        return "Proxy HSPK"
+    return "HSPK Kota Bandung 2027"
+
+
+def _upsert_sumber_daya(conn, tipe, nama, satuan, harga) -> sqlite3.Row:
+    """Sumber daya dari seed. Harga yang sudah diubah pengguna (diubah_manual = 1) tidak ditimpa;
+    harga_bawaan selalu diperbarui supaya tombol 'kembalikan ke bawaan' memakai angka terbaru."""
+    row = conn.execute(
+        "SELECT id, harga, diubah_manual FROM sumber_daya WHERE tipe=? AND nama=? AND satuan=?",
+        (tipe, nama, satuan),
+    ).fetchone()
+    if row is None:
+        conn.execute(
+            "INSERT INTO sumber_daya (tipe, nama, satuan, harga, harga_bawaan, sumber) VALUES (?,?,?,?,?,?)",
+            (tipe, nama, satuan, harga, harga, _sumber_harga(tipe, nama)),
+        )
+    elif row["diubah_manual"]:
+        conn.execute("UPDATE sumber_daya SET harga_bawaan=? WHERE id=?", (harga, row["id"]))
+    else:
+        conn.execute(
+            "UPDATE sumber_daya SET harga=?, harga_bawaan=?, sumber=? WHERE id=?",
+            (harga, harga, _sumber_harga(tipe, nama), row["id"]),
+        )
+    return conn.execute(
+        "SELECT id, harga FROM sumber_daya WHERE tipe=? AND nama=? AND satuan=?",
+        (tipe, nama, satuan),
+    ).fetchone()
+
+
 def seed_pekerjaan():
-    """Idempotent. Hanya bekerja bila SEED_VERSI di database berbeda."""
+    """Idempotent. Hanya bekerja bila SEED_VERSI di database berbeda.
+
+    Komponen bawaan setiap pekerjaan dibangun ulang dan ditautkan ke daftar harga dasar
+    (sumber_daya). Harga dasar yang diubah pengguna dan komponen tambahan pengguna
+    (komponen_harga.diubah_manual = 1) dipertahankan.
+    """
     conn = _connect()
     try:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS preferensi_pengguna (kunci TEXT PRIMARY KEY, nilai TEXT)"
-        )
+        pastikan_skema(conn)
         row = conn.execute(
             "SELECT nilai FROM preferensi_pengguna WHERE kunci = 'seed_versi'"
         ).fetchone()
@@ -409,13 +449,9 @@ def seed_pekerjaan():
                     "UPDATE pekerjaan SET nama_pekerjaan=?, kategori=?, satuan=?, catatan=? WHERE id=?",
                     (nama, kategori, satuan, catatan, pid),
                 )
-                if conn.execute(
-                    "SELECT 1 FROM komponen_harga WHERE pekerjaan_id=? AND diubah_manual=1 LIMIT 1",
-                    (pid,),
-                ).fetchone():
-                    continue  # jangan timpa edit pengguna (KF-5)
                 conn.execute(
-                    "DELETE FROM komponen_harga WHERE pekerjaan_id = ?", (pid,)
+                    "DELETE FROM komponen_harga WHERE pekerjaan_id = ? AND COALESCE(diubah_manual, 0) = 0",
+                    (pid,),
                 )
             else:
                 pid = conn.execute(
@@ -423,10 +459,11 @@ def seed_pekerjaan():
                     (kode, nama, kategori, satuan, catatan),
                 ).lastrowid
             for tipe, nm, sk, koef, harga in komponen:
+                sd = _upsert_sumber_daya(conn, tipe, nm, sk, harga)
                 conn.execute(
-                    "INSERT INTO komponen_harga (pekerjaan_id, tipe, nama_komponen, satuan, koefisien, harga_satuan) "
-                    "VALUES (?,?,?,?,?,?)",
-                    (pid, tipe, nm, sk, koef, harga),
+                    "INSERT INTO komponen_harga (pekerjaan_id, tipe, nama_komponen, satuan, koefisien, "
+                    "harga_satuan, sumber_daya_id) VALUES (?,?,?,?,?,?,?)",
+                    (pid, tipe, nm, sk, koef, sd["harga"], sd["id"]),
                 )
 
         conn.execute(

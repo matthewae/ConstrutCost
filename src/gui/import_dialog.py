@@ -20,29 +20,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from gui.export_dialog import STYLE_SHEET as _STYLE_DASAR
 from klasifikasi import LABEL, ElementType
 
-STYLE_SHEET = _STYLE_DASAR.replace("__CENTANG__", "none") + """
-QLabel#peringatan { color: #f5b84f; font-size: 12px; }
-QTableWidget {
-    background-color: #1b2937;
-    border: 1px solid #27394b;
-    border-radius: 10px;
-    gridline-color: transparent;
-    alternate-background-color: #1e2d3d;
-}
-QTableWidget::item { padding: 4px 10px; }
-QHeaderView::section {
-    background-color: #1b2937;
-    color: #7d92a8;
-    padding: 8px 10px;
-    border: none;
-    border-bottom: 1px solid #27394b;
-    font-weight: 700;
-    font-size: 11px;
-}
-"""
 
 # Kelas yang menghasilkan pekerjaan struktur/arsitektur utama.
 KELAS_UTAMA = {
@@ -68,16 +47,15 @@ class RingkasanImportDialog(QDialog):
         self.setWindowTitle("Import File IFC")
         self.setModal(True)
         self.setMinimumWidth(560)
-        self.setStyleSheet(STYLE_SHEET)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 24, 28, 22)
         root.setSpacing(12)
 
         judul = QLabel("Konfirmasi Import File IFC")
-        judul.setObjectName("judulApp")
+        judul.setObjectName("judulHalaman")
         sub = QLabel("File valid. Periksa ringkasan di bawah, lalu tekan Import untuk memproses.")
-        sub.setObjectName("subjudulApp")
+        sub.setObjectName("subjudul")
         sub.setWordWrap(True)
         root.addWidget(judul)
         root.addWidget(sub)

@@ -1,0 +1,694 @@
+"""
+Halaman Hasil Estimasi QTO & RAB satu proyek (UC-02 / UC-03).
+
+- Mode "Rekap RAB": item pekerjaan digabung per kategori, seperti dokumen RAB.
+- Mode "Detail per elemen": satu baris per elemen x pekerjaan; volume bisa diedit (KF-6)
+  dan subtotal / total dihitung ulang otomatis.
+- Panel kanan menampilkan rincian baris terpilih: dimensi elemen beserta asalnya dan
+  uraian rumus (rekap: analisa harga satuan pekerjaan).
+- Banner bila ada harga satuan yang berubah (KF-5) atau harga nol (UC-02 alternatif).
+"""
+
+import json
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QButtonGroup,
+    QComboBox,
+    QDoubleSpinBox,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSplitter,
+    QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from database.estimasi_repository import (
+    PPN_RATE,
+    get_hasil_estimasi_by_proyek,
+    update_volume_estimasi,
+)
+from database.harga_repository import LABEL_TIPE, analisa_pekerjaan, terapkan_ke_estimasi
+from database.proyek_repository import get_proyek
+from estimasi_service import jalankan_estimasi
+from export_service import kelompokkan
+from gui import tema
+from gui.export_dialog import ExportDialog
+from gui.import_dialog import tampilkan_hasil_proses
+from gui.proses_latar import jalankan_di_latar
+from klasifikasi import LABEL, ElementType
+
+SEMUA_KATEGORI = "Semua kategori"
+LABEL_DIMENSI = [
+    ("panjang", "Panjang (L)", "m"),
+    ("lebar", "Lebar (B)", "m"),
+    ("tinggi", "Tinggi (H)", "m"),
+    ("tebal", "Tebal (t)", "m"),
+    ("luas", "Luas (A)", "m²"),
+    ("volume_elemen", "Volume (V)", "m³"),
+    ("keliling", "Keliling", "m"),
+    ("kemiringan", "Kemiringan", "°"),
+    ("luas_bukaan", "Luas bukaan", "m²"),
+]
+LABEL_SUMBER = {"qto": "Qto IFC", "geometri": "Geometri", "atribut": "Atribut IFC", "turunan": "Turunan"}
+
+
+class SpinVolume(QDoubleSpinBox):
+    """Kolom volume: rata kanan, tanpa panah, dan tidak berubah karena scroll kecuali sedang difokuskan."""
+
+    def __init__(self, nilai: float, satuan: str):
+        super().__init__()
+        self.setRange(0, 10_000_000)
+        self.setDecimals(3)
+        if satuan:
+            self.setSuffix(f" {satuan}")
+        self.setGroupSeparatorShown(True)
+        self.setValue(nilai)
+        self.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setKeyboardTracking(False)
+        self.setToolTip("Klik lalu ketik volume baru, tekan Enter untuk menyimpan")
+
+    def wheelEvent(self, event):
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        QTimer.singleShot(0, self.selectAll)
+
+
+class EstimasiPage(QWidget):
+    minta_kembali = Signal()
+    minta_harga = Signal(object)  # pekerjaan_id atau None
+
+    MODE_REKAP, MODE_DETAIL = 0, 1
+    HAL_TABEL, HAL_KOSONG, HAL_TIDAK_ADA = range(3)
+
+    def __init__(self, proyek_id: int, nama_proyek: str, parent=None):
+        super().__init__(parent)
+        self.setObjectName("halaman")
+        self.proyek_id = proyek_id
+        self.nama_proyek = nama_proyek
+        self._data = []
+        self._index = {}
+        self._warna_kategori = {}
+        self._volume_terakhir = {}
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(32, 22, 32, 20)
+        root.setSpacing(14)
+
+        # --- Header ---
+        kepala = QHBoxLayout()
+        kepala.setSpacing(10)
+        btn_kembali = tema.tombol("Proyek", "ghost", "kembali", "Kembali ke daftar proyek (Esc)")
+        btn_kembali.clicked.connect(self.minta_kembali.emit)
+        kol, self.label_judul, self.label_sub = tema.header_halaman(nama_proyek, "")
+        kepala.addWidget(btn_kembali, alignment=Qt.AlignTop)
+        kepala.addSpacing(6)
+        kepala.addLayout(kol)
+        kepala.addStretch()
+        self.btn_ulang = tema.tombol(
+            "Hitung Ulang dari IFC", "secondary", "ulang",
+            "Baca ulang file IFC lalu jalankan rule engine. Volume yang diedit manual akan diganti.",
+        )
+        self.btn_ulang.clicked.connect(self._hitung_ulang)
+        self.btn_export = tema.tombol("Export RAB", "primary", "unduh", "Export ke Excel / PDF (Ctrl+E)")
+        self.btn_export.clicked.connect(self._buka_export)
+        kepala.addWidget(self.btn_ulang, alignment=Qt.AlignTop)
+        kepala.addWidget(self.btn_export, alignment=Qt.AlignTop)
+        root.addLayout(kepala)
+
+        self.banner_harga = tema.Banner("info")
+        self.banner_nol = tema.Banner("peringatan")
+        root.addWidget(self.banner_harga)
+        root.addWidget(self.banner_nol)
+
+        # --- Kartu ringkasan ---
+        self.baris_kartu = QWidget()
+        kartu = QHBoxLayout(self.baris_kartu)
+        kartu.setContentsMargins(0, 0, 0, 0)
+        kartu.setSpacing(14)
+        self.k_subtotal = tema.KartuStat("Subtotal RAB")
+        self.k_ppn = tema.KartuStat(f"PPN {PPN_RATE:.0%}")
+        self.k_total = tema.KartuStat("Total RAB", utama=True)
+        self.k_item = tema.KartuStat("Item Pekerjaan")
+        for k in (self.k_subtotal, self.k_ppn, self.k_total, self.k_item):
+            kartu.addWidget(k, stretch=1)
+        root.addWidget(self.baris_kartu)
+
+        # --- Toolbar: mode + cari + kategori ---
+        self.baris_alat = QWidget()
+        alat = QHBoxLayout(self.baris_alat)
+        alat.setContentsMargins(0, 0, 0, 0)
+        alat.setSpacing(10)
+        self.grup_mode = QButtonGroup(self)
+        for i, (teks, posisi, tip) in enumerate((
+            ("Rekap RAB", "kiri", "Item pekerjaan digabung per kategori, seperti dokumen RAB"),
+            ("Detail per Elemen", "kanan", "Satu baris per elemen; volume bisa diedit"),
+        )):
+            b = QPushButton(teks)
+            b.setObjectName("segmen")
+            b.setProperty("posisi", posisi)
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(tip)
+            self.grup_mode.addButton(b, i)
+            alat.addWidget(b)
+        alat.setSpacing(0)
+        self.grup_mode.button(self.MODE_REKAP).setChecked(True)
+        self.grup_mode.idClicked.connect(lambda _: self._isi_ulang())
+        alat.addSpacing(14)
+        self.kolom_cari = QLineEdit()
+        self.kolom_cari.setPlaceholderText("Cari pekerjaan, elemen, atau lantai...   (Ctrl+F)")
+        self.kolom_cari.setClearButtonEnabled(True)
+        self.kolom_cari.textChanged.connect(self._isi_ulang)
+        alat.addWidget(self.kolom_cari, stretch=1)
+        alat.addSpacing(10)
+        self.combo_kategori = QComboBox()
+        self.combo_kategori.setMinimumWidth(170)
+        self.combo_kategori.currentIndexChanged.connect(self._isi_ulang)
+        alat.addWidget(self.combo_kategori)
+        alat.addSpacing(10)
+        self.label_jumlah = tema.label("", "subjudul")
+        alat.addWidget(self.label_jumlah)
+        root.addWidget(self.baris_alat)
+
+        # --- Konten: tabel + panel rincian ---
+        self.stack = QStackedWidget()
+        root.addWidget(self.stack, stretch=1)
+
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(14)
+        self.tabel = QTableWidget()
+        self.tabel.itemSelectionChanged.connect(self._tampilkan_rincian)
+        self.splitter.addWidget(self.tabel)
+        self.panel = PanelRincian(self)
+        self.panel.minta_harga.connect(self.minta_harga.emit)
+        self.splitter.addWidget(self.panel)
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 0)
+        self.splitter.setSizes([840, 320])
+        self.stack.addWidget(self.splitter)
+
+        self.stack.addWidget(
+            tema.KondisiKosong(
+                "Belum ada hasil estimasi",
+                "Parsing IFC dan rule engine untuk proyek ini belum dijalankan, atau model tidak "
+                "berisi elemen struktural.",
+                "Jalankan Estimasi dari File IFC",
+                self._jalankan_estimasi,
+                simbol="ulang",
+            )
+        )
+        self.kosong_cari = tema.KondisiKosong(
+            "Item tidak ditemukan", 'Ubah kata kunci atau pilih "Semua kategori".', simbol="file"
+        )
+        self.stack.addWidget(self.kosong_cari)
+
+        self.label_petunjuk = tema.label("", "petunjuk")
+        root.addWidget(self.label_petunjuk)
+
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=self._fokus_cari)
+        QShortcut(QKeySequence("Ctrl+E"), self, activated=self._pintasan_export)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.minta_kembali.emit)
+
+        self.muat()
+
+    # ---------------------------------------------------------------- data
+
+    @property
+    def mode(self) -> int:
+        return self.grup_mode.checkedId()
+
+    def muat(self):
+        self._data = [dict(r) for r in get_hasil_estimasi_by_proyek(self.proyek_id)]
+        for r in self._data:
+            v = r["volume_pekerjaan"]
+            r["harga_satuan"] = r["subtotal_biaya"] / v if v else 0.0
+        self._index = {r["hasil_id"]: r for r in self._data}
+
+        proyek = get_proyek(self.proyek_id) or {}
+        path = proyek.get("path_file_ifc")
+        bagian = [Path(path).name if path else "Tanpa file IFC"]
+        if proyek.get("jumlah_elemen"):
+            bagian.append(f"{proyek['jumlah_elemen']} elemen")
+        self.label_sub.setText("  ·  ".join(bagian) + "  ·  Hasil Quantity Take-Off & RAB")
+
+        ada = bool(self._data)
+        for w in (self.baris_kartu, self.baris_alat, self.label_petunjuk):
+            w.setVisible(ada)
+        self.btn_export.setEnabled(ada)
+        self.btn_ulang.setVisible(ada)
+        if not ada:
+            self.banner_harga.hide()
+            self.banner_nol.hide()
+            self.stack.setCurrentIndex(self.HAL_KOSONG)
+            return
+
+        kategori = sorted({r["kategori"] for r in self._data if r["kategori"]})
+        self._warna_kategori = {
+            k: tema.WARNA_KATEGORI[i % len(tema.WARNA_KATEGORI)] for i, k in enumerate(kategori)
+        }
+        lama = self.combo_kategori.currentText()
+        self.combo_kategori.blockSignals(True)
+        self.combo_kategori.clear()
+        self.combo_kategori.addItem(SEMUA_KATEGORI)
+        self.combo_kategori.addItems(kategori)
+        idx = self.combo_kategori.findText(lama)
+        self.combo_kategori.setCurrentIndex(max(idx, 0))
+        self.combo_kategori.blockSignals(False)
+
+        self._perbarui_banner()
+        self._perbarui_ringkasan()
+        self._isi_ulang()
+
+    def _perbarui_banner(self):
+        from database.harga_repository import daftar_pekerjaan
+
+        harga_kini = {p["id"]: p["harga_satuan"] for p in daftar_pekerjaan()}
+        beda = {
+            r["pekerjaan_id"] for r in self._data
+            if r["volume_pekerjaan"] and abs(r["harga_satuan"] - harga_kini.get(r["pekerjaan_id"], 0)) > 0.5
+        }
+        if beda:
+            self.banner_harga.tampilkan(
+                f"Harga satuan {len(beda)} item pekerjaan sudah berubah sejak estimasi ini dihitung.",
+                "Terapkan Harga Terbaru",
+                self._terapkan_harga,
+            )
+        else:
+            self.banner_harga.hide()
+
+        nol = sorted({r["nama_pekerjaan"] for r in self._data if harga_kini.get(r["pekerjaan_id"], 0) <= 0})
+        if nol:
+            self.banner_nol.tampilkan(
+                f"{len(nol)} item pekerjaan belum punya harga satuan: {', '.join(nol[:3])}"
+                + ("..." if len(nol) > 3 else ""),
+                "Perbaiki Harga",
+                lambda: self.minta_harga.emit(None),
+            )
+        else:
+            self.banner_nol.hide()
+
+    def _terapkan_harga(self):
+        terapkan_ke_estimasi(self.proyek_id)
+        self.muat()
+        tema.toast(self, "Harga satuan terbaru diterapkan")
+
+    def _perbarui_ringkasan(self):
+        subtotal = sum(r["subtotal_biaya"] for r in self._data)
+        ppn = subtotal * PPN_RATE
+        self.k_subtotal.set_data(tema.format_rupiah(subtotal), "sebelum PPN, termasuk BUK 10%")
+        self.k_ppn.set_data(tema.format_rupiah(ppn), "pajak pertambahan nilai")
+        self.k_total.set_data(tema.format_rupiah(subtotal + ppn), "termasuk PPN")
+        n_pekerjaan = len({r["pekerjaan_id"] for r in self._data})
+        manual = sum(1 for r in self._data if r["diedit_manual"])
+        ket = f"{len(self._data)} baris elemen"
+        ket += f", {manual} diedit manual" if manual else ", semua otomatis dari IFC"
+        self.k_item.set_data(str(n_pekerjaan), ket)
+
+    def _cocok(self, r, kata: str, kategori: str) -> bool:
+        if kategori and kategori != SEMUA_KATEGORI and r["kategori"] != kategori:
+            return False
+        if not kata:
+            return True
+        teks = " ".join(str(r[k] or "") for k in ("nama_pekerjaan", "nama_elemen", "lantai", "kode_ahsp"))
+        return kata in teks.lower()
+
+    def _isi_ulang(self, *_):
+        if not self._data:
+            return
+        kata = self.kolom_cari.text().strip().lower()
+        kategori = self.combo_kategori.currentText()
+        baris = [r for r in self._data if self._cocok(r, kata, kategori)]
+        if self.mode == self.MODE_REKAP:
+            n = self._isi_rekap(baris)
+            satuan = "item pekerjaan"
+            self.label_petunjuk.setText(
+                "Volume tiap pekerjaan adalah jumlah dari semua elemen. "
+                "Pilih baris untuk melihat analisa harga satuannya."
+            )
+        else:
+            n = self._isi_detail(baris)
+            satuan = "baris"
+            self.label_petunjuk.setText(
+                "Klik angka di kolom Volume untuk mengubahnya, lalu tekan Enter. "
+                "Subtotal dan total dihitung ulang otomatis."
+            )
+        self.label_jumlah.setText(f"{n} {satuan}")
+        self.stack.setCurrentIndex(self.HAL_TABEL if baris else self.HAL_TIDAK_ADA)
+        self.panel.kosongkan()
+
+    # ---------------------------------------------------------------- mode rekap
+
+    def _isi_rekap(self, baris) -> int:
+        t = self.tabel
+        t.clearSpans()
+        t.clear()
+        tema.siapkan_tabel(
+            t, ["NO", "URAIAN PEKERJAAN", "VOLUME", "SAT", "HARGA SATUAN", "JUMLAH HARGA", "%"],
+            rata_kanan=(2, 4, 5, 6), tinggi_baris=38,
+        )
+        kelompok = kelompokkan(baris) if baris else []
+        total = sum(k["total"] for k in kelompok) or 1.0
+        id_pekerjaan = {r["kode_ahsp"]: r["pekerjaan_id"] for r in baris}
+        jumlah_baris = sum(len(k["items"]) + 2 for k in kelompok)
+        t.setRowCount(jumlah_baris)
+        r = 0
+        n_item = 0
+        for i, k in enumerate(kelompok, 1):
+            warna = self._warna_kategori.get(k["kategori"], tema.W["teks"])
+            t.setItem(r, 0, tema.sel(_romawi(i), warna=warna, tebal=True))
+            t.setItem(r, 1, tema.sel(k["kategori"].upper(), warna=warna, tebal=True))
+            t.setSpan(r, 1, 1, 6)
+            r += 1
+            for n, it in enumerate(k["items"], 1):
+                n_item += 1
+                pid = id_pekerjaan.get(it["kode"])
+                t.setItem(r, 0, tema.sel(str(n), warna=tema.W["teks_samar"], data=("rekap", pid)))
+                t.setItem(r, 1, tema.sel(it["nama"], tooltip=f"{it['kode']} — {it['nama']}"))
+                t.setItem(r, 2, tema.sel(tema.format_angka(it["volume"], 2), "kanan"))
+                t.setItem(r, 3, tema.sel(it["satuan"], "tengah", tema.W["teks_redup"]))
+                t.setItem(r, 4, tema.sel(tema.format_rupiah(it["harga"]), "kanan", tema.W["teks_redup"]))
+                t.setItem(r, 5, tema.sel(tema.format_rupiah(it["jumlah"]), "kanan", tebal=True))
+                t.setItem(r, 6, tema.sel(f"{it['jumlah'] / total:.1%}".replace(".", ","), "kanan", tema.W["teks_samar"]))
+                r += 1
+            t.setItem(r, 1, tema.sel(f"Jumlah {k['kategori']}", "kanan", tema.W["teks_redup"]))
+            t.setItem(r, 5, tema.sel(tema.format_rupiah(k["total"]), "kanan", warna, tebal=True))
+            t.setItem(r, 6, tema.sel(f"{k['total'] / total:.1%}".replace(".", ","), "kanan", tema.W["teks_redup"]))
+            r += 1
+        tema.atur_lebar(t, 1, isi_konten=(0, 2, 3, 4, 5, 6))
+        return n_item
+
+    # ---------------------------------------------------------------- mode detail
+
+    def _isi_detail(self, baris) -> int:
+        t = self.tabel
+        t.clearSpans()
+        t.clear()
+        tema.siapkan_tabel(
+            t, ["PEKERJAAN", "ELEMEN / LANTAI", "VOLUME (EDIT)", "SUBTOTAL", "STATUS"],
+            rata_kanan=(2, 3), tinggi_baris=46,
+        )
+        t.setRowCount(len(baris))
+        self._volume_terakhir = {}
+        for i, r in enumerate(baris):
+            hid = r["hasil_id"]
+            t.setItem(i, 0, tema.sel(
+                r["nama_pekerjaan"], warna=self._warna_kategori.get(r["kategori"]),
+                tooltip=f"{r['kategori']} — {r['nama_pekerjaan']}", data=("detail", hid),
+            ))
+            t.setItem(i, 1, tema.sel(_label_elemen(r), warna=tema.W["teks_redup"], tooltip=_label_elemen(r)))
+            spin = SpinVolume(r["volume_pekerjaan"], r["satuan"])
+            self._volume_terakhir[hid] = spin.value()
+            spin.editingFinished.connect(
+                lambda hid=hid, pid=r["pekerjaan_id"], sp=spin: self._volume_diubah(hid, pid, sp.value())
+            )
+            t.setCellWidget(i, 2, spin)
+            t.setItem(i, 3, tema.sel(tema.format_rupiah(r["subtotal_biaya"]), "kanan", tebal=True))
+            t.setItem(i, 4, _sel_status(r["diedit_manual"]))
+        tema.atur_lebar(t, 0, isi_konten=(3, 4))
+        h = t.horizontalHeader()
+        h.setSectionResizeMode(1, QHeaderView.Interactive)
+        t.setColumnWidth(1, 190)
+        h.setSectionResizeMode(2, QHeaderView.Fixed)
+        t.setColumnWidth(2, 140)
+        return len(baris)
+
+    def _baris_dari_id(self, hasil_id: int) -> int:
+        for i in range(self.tabel.rowCount()):
+            it = self.tabel.item(i, 0)
+            if it is not None and it.data(Qt.UserRole) == ("detail", hasil_id):
+                return i
+        return -1
+
+    def _volume_diubah(self, hasil_id: int, pekerjaan_id: int, volume_baru: float):
+        if abs(volume_baru - self._volume_terakhir.get(hasil_id, volume_baru)) < 1e-9:
+            return
+        subtotal = update_volume_estimasi(hasil_id, pekerjaan_id, volume_baru)
+        self._volume_terakhir[hasil_id] = volume_baru
+        r = self._index.get(hasil_id)
+        if r is not None:
+            r["volume_pekerjaan"] = volume_baru
+            r["subtotal_biaya"] = subtotal
+            r["diedit_manual"] = 1
+            if volume_baru > 0:
+                r["harga_satuan"] = subtotal / volume_baru
+        i = self._baris_dari_id(hasil_id)
+        if i >= 0 and r is not None:
+            self.tabel.setItem(i, 3, tema.sel(tema.format_rupiah(subtotal), "kanan", tebal=True))
+            self.tabel.setItem(i, 4, _sel_status(True))
+        self._perbarui_ringkasan()
+        self._tampilkan_rincian()
+
+    # ---------------------------------------------------------------- rincian
+
+    def _tampilkan_rincian(self):
+        baris = self.tabel.currentRow()
+        it = self.tabel.item(baris, 0) if baris >= 0 else None
+        data = it.data(Qt.UserRole) if it else None
+        if not data or not self.tabel.selectedItems():
+            self.panel.kosongkan()
+            return
+        jenis, kunci = data
+        if jenis == "detail" and kunci in self._index:
+            self.panel.tampilkan_elemen(self._index[kunci])
+        elif jenis == "rekap" and kunci is not None:
+            baris_pekerjaan = [r for r in self._data if r["pekerjaan_id"] == kunci]
+            self.panel.tampilkan_pekerjaan(kunci, baris_pekerjaan)
+
+    # ---------------------------------------------------------------- aksi
+
+    def _jalankan_estimasi(self) -> bool:
+        try:
+            r = jalankan_di_latar(
+                self, "Membaca elemen & menghitung kuantitas...", jalankan_estimasi,
+                self.proyek_id, pakai_progress=True,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Parsing Gagal", str(e))
+            return False
+        self.muat()
+        tampilkan_hasil_proses(self, "Hasil Estimasi", r)
+        return True
+
+    def _hitung_ulang(self):
+        manual = sum(1 for r in self._data if r["diedit_manual"])
+        kotak = QMessageBox(self)
+        kotak.setIcon(QMessageBox.Question)
+        kotak.setWindowTitle("Hitung Ulang dari IFC")
+        kotak.setText("Baca ulang file IFC dan hitung ulang seluruh kuantitas?")
+        info = "Harga satuan terbaru juga ikut dipakai."
+        if manual:
+            info = f"{manual} volume yang diedit manual akan diganti hasil perhitungan ulang. " + info
+        kotak.setInformativeText(info)
+        btn_ya = kotak.addButton("Hitung Ulang", QMessageBox.AcceptRole)
+        kotak.addButton("Batal", QMessageBox.RejectRole)
+        kotak.exec()
+        if kotak.clickedButton() is btn_ya:
+            self._jalankan_estimasi()
+
+    def _fokus_cari(self):
+        if self.baris_alat.isVisible():
+            self.kolom_cari.setFocus()
+            self.kolom_cari.selectAll()
+
+    def _pintasan_export(self):
+        if self.btn_export.isEnabled():
+            self._buka_export()
+
+    def _buka_export(self):
+        ExportDialog(self.proyek_id, self.nama_proyek, self).exec()
+
+
+class PanelRincian(QFrame):
+    """Panel kanan: jejak perhitungan baris terpilih."""
+
+    minta_harga = Signal(object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("panel")
+        self.setMinimumWidth(300)
+        self.setMaximumWidth(460)
+        luar = QVBoxLayout(self)
+        luar.setContentsMargins(0, 0, 0, 0)
+        gulir = QScrollArea()
+        gulir.setWidgetResizable(True)
+        gulir.setFrameShape(QFrame.NoFrame)
+        luar.addWidget(gulir)
+        self._isi = QWidget()
+        self._isi.setObjectName("isiPanel")
+        gulir.setWidget(self._isi)
+        self._lay = QVBoxLayout(self._isi)
+        self._lay.setContentsMargins(18, 16, 18, 16)
+        self._lay.setSpacing(10)
+        self.kosongkan()
+
+    def _bersihkan(self):
+        tema.kosongkan_layout(self._lay)
+
+    def kosongkan(self):
+        self._bersihkan()
+        self._lay.addWidget(tema.label("RINCIAN PERHITUNGAN", "bagian"))
+        self._lay.addWidget(
+            tema.label(
+                "Pilih satu baris di tabel untuk melihat dimensi elemen, asal datanya, "
+                "dan rumus yang dipakai rule engine.",
+                "subjudul", wrap=True,
+            )
+        )
+        self._lay.addStretch()
+
+    def _baris_nilai(self, kiri: str, kanan: str, chip_teks: str | None = None):
+        b = QHBoxLayout()
+        b.setSpacing(8)
+        b.addWidget(tema.label(kiri, "formLabel"))
+        b.addStretch()
+        b.addWidget(tema.label(kanan))
+        if chip_teks:
+            b.addWidget(tema.chip(chip_teks, "info" if chip_teks == "Qto IFC" else "netral"))
+        self._lay.addLayout(b)
+
+    def tampilkan_elemen(self, r: dict):
+        self._bersihkan()
+        self._lay.addWidget(tema.label("RINCIAN ELEMEN", "bagian"))
+        judul = tema.label(r["nama_pekerjaan"], "judulPanel", wrap=True)
+        self._lay.addWidget(judul)
+        kelas = r.get("kelas")
+        label_kelas = LABEL.get(ElementType(kelas), kelas) if kelas in ElementType._value2member_map_ else (kelas or "-")
+        info = QHBoxLayout()
+        info.addWidget(tema.chip(r["kategori"] or "-", "netral"))
+        info.addWidget(tema.chip(label_kelas, "info"))
+        if r["diedit_manual"]:
+            info.addWidget(tema.chip("Volume diedit manual", "peringatan"))
+        info.addStretch()
+        self._lay.addLayout(info)
+        self._baris_nilai("Elemen", r["nama_elemen"] or "-")
+        self._baris_nilai("Lantai", r["lantai"] or "-")
+        self._baris_nilai("Entitas IFC", r.get("ifc_type") or "-")
+
+        self._lay.addWidget(tema.garis())
+        self._lay.addWidget(tema.label("DIMENSI DARI MODEL", "bagian"))
+        try:
+            sumber = json.loads(r.get("sumber_dimensi") or "{}")
+        except ValueError:
+            sumber = {}
+        ada = False
+        for kunci, nama, sat in LABEL_DIMENSI:
+            nilai = r.get(kunci)
+            if not nilai:
+                continue
+            ada = True
+            asal = sumber.get("volume" if kunci == "volume_elemen" else kunci)
+            d = 1 if kunci == "kemiringan" else 3
+            self._baris_nilai(nama, f"{tema.format_angka(nilai, d)} {sat}", LABEL_SUMBER.get(asal))
+        if not ada:
+            self._lay.addWidget(tema.label("Tidak ada dimensi tersimpan untuk elemen ini.", "subjudul"))
+
+        self._lay.addWidget(tema.garis())
+        self._lay.addWidget(tema.label("RUMUS (RULE ENGINE)", "bagian"))
+        rumus = tema.label(r.get("rumus") or "Tidak ada uraian rumus (hasil estimasi versi lama).", "rumus", wrap=True)
+        rumus.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._lay.addWidget(rumus)
+        if r["diedit_manual"]:
+            self._lay.addWidget(
+                tema.label(
+                    f"Volume saat ini {tema.format_angka(r['volume_pekerjaan'], 3)} {r['satuan']} "
+                    "adalah hasil edit manual, bukan hasil rumus di atas.",
+                    "peringatan", wrap=True,
+                )
+            )
+
+        self._lay.addWidget(tema.garis())
+        self._baris_nilai("Harga satuan", tema.format_rupiah(r["harga_satuan"]))
+        self._baris_nilai("Subtotal", tema.format_rupiah(r["subtotal_biaya"]))
+        self._lay.addStretch()
+
+    def tampilkan_pekerjaan(self, pekerjaan_id: int, baris: list):
+        self._bersihkan()
+        if not baris:
+            self.kosongkan()
+            return
+        r0 = baris[0]
+        volume = sum(r["volume_pekerjaan"] for r in baris)
+        jumlah = sum(r["subtotal_biaya"] for r in baris)
+        self._lay.addWidget(tema.label(f"{r0['kode_ahsp']}  ·  {r0['kategori']}", "bagian"))
+        self._lay.addWidget(tema.label(r0["nama_pekerjaan"], "judulPanel", wrap=True))
+        self._baris_nilai("Volume total", f"{tema.format_angka(volume, 3)} {r0['satuan']}")
+        self._baris_nilai("Dari", f"{len(baris)} elemen")
+        self._baris_nilai("Jumlah harga", tema.format_rupiah(jumlah))
+
+        self._lay.addWidget(tema.garis())
+        self._lay.addWidget(tema.label(f"ANALISA HARGA SATUAN PER {r0['satuan'].upper()}", "bagian"))
+        komponen = analisa_pekerjaan(pekerjaan_id)
+        subtotal = {"bahan": 0.0, "upah": 0.0, "alat": 0.0}
+        for k in komponen:
+            subtotal[k["tipe"]] += k["jumlah"]
+            b = QVBoxLayout()
+            b.setSpacing(0)
+            atas = QHBoxLayout()
+            nama = tema.label(k["nama_komponen"].replace(" [PLACEHOLDER]", ""), wrap=True)
+            nama.setStyleSheet(f"color: {tema.WARNA_TIPE[k['tipe']]};")
+            atas.addWidget(nama, stretch=1)
+            atas.addWidget(tema.label(tema.format_rupiah(k["jumlah"])))
+            b.addLayout(atas)
+            b.addWidget(tema.label(
+                f"{tema.format_angka(k['koefisien'], 4)} {k['satuan']} × {tema.format_rupiah(k['harga_satuan'])}",
+                "infoKecil",
+            ))
+            self._lay.addLayout(b)
+        self._lay.addWidget(tema.garis())
+        for tipe in ("bahan", "upah", "alat"):
+            if subtotal[tipe]:
+                self._baris_nilai(f"Jumlah {LABEL_TIPE[tipe].lower()}", tema.format_rupiah(subtotal[tipe]))
+        from database.estimasi_repository import BUK_RATE
+
+        dasar = sum(subtotal.values())
+        self._baris_nilai(f"Biaya umum & keuntungan {BUK_RATE:.0%}", tema.format_rupiah(dasar * BUK_RATE))
+        self._baris_nilai("Harga satuan", tema.format_rupiah(dasar * (1 + BUK_RATE)))
+        btn = tema.tombol("Ubah Harga Dasar", "secondary", "harga")
+        btn.clicked.connect(lambda: self.minta_harga.emit(pekerjaan_id))
+        self._lay.addSpacing(4)
+        self._lay.addWidget(btn)
+        self._lay.addStretch()
+
+
+def _label_elemen(r: dict) -> str:
+    label = r["nama_elemen"] or "-"
+    if r["lantai"]:
+        label += f"  ·  {r['lantai']}"
+    return label
+
+
+def _sel_status(manual) -> QTableWidgetItem:
+    if manual:
+        return tema.sel("●  Manual", warna=tema.W["peringatan"], tebal=True, tooltip="Volume diubah manual")
+    return tema.sel("●  Otomatis", warna=tema.W["sukses"], tooltip="Volume dihitung dari model IFC")
+
+
+def _romawi(n: int) -> str:
+    out = ""
+    for nilai, sim in ((10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")):
+        while n >= nilai:
+            out += sim
+            n -= nilai
+    return out
+
