@@ -10,13 +10,14 @@ Tab "Analisa Pekerjaan": analisa harga satuan (AHSP) setiap pekerjaan: koefisien
 "Terapkan ke Estimasi" menghitung ulang subtotal semua proyek dengan harga terbaru.
 """
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QCompleter,
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
@@ -206,19 +207,25 @@ class TabHargaDasar(QWidget):
         self.kolom_cari = QLineEdit()
         self.kolom_cari.setPlaceholderText("Cari nama bahan, upah, alat, atau merk...   (Ctrl+F)")
         self.kolom_cari.setClearButtonEnabled(True)
-        self.kolom_cari.textChanged.connect(self._isi_tabel)
+        self.kolom_cari.textChanged.connect(lambda _: self._tunda_cari.start())
         self.combo_jenis = QComboBox()
         self.combo_jenis.addItems([SEMUA_JENIS] + [LABEL_TIPE[t] for t in TIPE])
         self.combo_jenis.currentIndexChanged.connect(self._isi_tabel)
-        self.cek_placeholder = QCheckBox("Hanya yang belum diverifikasi")
-        self.cek_placeholder.setToolTip("Tampilkan harga placeholder / proxy yang belum diganti harga sebenarnya")
-        self.cek_placeholder.toggled.connect(self._isi_tabel)
+        self.cek_dipakai = QCheckBox("Hanya yang dipakai pekerjaan")
+        self.cek_dipakai.setToolTip(
+            "Daftar HSPK berisi ribuan harga dasar. Centang untuk hanya menampilkan yang dipakai di\n"
+            "analisa pekerjaan, yang sudah Anda ubah, dan material tambahan Anda."
+        )
+        self.cek_dipakai.setChecked(True)
+        self.cek_dipakai.toggled.connect(self._isi_tabel)
+        # pencarian di ribuan baris: tunggu sebentar setelah berhenti mengetik
+        self._tunda_cari = QTimer(self, singleShot=True, interval=220, timeout=self._isi_tabel)
         self.label_jumlah = tema.label("", "subjudul")
         btn_tambah = tema.tombol("Tambah Material", "secondary", "tambah", "Tambah bahan, upah, atau alat baru")
         btn_tambah.clicked.connect(self._tambah)
         alat.addWidget(self.kolom_cari, stretch=1)
         alat.addWidget(self.combo_jenis)
-        alat.addWidget(self.cek_placeholder)
+        alat.addWidget(self.cek_dipakai)
         alat.addWidget(self.label_jumlah)
         alat.addWidget(btn_tambah)
         lay.addLayout(alat)
@@ -259,18 +266,19 @@ class TabHargaDasar(QWidget):
     def _isi_tabel(self, *_):
         kata = self.kolom_cari.text().strip().lower()
         jenis = self.combo_jenis.currentText()
-        hanya_ph = self.cek_placeholder.isChecked()
+        hanya_dipakai = self.cek_dipakai.isChecked()
         baris = []
         for sd in self._semua:
             if jenis != SEMUA_JENIS and LABEL_TIPE[sd["tipe"]] != jenis:
                 continue
-            if hanya_ph and _status(sd)[0] not in ("Placeholder", "Proxy HSPK"):
+            if hanya_dipakai and not (sd["jumlah_pekerjaan"] or sd["diubah_manual"] or sd["harga_bawaan"] is None):
                 continue
             if kata and kata not in f"{sd['nama']} {sd['merk'] or ''}".lower():
                 continue
             baris.append(sd)
         pilih = self._id_terpilih()
         self.tabel.blockSignals(True)
+        self.tabel.setUpdatesEnabled(False)
         self.tabel.setRowCount(len(baris))
         for i, sd in enumerate(baris):
             status, jenis_chip = _status(sd)
@@ -285,8 +293,9 @@ class TabHargaDasar(QWidget):
             self.tabel.setItem(i, 5, tema.sel(f"●  {status}", warna=warna_status))
             n = sd["jumlah_pekerjaan"]
             self.tabel.setItem(i, 6, tema.sel(f"{n} pekerjaan" if n else "-", "kanan", tema.W["teks_redup"]))
+        self.tabel.setUpdatesEnabled(True)
         self.tabel.blockSignals(False)
-        self.label_jumlah.setText(f"{len(baris)} dari {len(self._semua)}")
+        self.label_jumlah.setText(f"{len(baris):,} dari {len(self._semua):,}".replace(",", "."))
         if pilih is not None:
             self.pilih(pilih)
         else:
@@ -300,10 +309,12 @@ class TabHargaDasar(QWidget):
                 self._pilih_berubah()
                 return
         # tersembunyi oleh filter -> bersihkan filter lalu coba lagi sekali
-        if self.kolom_cari.text() or self.combo_jenis.currentIndex() or self.cek_placeholder.isChecked():
+        if self.kolom_cari.text() or self.combo_jenis.currentIndex() or self.cek_dipakai.isChecked():
+            self.kolom_cari.blockSignals(True)
             self.kolom_cari.clear()
+            self.kolom_cari.blockSignals(False)
             self.combo_jenis.setCurrentIndex(0)
-            self.cek_placeholder.setChecked(False)
+            self.cek_dipakai.setChecked(False)
             self.pilih(sumber_daya_id)
 
     def _pilih_berubah(self):
@@ -835,6 +846,12 @@ class TambahKomponenDialog(_DialogDasar):
         self.combo_tipe.setCurrentIndex(TIPE.index("alat"))
         self.combo_sd = QComboBox()
         self.combo_sd.setMinimumWidth(320)
+        # ribuan harga dasar HSPK: ketik sebagian nama untuk mencari
+        self.combo_sd.setEditable(True)
+        self.combo_sd.setInsertPolicy(QComboBox.NoInsert)
+        self.combo_sd.completer().setFilterMode(Qt.MatchContains)
+        self.combo_sd.completer().setCompletionMode(QCompleter.PopupCompletion)
+        self.combo_sd.lineEdit().setPlaceholderText("Ketik untuk mencari, mis. molen, vibrator, semen")
         self.setMinimumWidth(600)
         baris_sd = QHBoxLayout()
         baris_sd.addWidget(self.combo_sd, stretch=1)

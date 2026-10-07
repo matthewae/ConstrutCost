@@ -63,6 +63,7 @@ def test_batu_kali_dinding_rumus_trapesium():
     assert h["FDN.BATUKALI"].volume == pytest.approx(harap)
     assert h["DND.BATA"].volume == pytest.approx(28.0)
     assert h["PLS.DINDING"].volume == pytest.approx(56.0)
+    assert h["ACI.DINDING"].volume == pytest.approx(56.0)
     assert h["CAT.DINDING"].volume == pytest.approx(56.0)
 
 
@@ -92,9 +93,12 @@ def test_pelat_di_atas_tanah_tanpa_bekisting():
     assert h["BSK.PELAT"].volume == pytest.approx(100)
 
 
-def test_pintu_dihitung_per_unit_dan_jendela_per_m2():
+def test_pintu_dipecah_seperti_hspk_dan_jendela_per_m2():
     h, _ = _hasil(_el("DOOR", lebar=0.9, tinggi=2.1, luas=1.89))
-    assert h["PTU.PINTU"].volume == 1.0
+    assert h["PTU.DAUN"].volume == pytest.approx(1.89)
+    assert h["PTU.KUSEN"].volume == pytest.approx(2 * 2.1 + 0.9)
+    assert h["PTU.KUNCI"].volume == 1.0
+    assert h["PTU.ENGSEL"].volume == P.jumlah_engsel_pintu
     h, _ = _hasil(_el("WINDOW", lebar=1.2, tinggi=1.0, luas=1.2))
     assert h["JDL.JENDELA"].volume == pytest.approx(1.2)
 
@@ -113,6 +117,7 @@ def test_keramik_dinding_ruang_basah():
     assert h["KRM.DINDING"].volume == pytest.approx(8.0 * 1.5)
     assert h["KRM.LANTAI"].volume == pytest.approx(4.0)
     assert h["PLF.GYPSUM"].volume == pytest.approx(4.0)
+    assert h["PLF.RANGKA"].volume == pytest.approx(4.0)
 
 
 def test_konteks_prioritas_sumber_dan_lantai_dasar():
@@ -149,4 +154,4 @@ def test_tidak_ada_hitung_ganda_lantai_dan_plafon():
 
 def test_koefisien_keramik_dan_genteng_dari_rumus_bab2():
     assert P.kebutuhan_per_m2(P.keramik_lantai, P.sisa_keramik_lantai) == pytest.approx(1 / 0.16 * 1.05)
-    assert P.kebutuhan_per_m2(P.keramik_dinding, P.sisa_keramik_dinding) == pytest.approx(22.0)
+    assert P.kebutuhan_per_m2(P.keramik_dinding, P.sisa_keramik_dinding) == pytest.approx(1 / 0.04 * 1.10)

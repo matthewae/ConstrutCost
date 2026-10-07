@@ -27,7 +27,8 @@ def test_pipeline_ac20(db_sementara):
     assert sumber["luas"] == "qto"
     kode = {r[0] for r in conn.execute(
         "SELECT p.kode_ahsp FROM hasil_estimasi h JOIN pekerjaan p ON p.id = h.pekerjaan_id")}
-    assert {"FDN.BATUKALI", "ATP.PENUTUP", "ATP.RANGKA", "KRM.LANTAI", "PLF.GYPSUM", "PTU.PINTU"} <= kode
+    assert {"FDN.BATUKALI", "ATP.PENUTUP", "ATP.RANGKA", "KRM.LANTAI", "PLF.GYPSUM", "PLF.RANGKA",
+            "PTU.DAUN", "PTU.KUSEN", "ACI.DINDING"} <= kode
     assert conn.execute("SELECT COUNT(*) FROM hasil_estimasi WHERE rumus IS NULL OR rumus = ''").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM hasil_estimasi WHERE subtotal_biaya <= 0").fetchone()[0] == 0
 

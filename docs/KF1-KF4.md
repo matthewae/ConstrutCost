@@ -53,24 +53,23 @@ Uji kewajaran:
 | COLUMN | – | BSI.KOLOM | V × rasio besi | |
 | COLUMN | – | BSK.KOLOM | 2(b + h) × H | |
 | COLUMN | lantai dasar & model tanpa fondasi | BTN.SUMURAN | n·πd²/4·H + P·L·T | 2.36–2.39 |
-| COLUMN | idem | BSI.SUMURAN | V_sumuran × rasio | |
 | BEAM | – | BTN / BSI / BSK.BALOK | V; V × rasio; (b + 2h) × L | 2.9 |
 | SLAB | – | BTN / BSI.PELAT | V; V × rasio | 2.11 |
 | SLAB | bukan BASESLAB & bukan lantai dasar | BSK.PELAT | A | |
 | ROOF | θ ≥ 5° | ATP.RANGKA, ATP.PENUTUP | A = A_proyeksi / cos θ | 2.22–2.23, 2.42 |
 | ROOF | θ < 5° (dak) | BTN / BSI / BSK.DAK | V; V × rasio; A | |
 | WALL | – | DND.BATA | A bersih (bukaan sudah dikurangkan) | 2.17 |
-| WALL | – | PLS.DINDING, CAT.DINDING | A × 2 sisi | 2.17–2.19 |
+| WALL | – | PLS.DINDING, ACI.DINDING, CAT.DINDING | A × 2 sisi | 2.17–2.19 |
 | WALL | lantai dasar & model tanpa fondasi | FDN.BATUKALI | (B_atas + B_bawah)/2 × H × L | 2.34 |
 | FOOTING | STRIP_FOOTING | FDN.BATUKALI | V | |
 | FOOTING | FOOTING_BEAM | BTN / BSI / BSK.SLOOF | V; V × rasio; 2h × L | |
 | FOOTING | lainnya (footplate) | BTN / BSI / BSK.FONDASI | V; V × rasio; keliling × t | |
-| PILE | – | BTN / BSI.SUMURAN | V; V × rasio | |
-| DOOR | – | PTU.PINTU | 1 unit | |
+| PILE | – | BTN.SUMURAN | V | |
+| DOOR | – | PTU.DAUN, PTU.KUSEN, PTU.KUNCI, PTU.ENGSEL | B × H; 2H + B; 1 buah; 3 buah | |
 | WINDOW | – | JDL.JENDELA | lebar × tinggi | |
 | FLOOR / SPACE / SLAB | sumber lantai* | KRM.LANTAI | A | 2.12–2.13 |
 | SPACE | nama ruang basah (KM, WC, dapur, ...) | KRM.DINDING | keliling × tinggi keramik | 2.14–2.15 |
-| CEILING / SPACE / SLAB | sumber plafon* | PLF.GYPSUM | A | 2.16 |
+| CEILING / SPACE / SLAB | sumber plafon* | PLF.RANGKA, PLF.GYPSUM | A | 2.16 |
 
 \*Preprocessor memilih **satu** sumber agar tidak terhitung ganda, dengan prioritas: penutup lantai/plafon
 yang dimodelkan → luas ruang (IfcSpace) → luas pelat.

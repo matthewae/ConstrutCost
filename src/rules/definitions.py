@@ -155,22 +155,29 @@ def _sumuran(e, p):
     )
 
 
-def _besi_sumuran(e, p):
-    total, _, _ = _volume_sumuran(p)
-    nilai = total * p.rasio_besi_sumuran
-    return nilai, (
-        f"Berat = V_sumuran × rasio = {_n(total)} m³ × {_n(p.rasio_besi_sumuran, 0)} kg/m³ = {_n(nilai, 2)} kg"
-    )
-
-
-def _satu_unit(e, p):
-    ukuran = ""
+def _ukuran_pintu(e) -> str:
     if e.get("lebar") and e.get("tinggi"):
-        ukuran = f" ({_n(e['lebar'], 2)} × {_n(e['tinggi'], 2)} m)"
-    return 1.0, f"Jumlah = 1 unit{ukuran}"
+        return f" (pintu {_n(e['lebar'], 2)} × {_n(e['tinggi'], 2)} m)"
+    return ""
 
 
-def _luas_bukaan(e, p):
+def _kusen_pintu(e, p):
+    # keliling kusen pintu: dua tiang + satu ambang atas
+    b, h = e["lebar"], e["tinggi"]
+    nilai = 2 * h + b
+    return nilai, f"L = 2 × H + B = 2 × {_n(h, 2)} + {_n(b, 2)} = {_n(nilai)} m'"
+
+
+def _kunci_pintu(e, p):
+    return 1.0, f"Jumlah = 1 buah per daun pintu{_ukuran_pintu(e)}"
+
+
+def _engsel_pintu(e, p):
+    n = float(p.jumlah_engsel_pintu)
+    return n, f"Jumlah = {p.jumlah_engsel_pintu} buah per daun pintu{_ukuran_pintu(e)}"
+
+
+def _luas_bukaan(e, p):  # pintu / jendela: lebar x tinggi
     if e.get("lebar") and e.get("tinggi"):
         return e["luas"], f"A = lebar × tinggi = {_n(e['lebar'], 2)} × {_n(e['tinggi'], 2)} = {_n(e['luas'])} m²"
     return e["luas"], f"A = {_n(e['luas'])} m²"
@@ -249,7 +256,6 @@ RULES = [
     Rule("BSK.KOLOM", T.COLUMN, _bekisting_kolom, ("lebar", "tebal", "tinggi"), keterangan="Bekisting kolom"),
     # Fondasi sumuran di bawah kolom lantai dasar (Rumus 2.36 - 2.39)
     Rule("BTN.SUMURAN", T.COLUMN, _sumuran, syarat=_fondasi_turunan, keterangan="Fondasi sumuran (turunan)"),
-    Rule("BSI.SUMURAN", T.COLUMN, _besi_sumuran, syarat=_fondasi_turunan, keterangan="Pembesian sumuran (turunan)"),
     # ===== Balok (Rumus 2.9) =====
     Rule("BTN.BALOK", T.BEAM, _volume(), ("volume",)),
     Rule("BSI.BALOK", T.BEAM, _besi("rasio_besi_balok"), ("volume",)),
@@ -268,6 +274,7 @@ RULES = [
     # ===== Dinding (Rumus 2.17 - 2.19) =====
     Rule("DND.BATA", T.WALL, _luas_dinding, ("luas",), keterangan="Pasangan dinding bata (m²)"),
     Rule("PLS.DINDING", T.WALL, _luas_dinding_kali("jumlah_sisi_plester", "plester"), ("luas",)),
+    Rule("ACI.DINDING", T.WALL, _luas_dinding_kali("jumlah_sisi_plester", "acian"), ("luas",)),
     Rule("CAT.DINDING", T.WALL, _luas_dinding_kali("jumlah_sisi_cat", "cat"), ("luas",)),
     # Fondasi batu kali di bawah dinding lantai dasar (Rumus 2.34)
     Rule("FDN.BATUKALI", T.WALL, _batu_kali_dinding, ("panjang",), syarat=_fondasi_turunan, keterangan="Fondasi batu kali (turunan)"),
@@ -280,9 +287,11 @@ RULES = [
     Rule("BSI.FONDASI", T.FOOTING, _besi("rasio_besi_fondasi"), ("volume",), syarat=_bukan_pre(*FONDASI_MENERUS, *SLOOF)),
     Rule("BSK.FONDASI", T.FOOTING, _bekisting_keliling, ("keliling", "tebal"), syarat=_bukan_pre(*FONDASI_MENERUS, *SLOOF)),
     Rule("BTN.SUMURAN", T.PILE, _volume(), ("volume",)),
-    Rule("BSI.SUMURAN", T.PILE, _besi("rasio_besi_sumuran"), ("volume",)),
-    # ===== Pintu & jendela =====
-    Rule("PTU.PINTU", T.DOOR, _satu_unit, keterangan="Jumlah elemen pintu"),
+    # ===== Pintu (susunan HSPK: daun + kusen + kunci + engsel) & jendela =====
+    Rule("PTU.DAUN", T.DOOR, _luas_bukaan, ("luas",), keterangan="Luas daun pintu"),
+    Rule("PTU.KUSEN", T.DOOR, _kusen_pintu, ("lebar", "tinggi")),
+    Rule("PTU.KUNCI", T.DOOR, _kunci_pintu),
+    Rule("PTU.ENGSEL", T.DOOR, _engsel_pintu),
     Rule("JDL.JENDELA", T.WINDOW, _luas_bukaan, ("luas",)),
     # ===== Lantai (Rumus 2.12 - 2.13): sumber dipilih preprocessor =====
     Rule("KRM.LANTAI", T.FLOOR, _luas("luas penutup lantai"), ("luas",), syarat=_sumber_lantai("covering")),
@@ -291,7 +300,13 @@ RULES = [
     # ===== Keramik dinding ruang basah (Rumus 2.14 - 2.15) =====
     Rule("KRM.DINDING", T.SPACE, _keramik_dinding, ("keliling",), syarat=_ruang_basah),
     # ===== Plafon (Rumus 2.16): sumber dipilih preprocessor =====
-    Rule("PLF.GYPSUM", T.CEILING, _luas("luas plafon dari model"), ("luas",), syarat=_sumber_plafon("covering")),
-    Rule("PLF.GYPSUM", T.SPACE, _luas("luas plafon = luas lantai ruang"), ("luas",), syarat=_sumber_plafon("ruang")),
-    Rule("PLF.GYPSUM", T.SLAB, _luas("asumsi: luas plafon = luas pelat"), ("luas",), syarat=_sumber_plafon("pelat")),
+    *[
+        Rule(kode, kelas, _luas(ket), ("luas",), syarat=_sumber_plafon(sumber))
+        for kode in ("PLF.RANGKA", "PLF.GYPSUM")
+        for kelas, sumber, ket in (
+            (T.CEILING, "covering", "luas plafon dari model"),
+            (T.SPACE, "ruang", "luas plafon = luas lantai ruang"),
+            (T.SLAB, "pelat", "asumsi: luas plafon = luas pelat"),
+        )
+    ],
 ]

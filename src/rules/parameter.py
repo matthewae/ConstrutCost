@@ -17,7 +17,6 @@ class ParameterEstimasi:
     rasio_besi_sloof: float = 120.0
     rasio_besi_pelat: float = 90.0
     rasio_besi_fondasi: float = 80.0
-    rasio_besi_sumuran: float = 60.0
 
     # --- Fondasi batu kali di bawah dinding lantai dasar (Rumus 2.34) ---
     batu_kali_lebar_atas: float = 0.30  # m
@@ -25,7 +24,7 @@ class ParameterEstimasi:
     batu_kali_tinggi: float = 0.80  # m
 
     # --- Fondasi sumuran di bawah kolom lantai dasar (Rumus 2.36 - 2.39) ---
-    sumuran_diameter: float = 0.60  # m
+    sumuran_diameter: float = 1.00  # m, sama dengan item HSPK 2.2.2.2.6 (sumuran diameter 100 cm masif)
     sumuran_kedalaman: float = 2.00  # m
     sumuran_jumlah_tiang: int = 1  # tiang per titik kolom
     poer_panjang: float = 0.80  # m, pelat penutup (pile cap) di atas sumuran
@@ -33,7 +32,7 @@ class ParameterEstimasi:
     poer_tebal: float = 0.25  # m
 
     # --- Dinding ---
-    jumlah_sisi_plester: int = 2  # plester + acian dua sisi
+    jumlah_sisi_plester: int = 2  # plester dan acian dua sisi
     jumlah_sisi_cat: int = 2  # cat dasar dua sisi (Rumus 2.17 - 2.19)
 
     # --- Atap ---
@@ -41,10 +40,14 @@ class ParameterEstimasi:
     # di atasnya dianggap atap miring berangka baja ringan + genteng.
     batas_kemiringan_dak: float = 5.0  # derajat
 
-    # --- Ukuran material untuk menurunkan koefisien kebutuhan (Rumus 2.13, 2.15, 2.42) ---
+    # --- Pintu ---
+    jumlah_engsel_pintu: int = 3  # per daun pintu
+
+    # --- Ukuran material untuk Rumus 2.13, 2.15, 2.42 (informasi kebutuhan buah per m2;
+    #     harga memakai koefisien HSPK) ---
     keramik_lantai: tuple = (0.40, 0.40)  # m
     sisa_keramik_lantai: float = 0.05  # +5% patahan & sisa
-    keramik_dinding: tuple = (0.20, 0.25)  # m
+    keramik_dinding: tuple = (0.20, 0.20)  # m, sama dengan item HSPK 3.10.1.4
     sisa_keramik_dinding: float = 0.10  # +10%
     genteng_efektif: tuple = (0.30, 0.33)  # m, ukuran efektif (setelah overlap)
     sisa_genteng: float = 0.05
