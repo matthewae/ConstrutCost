@@ -55,7 +55,8 @@ def get_hasil_estimasi_by_proyek(proyek_id: int):
                 ep.keliling,
                 ep.kemiringan,
                 ep.luas_bukaan,
-                ep.sumber_dimensi
+                ep.sumber_dimensi,
+                COALESCE(ep.dimensi_manual, 0) AS dimensi_manual
             FROM hasil_estimasi he
             JOIN pekerjaan p ON p.id = he.pekerjaan_id
             LEFT JOIN elemen_proyek ep ON ep.id = he.elemen_id

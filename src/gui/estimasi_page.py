@@ -4,6 +4,7 @@ Halaman Hasil Estimasi QTO & RAB satu proyek (UC-02 / UC-03).
 - Mode "Rekap RAB": item pekerjaan digabung per kategori, seperti dokumen RAB.
 - Mode "Detail per elemen": satu baris per elemen x pekerjaan; volume bisa diedit (KF-6)
   dan subtotal / total dihitung ulang otomatis.
+- Ubah Dimensi (KF-19): dimensi elemen diubah lalu QTO elemen itu dihitung ulang oleh rule engine.
 - Panel kanan menampilkan rincian baris terpilih: dimensi elemen beserta asalnya dan
   uraian rumus (rekap: analisa harga satuan pekerjaan).
 - Banner bila ada harga satuan yang berubah (KF-5) atau harga nol (UC-02 alternatif).
@@ -41,13 +42,15 @@ from database.estimasi_repository import (
 )
 from database.harga_repository import LABEL_TIPE, analisa_pekerjaan, terapkan_ke_estimasi
 from database.proyek_repository import get_proyek
-from estimasi_service import jalankan_estimasi
+from estimasi_service import ambil_elemen, jalankan_estimasi
 from export_service import kelompokkan
 from gui import tema
+from gui.dimensi_dialog import DimensiDialog
 from gui.export_dialog import ExportDialog
 from gui.import_dialog import tampilkan_hasil_proses
 from gui.proses_latar import jalankan_di_latar
 from klasifikasi import LABEL, ElementType
+from rules.dimensi import kolom_dimensi
 
 SEMUA_KATEGORI = "Semua kategori"
 LABEL_DIMENSI = [
@@ -61,7 +64,10 @@ LABEL_DIMENSI = [
     ("kemiringan", "Kemiringan", "°"),
     ("luas_bukaan", "Luas bukaan", "m²"),
 ]
-LABEL_SUMBER = {"qto": "Qto IFC", "geometri": "Geometri", "atribut": "Atribut IFC", "turunan": "Turunan"}
+LABEL_SUMBER = {
+    "qto": "Qto IFC", "geometri": "Geometri", "atribut": "Atribut IFC", "turunan": "Turunan", "manual": "Manual",
+}
+JENIS_CHIP_SUMBER = {"Qto IFC": "info", "Manual": "peringatan"}
 
 
 class SpinVolume(QDoubleSpinBox):
@@ -198,9 +204,11 @@ class EstimasiPage(QWidget):
         self.splitter.setHandleWidth(14)
         self.tabel = QTableWidget()
         self.tabel.itemSelectionChanged.connect(self._tampilkan_rincian)
+        self.tabel.cellDoubleClicked.connect(self._klik_ganda)
         self.splitter.addWidget(self.tabel)
         self.panel = PanelRincian(self)
         self.panel.minta_harga.connect(self.minta_harga.emit)
+        self.panel.minta_ubah_dimensi.connect(self.ubah_dimensi)
         self.splitter.addWidget(self.panel)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 0)
@@ -320,8 +328,13 @@ class EstimasiPage(QWidget):
         self.k_total.set_data(tema.format_rupiah(subtotal + ppn), "termasuk PPN")
         n_pekerjaan = len({r["pekerjaan_id"] for r in self._data})
         manual = sum(1 for r in self._data if r["diedit_manual"])
+        dimensi = len({r["elemen_id"] for r in self._data if r.get("dimensi_manual")})
         ket = f"{len(self._data)} baris elemen"
-        ket += f", {manual} diedit manual" if manual else ", semua otomatis dari IFC"
+        if manual or dimensi:
+            ket += f", {manual} volume diedit" if manual else ""
+            ket += f", {dimensi} dimensi diubah" if dimensi else ""
+        else:
+            ket += ", semua otomatis dari IFC"
         self.k_item.set_data(str(n_pekerjaan), ket)
 
     def _cocok(self, r, kata: str, kategori: str) -> bool:
@@ -349,8 +362,8 @@ class EstimasiPage(QWidget):
             n = self._isi_detail(baris)
             satuan = "baris"
             self.label_petunjuk.setText(
-                "Klik angka di kolom Volume untuk mengubahnya, lalu tekan Enter. "
-                "Subtotal dan total dihitung ulang otomatis."
+                "Klik angka di kolom Volume untuk mengubahnya, lalu tekan Enter. Klik dua kali kolom "
+                "Elemen untuk mengubah dimensinya. Subtotal dan total dihitung ulang otomatis."
             )
         self.label_jumlah.setText(f"{n} {satuan}")
         self.stack.setCurrentIndex(self.HAL_TABEL if baris else self.HAL_TIDAK_ADA)
@@ -423,7 +436,7 @@ class EstimasiPage(QWidget):
             )
             t.setCellWidget(i, 2, spin)
             t.setItem(i, 3, tema.sel(tema.format_rupiah(r["subtotal_biaya"]), "kanan", tebal=True))
-            t.setItem(i, 4, _sel_status(r["diedit_manual"]))
+            t.setItem(i, 4, _sel_status(r["diedit_manual"], r.get("dimensi_manual")))
         tema.atur_lebar(t, 0, isi_konten=(3, 4))
         h = t.horizontalHeader()
         h.setSectionResizeMode(1, QHeaderView.Interactive)
@@ -454,7 +467,7 @@ class EstimasiPage(QWidget):
         i = self._baris_dari_id(hasil_id)
         if i >= 0 and r is not None:
             self.tabel.setItem(i, 3, tema.sel(tema.format_rupiah(subtotal), "kanan", tebal=True))
-            self.tabel.setItem(i, 4, _sel_status(True))
+            self.tabel.setItem(i, 4, _sel_status(True, r.get("dimensi_manual")))
         self._perbarui_ringkasan()
         self._tampilkan_rincian()
 
@@ -474,6 +487,44 @@ class EstimasiPage(QWidget):
             baris_pekerjaan = [r for r in self._data if r["pekerjaan_id"] == kunci]
             self.panel.tampilkan_pekerjaan(kunci, baris_pekerjaan)
 
+    # ---------------------------------------------------------------- KF-19 ubah dimensi
+
+    def _klik_ganda(self, baris: int, kolom: int):
+        if self.mode != self.MODE_DETAIL or kolom != 1:
+            return
+        it = self.tabel.item(baris, 0)
+        data = it.data(Qt.UserRole) if it else None
+        r = self._index.get(data[1]) if data else None
+        if r and r.get("elemen_id") and kolom_dimensi_elemen(r)[0]:
+            self.ubah_dimensi(r["elemen_id"])
+
+    def ubah_dimensi(self, elemen_id: int):
+        """UC-03 langkah 7-12: dialog dimensi -> konfirmasi -> hitung ulang QTO elemen."""
+        elemen = ambil_elemen(elemen_id)
+        if elemen is None:
+            QMessageBox.warning(self, "Ubah Dimensi", "Elemen tidak ditemukan. Hasil estimasi dimuat ulang.")
+            self.muat()
+            return
+        manual = sum(1 for r in self._data if r["elemen_id"] == elemen_id and r["diedit_manual"])
+        dialog = DimensiDialog(elemen, manual, self)
+        if dialog.exec() != DimensiDialog.Accepted:
+            return
+        self.muat()
+        self._pilih_elemen(elemen_id)
+        tema.toast(self, "Perubahan berhasil disimpan, QTO elemen dihitung ulang")
+
+    def _pilih_elemen(self, elemen_id: int):
+        if self.mode != self.MODE_DETAIL:
+            return
+        for i in range(self.tabel.rowCount()):
+            it = self.tabel.item(i, 0)
+            data = it.data(Qt.UserRole) if it else None
+            r = self._index.get(data[1]) if data else None
+            if r and r["elemen_id"] == elemen_id:
+                self.tabel.selectRow(i)
+                self.tabel.scrollToItem(it, QTableWidget.PositionAtCenter)
+                return
+
     # ---------------------------------------------------------------- aksi
 
     def _jalankan_estimasi(self) -> bool:
@@ -491,11 +542,14 @@ class EstimasiPage(QWidget):
 
     def _hitung_ulang(self):
         manual = sum(1 for r in self._data if r["diedit_manual"])
+        dimensi = len({r["elemen_id"] for r in self._data if r.get("dimensi_manual")})
         kotak = QMessageBox(self)
         kotak.setIcon(QMessageBox.Question)
         kotak.setWindowTitle("Hitung Ulang dari IFC")
         kotak.setText("Baca ulang file IFC dan hitung ulang seluruh kuantitas?")
         info = "Harga satuan terbaru juga ikut dipakai."
+        if dimensi:
+            info = f"Dimensi {dimensi} elemen yang diubah manual akan kembali ke dimensi model. " + info
         if manual:
             info = f"{manual} volume yang diedit manual akan diganti hasil perhitungan ulang. " + info
         kotak.setInformativeText(info)
@@ -522,6 +576,7 @@ class PanelRincian(QFrame):
     """Panel kanan: jejak perhitungan baris terpilih."""
 
     minta_harga = Signal(object)
+    minta_ubah_dimensi = Signal(int)  # elemen_id
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -530,13 +585,13 @@ class PanelRincian(QFrame):
         self.setMaximumWidth(460)
         luar = QVBoxLayout(self)
         luar.setContentsMargins(0, 0, 0, 0)
-        gulir = QScrollArea()
-        gulir.setWidgetResizable(True)
-        gulir.setFrameShape(QFrame.NoFrame)
-        luar.addWidget(gulir)
+        self._gulir = QScrollArea()
+        self._gulir.setWidgetResizable(True)
+        self._gulir.setFrameShape(QFrame.NoFrame)
+        luar.addWidget(self._gulir)
         self._isi = QWidget()
         self._isi.setObjectName("isiPanel")
-        gulir.setWidget(self._isi)
+        self._gulir.setWidget(self._isi)
         self._lay = QVBoxLayout(self._isi)
         self._lay.setContentsMargins(18, 16, 18, 16)
         self._lay.setSpacing(10)
@@ -544,6 +599,19 @@ class PanelRincian(QFrame):
 
     def _bersihkan(self):
         tema.kosongkan_layout(self._lay)
+        QTimer.singleShot(0, self._sesuaikan_tinggi)
+
+    def _sesuaikan_tinggi(self):
+        """QScrollArea memakai minimumSizeHint, yang tidak memperhitungkan teks terbungkus.
+        Tinggi minimum isi disetel dari heightForWidth agar rumus panjang tidak terpotong
+        melainkan panel bisa digulir."""
+        lebar = self._gulir.viewport().width()
+        if lebar > 0:
+            self._isi.setMinimumHeight(max(self._isi.heightForWidth(lebar), 0))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sesuaikan_tinggi()
 
     def kosongkan(self):
         self._bersihkan()
@@ -564,7 +632,7 @@ class PanelRincian(QFrame):
         b.addStretch()
         b.addWidget(tema.label(kanan))
         if chip_teks:
-            b.addWidget(tema.chip(chip_teks, "info" if chip_teks == "Qto IFC" else "netral"))
+            b.addWidget(tema.chip(chip_teks, JENIS_CHIP_SUMBER.get(chip_teks, "netral")))
         self._lay.addLayout(b)
 
     def tampilkan_elemen(self, r: dict):
@@ -579,6 +647,8 @@ class PanelRincian(QFrame):
         info.addWidget(tema.chip(label_kelas, "info"))
         if r["diedit_manual"]:
             info.addWidget(tema.chip("Volume diedit manual", "peringatan"))
+        if r.get("dimensi_manual"):
+            info.addWidget(tema.chip("Dimensi diubah", "peringatan"))
         info.addStretch()
         self._lay.addLayout(info)
         self._baris_nilai("Elemen", r["nama_elemen"] or "-")
@@ -586,7 +656,7 @@ class PanelRincian(QFrame):
         self._baris_nilai("Entitas IFC", r.get("ifc_type") or "-")
 
         self._lay.addWidget(tema.garis())
-        self._lay.addWidget(tema.label("DIMENSI DARI MODEL", "bagian"))
+        self._lay.addWidget(tema.label("DIMENSI ELEMEN" if r.get("dimensi_manual") else "DIMENSI DARI MODEL", "bagian"))
         try:
             sumber = json.loads(r.get("sumber_dimensi") or "{}")
         except ValueError:
@@ -602,6 +672,14 @@ class PanelRincian(QFrame):
             self._baris_nilai(nama, f"{tema.format_angka(nilai, d)} {sat}", LABEL_SUMBER.get(asal))
         if not ada:
             self._lay.addWidget(tema.label("Tidak ada dimensi tersimpan untuk elemen ini.", "subjudul"))
+        if r.get("elemen_id") and kolom_dimensi_elemen(r)[0]:
+            btn = tema.tombol(
+                "Ubah Dimensi", "secondary", "ulang",
+                "Ubah dimensi elemen lalu hitung ulang kuantitas dan biayanya (KF-19)",
+            )
+            btn.clicked.connect(lambda _=False, eid=r["elemen_id"]: self.minta_ubah_dimensi.emit(eid))
+            self._lay.addSpacing(2)
+            self._lay.addWidget(btn)
 
         self._lay.addWidget(tema.garis())
         self._lay.addWidget(tema.label("RUMUS (RULE ENGINE)", "bagian"))
@@ -678,9 +756,21 @@ def _label_elemen(r: dict) -> str:
     return label
 
 
-def _sel_status(manual) -> QTableWidgetItem:
+def kolom_dimensi_elemen(r: dict):
+    kelas = r.get("kelas")
+    if kelas not in ElementType._value2member_map_:
+        return (), ()
+    return kolom_dimensi(ElementType(kelas))
+
+
+def _sel_status(manual, dimensi_manual=False) -> QTableWidgetItem:
     if manual:
         return tema.sel("●  Manual", warna=tema.W["peringatan"], tebal=True, tooltip="Volume diubah manual")
+    if dimensi_manual:
+        return tema.sel(
+            "●  Dimensi diubah", warna=tema.W["aksen"], tebal=True,
+            tooltip="Dimensi elemen diubah pengguna; volume dihitung ulang oleh rule engine",
+        )
     return tema.sel("●  Otomatis", warna=tema.W["sukses"], tooltip="Volume dihitung dari model IFC")
 
 

@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS elemen_proyek (
     kemiringan REAL,               -- derajat, khusus atap
     luas_bukaan REAL,              -- luas pintu/jendela pada dinding (info Rumus 2.17)
     elevasi_lantai REAL,
-    sumber_dimensi TEXT            -- JSON: asal tiap dimensi ('qto' / 'geometri' / 'atribut')
+    sumber_dimensi TEXT,           -- JSON: asal tiap dimensi ('qto' / 'geometri' / 'atribut' / 'manual')
+    dimensi_manual INTEGER DEFAULT 0  -- KF-19: dimensi diubah pengguna lalu QTO dihitung ulang
 );
 
 -- hasil_estimasi: output rule-engine, per elemen per pekerjaan
