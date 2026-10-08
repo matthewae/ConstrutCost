@@ -16,7 +16,7 @@ import sqlite3
 import sys
 import traceback
 
-from PySide6.QtCore import QCoreApplication, QTranslator
+from PySide6.QtCore import QCoreApplication, QThread, QTranslator
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from aktivitas import catat
@@ -99,7 +99,9 @@ def _penangkap(jenis, nilai, tb):
         return
     rincian = "".join(traceback.format_exception(jenis, nilai, tb))
     catat("galat", f"Kesalahan tak terduga: {jenis.__name__}: {nilai}", detail=rincian, tingkat="GALAT")
-    if _SEDANG or QApplication.instance() is None:
+    app = QApplication.instance()
+    # Dialog hanya boleh dibuat di thread utama; dari thread lain cukup dicatat (sudah di atas).
+    if _SEDANG or app is None or QThread.currentThread() is not app.thread():
         sys.__excepthook__(jenis, nilai, tb)
         return
     _SEDANG = True

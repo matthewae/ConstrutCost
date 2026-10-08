@@ -302,3 +302,29 @@ def test_terjemahan_tombol_bawaan_qt(qapp):
     bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Close)
     assert bb.button(QDialogButtonBox.Close).text().replace("&", "") == "Tutup"
     assert bb.button(QDialogButtonBox.Cancel).text().replace("&", "") == "Batal"
+
+
+def test_penangkap_galat_dari_thread_lain_hanya_dicatat(db_sementara, qapp, monkeypatch):
+    """Dialog Qt tidak boleh dibuat di luar thread utama (bisa membuat aplikasi crash)."""
+    import threading
+
+    from PySide6.QtWidgets import QMessageBox
+
+    import gui.galat as galat
+    from aktivitas import daftar_aktivitas
+
+    tampil = []
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: tampil.append(self.text()))
+    monkeypatch.setattr(sys, "__excepthook__", lambda *a: None)
+
+    def kerja():
+        try:
+            raise RuntimeError("galat di thread latar")
+        except RuntimeError:
+            galat._penangkap(*sys.exc_info())
+
+    th = threading.Thread(target=kerja)
+    th.start()
+    th.join()
+    assert tampil == []
+    assert "galat di thread latar" in daftar_aktivitas(jenis="galat")[0]["pesan"]
