@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 *.db
+.pytest_cache/
+build/
+dist/
+data/log/
+data/cadangan/

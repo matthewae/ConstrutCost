@@ -1,38 +1,38 @@
 """
 Splash screen CostStruct — tampil sebentar saat aplikasi dibuka,
 sambil melakukan pengecekan awal (koneksi database) sebelum
-masuk ke Dashboard.
+masuk ke jendela utama.
 
-Peningkatan dari versi sebelumnya:
-- Kartu bergradasi dengan sudut membulat dan bayangan (drop shadow)
-- Logo vektor digambar dengan QPainter (tanpa file gambar eksternal)
-- Animasi fade-in saat muncul dan fade-out saat berpindah ke Dashboard
-- Progress bar bergerak halus (animasi), bukan melompat
-- Indikator persen, label versi, dan footer
+Tampilan dibuat bersih (minimalis):
+- Kartu polos satu warna dengan sudut membulat dan bayangan halus
+- Logo, nama aplikasi, dan satu baris keterangan di tengah
+- Progress bar tipis yang bergerak halus, teks status, dan nomor versi
+- Animasi fade-in saat muncul dan fade-out saat berpindah ke jendela utama
 - Pengecekan database tetap nyata, dengan pesan error yang jelas
 """
 
+import multiprocessing
 import sys
 
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
     QVBoxLayout,
-    QHBoxLayout,
     QLabel,
     QProgressBar,
-    QMessageBox,
     QFrame,
     QGraphicsDropShadowEffect,
+    QHBoxLayout,
 )
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRectF
-from PySide6.QtGui import QColor, QPainter, QLinearGradient, QBrush, QPen
+from PySide6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QRadialGradient
 
+from database.init_db import siapkan_database
 from database.proyek_repository import get_all_proyek
-from gui.dashboard_window import DashboardWindow
+from gui import tema
+from gui.main_window import VERSI_APLIKASI, MainWindow
 
 
-VERSI_APLIKASI = "v1.1.3"
 
 # Tahapan loading yang ditampilkan ke user.
 # Format: (persen_selesai, teks_status)
@@ -49,9 +49,10 @@ DURASI_FADE_MS = 350
 
 
 class LogoCostStruct(QWidget):
-    """Logo sederhana: kotak bergradasi dengan tiga batang naik (simbol biaya/struktur)."""
+    """Logo CostStruct dengan dua cincin tipis berwarna aksen di sekelilingnya."""
 
-    UKURAN = 76
+    UKURAN = 104
+    LOGO = 56
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -60,34 +61,73 @@ class LogoCostStruct(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-
-        # Latar kotak membulat dengan gradasi biru
-        area = QRectF(0, 0, self.width(), self.height())
-        grad = QLinearGradient(area.topLeft(), area.bottomRight())
-        grad.setColorAt(0.0, QColor("#6bb2ff"))
-        grad.setColorAt(1.0, QColor("#2b6cd4"))
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(grad))
-        p.drawRoundedRect(area, 20, 20)
-
-        # Tiga batang naik berwarna putih
-        lebar, jarak = 12, 8
-        total = 3 * lebar + 2 * jarak
-        x0 = (self.width() - total) / 2
-        dasar = self.height() - 18
-        tinggi = [18, 30, 44]
-        alpha = [170, 215, 255]
-        for i, t in enumerate(tinggi):
-            warna = QColor(255, 255, 255, alpha[i])
-            p.setBrush(warna)
-            p.drawRoundedRect(
-                QRectF(x0 + i * (lebar + jarak), dasar - t, lebar, t), 3, 3
-            )
-
-        # Garis dasar tipis
-        p.setPen(QPen(QColor(255, 255, 255, 120), 2, Qt.SolidLine, Qt.RoundCap))
-        p.drawLine(int(x0 - 4), int(dasar + 5), int(x0 + total + 4), int(dasar + 5))
+        tengah = self.UKURAN / 2
+        warna = QColor(tema.W["tombol_utama"])
+        p.setBrush(Qt.NoBrush)
+        for jari, alpha in ((tengah - 1, 26), (tengah - 12, 52)):
+            warna.setAlpha(alpha)
+            p.setPen(QPen(warna, 1))
+            p.drawEllipse(QRectF(tengah - jari, tengah - jari, jari * 2, jari * 2))
+        p.translate(tengah - self.LOGO / 2, tengah - self.LOGO / 2)
+        tema.gambar_logo(p, self.LOGO)  # warna mengikuti tema
         p.end()
+
+
+class KartuSplash(QFrame):
+    """Kartu splash: satu warna latar dengan pola grid gambar kerja yang samar di tepi
+    (memudar ke tengah, sehingga isi tetap bersih), sudut membulat, garis tepi tipis."""
+
+    RADIUS = 18
+    GRID = 22
+
+    def paintEvent(self, event):
+        w = tema.W
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        area = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        bentuk = QPainterPath()
+        bentuk.addRoundedRect(area, self.RADIUS, self.RADIUS)
+        dasar = QColor(w["sidebar"])
+        p.fillPath(bentuk, dasar)
+
+        p.save()
+        p.setClipPath(bentuk)
+        garis = QColor(w["sidebar_judul"])
+        garis.setAlpha(18 if dasar.lightness() < 128 else 12)  # latar gelap butuh garis sedikit lebih terang
+        p.setPen(QPen(garis, 1))
+        x = area.left() + self.GRID
+        while x < area.right():
+            p.drawLine(QPointF(x, area.top()), QPointF(x, area.bottom()))
+            x += self.GRID
+        y = area.top() + self.GRID
+        while y < area.bottom():
+            p.drawLine(QPointF(area.left(), y), QPointF(area.right(), y))
+            y += self.GRID
+        pudar = QRadialGradient(area.center(), max(area.width(), area.height()) * 0.62)
+        pudar.setColorAt(0.0, dasar)
+        pudar.setColorAt(0.55, dasar)
+        transparan = QColor(dasar)
+        transparan.setAlpha(0)
+        pudar.setColorAt(1.0, transparan)
+        p.fillRect(area, pudar)
+        p.restore()
+
+        p.setPen(QPen(QColor(w["sidebar_garis"]), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(bentuk)
+        p.end()
+
+
+class LangkahMuat(QLabel):
+    """Satu tahap pemuatan: titik (abu-abu → kuning) dan nama tahap."""
+
+    def atur(self, keadaan: str) -> None:  # "tunggu" | "jalan" | "selesai"
+        w = tema.W
+        titik = {"tunggu": w["sidebar_garis"], "jalan": w["tombol_utama"], "selesai": w["tombol_utama"]}[keadaan]
+        teks = w["sidebar_samar"] if keadaan == "tunggu" else w["sidebar_teks_aktif"]
+        simbol = "✓" if keadaan == "selesai" else "●"
+        self.setText(f'<span style="color:{titik}">{simbol}</span>&nbsp;&nbsp;'
+                     f'<span style="color:{teks}">{self.property("nama")}</span>')
 
 
 class SplashScreen(QWidget):
@@ -103,7 +143,7 @@ class SplashScreen(QWidget):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(
-            520 + 2 * self.MARGIN_BAYANGAN, 340 + 2 * self.MARGIN_BAYANGAN
+            480 + 2 * self.MARGIN_BAYANGAN, 340 + 2 * self.MARGIN_BAYANGAN
         )
         self.setWindowOpacity(0.0)
 
@@ -123,107 +163,77 @@ class SplashScreen(QWidget):
         m = self.MARGIN_BAYANGAN
         luar.setContentsMargins(m, m, m, m)
 
-        kartu = QFrame()
-        kartu.setObjectName("kartu")
-        kartu.setStyleSheet("""
-            QFrame#kartu {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #223142, stop:1 #111a24);
-                border: 1px solid #2f4258;
-                border-radius: 18px;
-            }
-            QLabel { background: transparent; }
-            QLabel#judul {
-                color: #ffffff;
-                font-size: 32px;
-                font-weight: 700;
-                letter-spacing: 1px;
-            }
-            QLabel#subjudul {
-                color: #9fb3c8;
-                font-size: 12px;
-            }
-            QLabel#status {
-                color: #cfd8e3;
-                font-size: 11px;
-            }
-            QLabel#persen {
-                color: #6bb2ff;
-                font-size: 11px;
-                font-weight: 600;
-            }
-            QLabel#footer {
-                color: #5f7388;
-                font-size: 10px;
-            }
-            QProgressBar {
-                background-color: #2a3947;
-                border: none;
-                border-radius: 3px;
-                max-height: 6px;
-                min-height: 6px;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #3d86ee, stop:1 #7cc4ff);
-                border-radius: 3px;
-            }
+        kartu = KartuSplash()
+        w = tema.W
+        kartu.setStyleSheet(f"""
+            QLabel {{ background: transparent; }}
+            QLabel#judul {{ color: {w['sidebar_judul']}; font-size: 26px; font-weight: 700; }}
+            QLabel#subjudul {{ color: {w['sidebar_samar']}; font-size: 12px; }}
+            QLabel#langkah {{ font-size: 11px; font-weight: 600; }}
+            QLabel#footer {{ color: {w['sidebar_samar']}; font-size: 10px; }}
+            QProgressBar {{
+                background-color: {w['sidebar_garis']}; border: none; border-radius: 1px;
+                max-height: 3px; min-height: 3px;
+            }}
+            QProgressBar::chunk {{ background-color: {w['tombol_utama']}; border-radius: 1px; }}
         """)
 
         bayangan = QGraphicsDropShadowEffect(self)
-        bayangan.setBlurRadius(32)
+        bayangan.setBlurRadius(30)
         bayangan.setOffset(0, 8)
-        bayangan.setColor(QColor(0, 0, 0, 170))
+        bayangan.setColor(QColor(0, 0, 0, 140))
         kartu.setGraphicsEffect(bayangan)
         luar.addWidget(kartu)
 
         layout = QVBoxLayout(kartu)
-        layout.setContentsMargins(44, 36, 44, 22)
+        layout.setContentsMargins(56, 0, 56, 22)
         layout.setSpacing(0)
-        layout.addStretch(2)
+        layout.addStretch(3)
 
-        logo = LogoCostStruct()
-        layout.addWidget(logo, alignment=Qt.AlignHCenter)
-        layout.addSpacing(16)
-
+        layout.addWidget(LogoCostStruct(), alignment=Qt.AlignHCenter)
+        layout.addSpacing(8)
         judul = QLabel("CostStruct")
         judul.setObjectName("judul")
         judul.setAlignment(Qt.AlignCenter)
         layout.addWidget(judul)
         layout.addSpacing(4)
-
-        subjudul = QLabel("BIM-Based Quantity Take-Off & Estimasi RAB")
+        subjudul = QLabel("Quantity Take-Off & Estimasi RAB dari model IFC")
         subjudul.setObjectName("subjudul")
         subjudul.setAlignment(Qt.AlignCenter)
         layout.addWidget(subjudul)
 
-        layout.addStretch(3)
+        layout.addStretch(2)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setTextVisible(False)
         layout.addWidget(self.progress)
-        layout.addSpacing(8)
+        layout.addSpacing(10)
 
-        baris_status = QHBoxLayout()
-        self.status = QLabel("Memulai...")
-        self.status.setObjectName("status")
-        self.persen = QLabel("0%")
-        self.persen.setObjectName("persen")
-        self.persen.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        baris_status.addWidget(self.status)
-        baris_status.addStretch()
-        baris_status.addWidget(self.persen)
-        layout.addLayout(baris_status)
-        layout.addSpacing(14)
+        # Tiga tahap pemuatan (TAHAPAN_LOADING); teks status lengkap ada di tooltip.
+        baris_langkah = QHBoxLayout()
+        baris_langkah.setSpacing(22)
+        baris_langkah.addStretch()
+        self.langkah = []
+        for nama in ("Database", "Data proyek", "Antarmuka"):
+            l = LangkahMuat()
+            l.setObjectName("langkah")
+            l.setTextFormat(Qt.RichText)
+            l.setProperty("nama", nama)
+            l.atur("tunggu")
+            self.langkah.append(l)
+            baris_langkah.addWidget(l)
+        baris_langkah.addStretch()
+        layout.addLayout(baris_langkah)
+        self.status = QLabel("Memulai...")  # dipakai sebagai tooltip & log; tidak ditampilkan terpisah
+        self.status.hide()
+        layout.addStretch(1)
 
-        footer = QLabel(f"{VERSI_APLIKASI}   •   CostStruct")
+        footer = QLabel(VERSI_APLIKASI)
         footer.setObjectName("footer")
         footer.setAlignment(Qt.AlignCenter)
         layout.addWidget(footer)
-
-        self.progress.valueChanged.connect(lambda v: self.persen.setText(f"{v}%"))
 
     def _pusatkan_di_layar(self):
         layar = (self.screen() or QApplication.primaryScreen()).availableGeometry()
@@ -262,6 +272,11 @@ class SplashScreen(QWidget):
         self._anim_bar.start()
 
     # -------------------------------------------------------------- Logika
+    def _perbarui_langkah(self, aktif: int, teks: str = "") -> None:
+        for i, l in enumerate(self.langkah):
+            l.atur("selesai" if i < aktif else ("jalan" if i == aktif else "tunggu"))
+            l.setToolTip(teks if i == aktif else "")
+
     def _lanjut_tahap(self):
         if self._tahap_index >= len(TAHAPAN_LOADING):
             self.timer.stop()
@@ -270,39 +285,73 @@ class SplashScreen(QWidget):
 
         persen, teks = TAHAPAN_LOADING[self._tahap_index]
         self.status.setText(teks)
+        self._perbarui_langkah(self._tahap_index, teks)
         self._animasikan_bar(persen)
 
-        # Tahap pertama sekalian jadi pengecekan nyata: pastikan DB bisa diakses.
+        # Tahap pertama sekalian jadi pengecekan nyata: siapkan & pastikan DB bisa diakses.
         if self._tahap_index == 0:
             try:
+                siapkan_database()  # idempotent: skema + data master harga
                 get_all_proyek()
+                from aktivitas import catat, pangkas
+                from database.init_db import cadangkan_database
+                from lokasi import folder_data
+
+                catat("aplikasi", f"Aplikasi dibuka ({VERSI_APLIKASI}), folder data: {folder_data()}")
+                try:  # perawatan rutin: kegagalannya tidak boleh menghentikan aplikasi
+                    pangkas()
+                    cadangan = cadangkan_database()
+                    if cadangan:
+                        catat("aplikasi", f"Cadangan database harian dibuat: {cadangan.name}")
+                except Exception as e:
+                    catat("aplikasi", f"Cadangan / pemangkasan log dilewati: {e}", tingkat="PERINGATAN")
             except Exception as e:
                 self.timer.stop()
                 self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
                 self.show()
-                QMessageBox.critical(
-                    self,
-                    "Database Bermasalah",
-                    f"CostStruct tidak bisa mengakses database.\n\n"
-                    f"Pastikan sudah menjalankan init_db.py.\n\nDetail: {e}",
-                )
+                from gui.galat import tampilkan_galat
+                from lokasi import folder_data
+
+                tampilkan_galat(self, "Database Bermasalah", e, f"Membuka database di {folder_data()}")
                 QApplication.quit()
                 return
 
         self._tahap_index += 1
 
     def _buka_dashboard(self):
-        self.dashboard = DashboardWindow()
+        from database.preferensi_repository import muat_preferensi
+
+        try:
+            tema.terapkan(QApplication.instance(), muat_preferensi().tema)  # KF-10
+        except Exception:
+            pass  # tetap pakai tema bawaan bila preferensi tidak terbaca
+        self.dashboard = MainWindow()
         self.dashboard.show()
         self.close()
 
 
 def main():
+    from aktivitas import siapkan_log
+    from gui.galat import pasang_penangkap_galat, pasang_terjemahan
+
+    siapkan_log()  # KF-15: file log harian di folder data
     app = QApplication(sys.argv)
+    app.setApplicationName("CostStruct")
+    app.setWindowIcon(tema.ikon_aplikasi())
+    pasang_terjemahan(app)  # KNF-6: tombol bawaan Qt berbahasa Indonesia
+    pasang_penangkap_galat()  # KF-14 / KNF-4: kesalahan tak terduga tidak menutup aplikasi
+    try:  # tema pilihan pengguna sudah dipakai sejak splash screen
+        from database.preferensi_repository import muat_preferensi
+
+        tema.terapkan(app, muat_preferensi().tema)
+    except Exception:  # database belum siap / rusak: tema bawaan, galat ditangani tahap pemeriksaan database
+        tema.terapkan(app)
+    app.setWindowIcon(tema.ikon_aplikasi())
     splash = SplashScreen()
     splash.show()
     sys.exit(app.exec())
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # validasi IFC memakai proses anak (juga saat dibundel PyInstaller)
     main()
