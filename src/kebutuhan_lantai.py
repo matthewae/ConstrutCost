@@ -332,3 +332,90 @@ def penutup_bangunan(rincian: list) -> tuple:
             if any(j in syarat for j, _ in unsur):
                 return x["lantai"], unsur
     return None, []
+
+
+# ---------------------------------------------------------------- RAB lantai gaya RAP + backup volume
+
+# Judul bagian mengikuti penulisan RAP/RAB konsultan (mis. RAP SMK N 6 Bandung: "I. PEK. TANAH",
+# "II. PEKERJAAN BETON", ... "VI. PEKERJAAN KUDA-KUDA DAN ATAP", "VII. PEKERJAAN PENGECATAN").
+JUDUL_KATEGORI = {
+    "Tanah": "PEKERJAAN TANAH",
+    "Fondasi": "PEKERJAAN FONDASI",
+    "Beton": "PEKERJAAN BETON",
+    "Dinding": "PEKERJAAN DINDING",
+    "Lantai": "PEKERJAAN LANTAI / KERAMIK",
+    "Pintu & Jendela": "PEKERJAAN PINTU DAN JENDELA",
+    "Atap": "PEKERJAAN KUDA-KUDA DAN ATAP",
+    "Plafon": "PEKERJAAN PLAFON",
+    "Cat": "PEKERJAAN PENGECATAN",
+    "Air Limbah": "PEKERJAAN SANITASI / AIR LIMBAH",
+}
+
+
+def judul_kategori(kategori: str) -> str:
+    return JUDUL_KATEGORI.get(kategori, f"PEKERJAAN {kategori.upper()}")
+
+
+def _nama_elemen_bersih(nama) -> str:
+    """'Basic Wall:Generic - 200mm:347125' -> 'Basic Wall:Generic - 200mm' (id unik Revit dibuang)."""
+    nama = re.sub(r":\d+$", "", (nama or "-").strip())
+    return nama if len(nama) <= 48 else nama[:47] + "…"
+
+
+def backup_volume(rows: list) -> list:
+    """BackUp Volume seperti lampiran RAB: elemen dengan nama & dimensi sama digabung.
+    Return [{'uraian', 'panjang', 'lebar', 'tinggi', 'luas', 'unit', 'per_unit', 'volume', 'rumus'}],
+    volume terbesar dulu. per_unit = volume pekerjaan satu elemen; volume = per_unit x unit."""
+    grup = {}
+    for r in rows:
+        t = r.get("tinggi") or r.get("tebal")
+        kunci = (_nama_elemen_bersih(r.get("nama_elemen")), *(round(v, 3) if v else None for v in
+                 (r.get("panjang"), r.get("lebar"), t, r.get("luas"))), round(r["volume_pekerjaan"] or 0.0, 4))
+        g = grup.setdefault(kunci, {
+            "uraian": kunci[0], "panjang": r.get("panjang"), "lebar": r.get("lebar"), "tinggi": t,
+            "luas": r.get("luas"), "unit": 0, "per_unit": r["volume_pekerjaan"] or 0.0, "volume": 0.0,
+            "rumus": r.get("rumus") or "",
+        })
+        g["unit"] += 1
+        g["volume"] += r["volume_pekerjaan"] or 0.0
+    for g in grup.values():  # rata-rata kelompok: unit x per_unit = volume tepat (tanpa selisih pembulatan)
+        g["per_unit"] = g["volume"] / g["unit"]
+    return sorted(grup.values(), key=lambda g: (-g["volume"], g["uraian"]))
+
+
+def rab_lantai(x: dict) -> list:
+    """RAB satu lantai dengan susunan RAP: bagian (I. PEKERJAAN TANAH ...) -> grup tipe elemen
+    (1 Kolom K1 (20/25) — 12 buah) -> item (– Beton, – Bekisting, – Tulangan utama 6 D13 ...),
+    setiap item dilengkapi backup volume elemen-elemennya.
+    Return [{'no', 'kategori', 'judul', 'total', 'grup': [{'no', 'judul', 'total', 'items': [{'no', 'uraian',
+    'kode', 'volume', 'satuan', 'harga', 'jumlah', 'backup'}]}]}]."""
+    from rab_rinci import _per_tipe, susun_rinci
+
+    romawi = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV"]
+    hasil = []
+    for i, k in enumerate(susun_rinci(x["baris"])):
+        rows_k = [r for r in x["baris"] if r["kategori"] == k["kategori"]]
+        bagian = {"no": f"{romawi[i] if i < len(romawi) else i + 1}.", "kategori": k["kategori"],
+                  "judul": judul_kategori(k["kategori"]), "total": k["total"], "grup": []}
+        nomor = 0
+        for g in k["grup"]:
+            if g["judul"]:
+                nomor += 1
+            grup = {"no": str(nomor) if g["judul"] else "", "judul": g["judul"], "total": g["total"], "items": []}
+            for it in g["items"]:
+                if not g["judul"]:
+                    nomor += 1
+                if g["tipe_id"] is not None:
+                    rows = [r for r in rows_k if _per_tipe(r) and r["tipe_id"] == g["tipe_id"]
+                            and r["pekerjaan_id"] == it["pekerjaan_id"]
+                            and (not it["diameter"] or r.get("uraian") == it["label"])]
+                else:
+                    rows = [r for r in rows_k if r["pekerjaan_id"] == it["pekerjaan_id"] and not _per_tipe(r)]
+                grup["items"].append({
+                    "no": "-" if g["judul"] else str(nomor), "uraian": it["label"], "kode": it["kode"],
+                    "volume": it["volume"], "satuan": it["satuan"], "harga": it["harga"], "jumlah": it["jumlah"],
+                    "backup": backup_volume(rows),
+                })
+            bagian["grup"].append(grup)
+        hasil.append(bagian)
+    return hasil

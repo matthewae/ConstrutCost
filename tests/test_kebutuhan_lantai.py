@@ -328,7 +328,8 @@ def test_panel_rincian_perhitungan_per_lantai(proyek_bertingkat):
     hal.tabel.selectRow(0)  # pilih satu lantai: rincian lengkap lantai itu saja
     teks = _teks_panel(hal.panel)
     assert teks[0] == "RINCIAN PERHITUNGAN LANTAI" and "00 FONDASI" in teks and "01 LANTAI 1" not in teks
-    assert "TENAGA KERJA (KOEFISIEN AHSP)" in teks
+    assert "TENAGA KERJA (VOLUME × KOEFISIEN AHSP)" in teks
+    assert any(t.startswith("• ") and " bh × " in t for t in teks)  # backup volume tiap item
     hal.tabel.clearSelection()
     assert _teks_panel(hal.panel)[0].startswith("RINCIAN PERHITUNGAN PER LANTAI")
 
@@ -352,9 +353,83 @@ def test_sheet_rincian_perhitungan_urut_sampai_penutup(db_sementara, tmp_path):
     b = [c.value for c in ws["B"] if isinstance(c.value, str)]
     assert b.index("ERDGESCHOSS") < b.index("DACHGESCHOSS") < b.index("PENUTUP BANGUNAN (Dachgeschoss)")
     assert b[-2:] == ["Atap", "Plafon"]
-    assert "STRUKTUR: BETON, BEKISTING & BESI" in b and "BAHAN / MATERIAL (KOEFISIEN AHSP)" in b
-    e = [c.value for c in ws["E"] if isinstance(c.value, str)]
-    assert any("batang @ 12 m" in x for x in e) and any("zak @ 50 kg" in x for x in e)
+    assert "PEKERJAAN TANAH" in b and "PEKERJAAN BETON" in b and "PEKERJAAN KUDA-KUDA DAN ATAP" in b
+    assert any(x.startswith("KEBUTUHAN BESI TULANGAN PER DIAMETER") for x in b)
+    assert any(x.startswith("KEBUTUHAN BAHAN / MATERIAL") for x in b)
+    assert any(x.strip().startswith("• ") for x in b)  # baris backup volume
+    # kolom backup sesuai lampiran RAB: Panjang | Lebar | Tinggi | Luas | Jlh Unit | Volume | Total Volume
+    judul = [c.value for c in next(r for r in ws.iter_rows() if r[0].value == "No")]
+    assert judul[2:9] == ["Panjang (m)", "Lebar (m)", "Tinggi / Tebal (m)", "Luas (m²)", "Jlh Unit", "Volume / Unit",
+                          "Total Volume"]
+    item = next(r for r in ws.iter_rows() if isinstance(r[8].value, str) and r[8].value.startswith("=SUM(I"))
+    assert item[11].value == f"=I{item[0].row}*K{item[0].row}"  # jumlah = total volume x harga satuan
+    m = [c.value for c in ws["M"] if isinstance(c.value, str)]
+    assert any("batang @ 12 m" in x for x in m) and any("zak @ 50 kg" in x for x in m)
+
+
+def test_rab_lantai_susunan_rap_dan_backup(proyek_bertingkat):
+    from kebutuhan_lantai import judul_kategori, rab_lantai, rincian_per_lantai
+
+    _, d = proyek_bertingkat
+    for x in rincian_per_lantai(d["baris"], d["komponen"]):
+        bagian = rab_lantai(x)
+        assert [b["no"] for b in bagian] == ["I.", "II.", "III.", "IV.", "V.", "VI.", "VII.", "VIII.", "IX.", "X."][:len(bagian)]
+        assert all(b["judul"] == judul_kategori(b["kategori"]) for b in bagian)
+        assert sum(b["total"] for b in bagian) == pytest.approx(x["total"])
+        beton = next(b for b in bagian if b["kategori"] == "Beton")
+        kolom = next(g for g in beton["grup"] if g["judul"] and g["judul"].startswith("Kolom"))
+        assert kolom["judul"].endswith("— 2 buah") and kolom["no"] == "1"
+        uraian = [it["uraian"] for it in kolom["items"]]
+        assert uraian[0].startswith("Beton Kolom") and any(u.startswith("Tulangan utama") for u in uraian)
+        for b in bagian:
+            for g in b["grup"]:
+                for it in g["items"]:
+                    assert it["no"] == "-" if g["judul"] else it["no"].isdigit()
+                    assert sum(e["volume"] for e in it["backup"]) == pytest.approx(it["volume"])
+                    for e in it["backup"]:
+                        assert e["unit"] * e["per_unit"] == pytest.approx(e["volume"])
+        backup = kolom["items"][0]["backup"]  # 2 kolom 25/25 tinggi 3,5 m (nama berbeda: K..0, K..1)
+        assert sum(e["unit"] for e in backup) == 2
+        assert all(e["per_unit"] == pytest.approx(0.25 * 0.25 * 3.5, rel=1e-3) for e in backup)
+        assert all(e["tinggi"] == pytest.approx(3.5) for e in backup)
+
+    from kebutuhan_lantai import backup_volume
+
+    sama = [{"nama_elemen": "Kolom:K1 20/25:3471", "panjang": None, "lebar": 0.2, "tinggi": 3.5, "luas": None,
+             "volume_pekerjaan": 0.175, "rumus": "V = b × h × t"} for _ in range(3)]
+    b = backup_volume(sama + [{**sama[0], "nama_elemen": "Kolom:K1 20/25:9999", "volume_pekerjaan": 0.17500001}])
+    assert len(b) == 1 and b[0]["uraian"] == "Kolom:K1 20/25" and b[0]["unit"] == 4  # id Revit dibuang, digabung
+
+
+def test_tabel_per_lantai_judul_bagian_dan_panel_kategori(proyek_bertingkat):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    test_tabel_per_lantai_judul_bagian_dan_panel_kategori.app = QApplication.instance() or QApplication([])
+    from gui.estimasi_page import EstimasiPage
+
+    pid, _ = proyek_bertingkat
+    hal = EstimasiPage(pid, "Rumah 5 Lantai")
+    hal.resize(900, 700)  # layar sempit: kolom judul tidak boleh menyempit
+    hal.show()
+    hal.muat()
+    hal.grup_mode.button(hal.MODE_LANTAI).setChecked(True)
+    hal._isi_ulang()
+    QApplication.processEvents()
+    t = hal.tabel
+    assert t.columnWidth(1) >= 320
+    judul = [t.item(r, 1).text().strip() for r in range(t.rowCount()) if t.item(r, 1)]
+    assert "I.  PEKERJAAN BETON" in judul or any(j.endswith("PEKERJAAN BETON") for j in judul)
+    baris_beton = next(r for r in range(t.rowCount()) if t.item(r, 0) and (t.item(r, 0).data(Qt.UserRole) or ("",))[0]
+                       == "kategori" and t.item(r, 0).data(Qt.UserRole)[1] == ("01 LANTAI 1", "Beton"))
+    t.selectRow(baris_beton)
+    teks = _teks_panel(hal.panel)
+    assert teks[0] == "RINCIAN PERHITUNGAN · PEKERJAAN BETON" and "01 LANTAI 1" in teks
+    assert not any("PEKERJAAN DINDING" in x for x in teks)  # hanya bagian yang dipilih
+    assert any(x.startswith("1   Kolom") for x in teks) and any(x.strip().startswith("–  Beton Kolom") for x in teks)
+    assert any(x.startswith("Contoh rumus:") for x in teks)
+    hal.close()
 
 
 def test_dialog_export_tombol_selalu_terlihat(proyek_bertingkat):

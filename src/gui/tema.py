@@ -9,7 +9,7 @@ dialog cukup memberi `objectName` / properti pada widget-nya.
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QLocale, QPointF, QPropertyAnimation, QRectF, Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QEvent, QLocale, QObject, QPointF, QPropertyAnimation, QRectF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -747,7 +747,9 @@ def siapkan_tabel(tabel: QTableWidget, judul_kolom: list, rata_kanan=(), tinggi_
     tabel.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
 
 
-def atur_lebar(tabel: QTableWidget, stretch: int, isi_konten=()) -> None:
+def atur_lebar(tabel: QTableWidget, stretch: int, isi_konten=(), minimum: int = 220) -> None:
+    """Kolom `stretch` mengisi sisa lebar, tetapi tidak pernah lebih sempit dari `minimum` piksel:
+    di layar sempit / skala Windows besar tabel bergulir ke samping, judul (mis. nama lantai) tetap terbaca."""
     h = tabel.horizontalHeader()
     for kol in range(tabel.columnCount()):
         if kol == stretch:
@@ -756,6 +758,42 @@ def atur_lebar(tabel: QTableWidget, stretch: int, isi_konten=()) -> None:
             h.setSectionResizeMode(kol, QHeaderView.ResizeToContents)
         else:
             h.setSectionResizeMode(kol, QHeaderView.Interactive)
+    lama = getattr(tabel, "_lebar_minimum", None)
+    if lama is not None:
+        tabel.viewport().removeEventFilter(lama)
+        lama.deleteLater()
+    tabel._lebar_minimum = _LebarMinimum(tabel, stretch, minimum) if minimum else None
+
+
+class _LebarMinimum(QObject):
+    """Mengganti kolom Stretch menjadi Interactive (lebar = minimum) bila ruang tersisa terlalu sempit."""
+
+    def __init__(self, tabel: QTableWidget, kolom: int, minimum: int):
+        super().__init__(tabel)
+        self.tabel, self.kolom, self.minimum = tabel, kolom, minimum
+        tabel.viewport().installEventFilter(self)
+        QTimer.singleShot(0, self.periksa)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Resize:
+            QTimer.singleShot(0, self.periksa)
+        return False
+
+    def periksa(self):
+        try:
+            h = self.tabel.horizontalHeader()
+        except RuntimeError:  # tabel sudah dihapus
+            return
+        if self.kolom >= h.count():
+            return
+        lain = sum(h.sectionSize(i) for i in range(h.count()) if i != self.kolom and not h.isSectionHidden(i))
+        sisa = self.tabel.viewport().width() - lain
+        if sisa >= self.minimum:
+            if h.sectionResizeMode(self.kolom) != QHeaderView.Stretch:
+                h.setSectionResizeMode(self.kolom, QHeaderView.Stretch)
+        elif h.sectionResizeMode(self.kolom) != QHeaderView.Interactive or h.sectionSize(self.kolom) < self.minimum:
+            h.setSectionResizeMode(self.kolom, QHeaderView.Interactive)
+            h.resizeSection(self.kolom, self.minimum)
 
 
 KUNCI_URUT = Qt.UserRole + 7
