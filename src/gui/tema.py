@@ -233,6 +233,7 @@ QLabel#rumus {{
     font-family: "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace; font-size: 12px;
     background-color: {c['latar']}; border: 1px solid {c['garis']}; border-radius: 6px; padding: 8px 10px;
 }}
+QPlainTextEdit#rincianLog {{ font-family: "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace; font-size: 12px; }}
 QLabel#chip {{ border-radius: 9px; padding: 2px 9px; font-size: 11px; font-weight: 600; }}
 QLabel#chip[jenis="netral"] {{ background-color: {c['permukaan_3']}; color: {c['teks_redup']}; }}
 QLabel#chip[jenis="info"] {{ background-color: {c['aksen_lembut']}; color: {c['aksen_hover']}; }}
@@ -684,22 +685,43 @@ class Logo(QWidget):
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        s = self.width()
-        area = QRectF(0, 0, s, s)
-        grad = QLinearGradient(area.topLeft(), area.bottomRight())
-        grad.setColorAt(0.0, QColor("#6bb2ff"))
-        grad.setColorAt(1.0, QColor("#2b6cd4"))
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(grad))
-        p.drawRoundedRect(area, s * 0.28, s * 0.28)
-        lebar, jarak = s * 0.15, s * 0.09
-        x0 = (s - (3 * lebar + 2 * jarak)) / 2
-        dasar = s * 0.74
-        for i, (t, a) in enumerate(zip([0.22, 0.38, 0.54], [170, 215, 255])):
-            p.setBrush(QColor(255, 255, 255, a))
-            p.drawRoundedRect(QRectF(x0 + i * (lebar + jarak), dasar - s * t, lebar, s * t), 2, 2)
+        gambar_logo(p, self.width())
         p.end()
+
+
+def gambar_logo(p: QPainter, s: float) -> None:
+    """Gambar logo CostStruct ukuran s x s (dipakai widget Logo, ikon jendela, dan ikon .exe)."""
+    p.setRenderHint(QPainter.Antialiasing)
+    area = QRectF(0, 0, s, s)
+    grad = QLinearGradient(area.topLeft(), area.bottomRight())
+    grad.setColorAt(0.0, QColor("#6bb2ff"))
+    grad.setColorAt(1.0, QColor("#2b6cd4"))
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(grad))
+    p.drawRoundedRect(area, s * 0.28, s * 0.28)
+    lebar, jarak = s * 0.15, s * 0.09
+    x0 = (s - (3 * lebar + 2 * jarak)) / 2
+    dasar = s * 0.74
+    for i, (t, a) in enumerate(zip([0.22, 0.38, 0.54], [170, 215, 255])):
+        p.setBrush(QColor(255, 255, 255, a))
+        p.drawRoundedRect(QRectF(x0 + i * (lebar + jarak), dasar - s * t, lebar, s * t), s * 0.05, s * 0.05)
+
+
+def gambar_ikon_aplikasi(ukuran: int = 256) -> QPixmap:
+    pm = QPixmap(ukuran, ukuran)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    gambar_logo(p, ukuran)
+    p.end()
+    return pm
+
+
+def ikon_aplikasi() -> QIcon:
+    """Ikon jendela/taskbar CostStruct (KNF-8), digambar tanpa file gambar."""
+    ik = QIcon()
+    for u in (16, 24, 32, 48, 64, 128, 256):
+        ik.addPixmap(gambar_ikon_aplikasi(u))
+    return ik
 
 
 # ---------------------------------------------------------------- tabel

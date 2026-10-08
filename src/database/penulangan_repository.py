@@ -9,6 +9,7 @@ yang sudah diubah pengguna (diubah = 1) dipertahankan saat estimasi diulang.
 import math
 from dataclasses import fields
 
+from aktivitas import catat
 from database.estimasi_repository import _connect
 from rules.penulangan import (
     AWALAN_KODE,
@@ -127,8 +128,16 @@ def ubah_tipe(tipe_id: int, p: Penulangan) -> None:
             (*[getattr(p, k) for k in _KOLOM_KONFIG], tipe_id),
         )
         conn.commit()
+        _catat_tipe(conn, tipe_id, f"diubah menjadi {p.ringkas()}")
     finally:
         conn.close()
+
+
+def _catat_tipe(conn, tipe_id: int, pesan: str) -> None:
+    r = conn.execute("SELECT * FROM tipe_penulangan WHERE id = ?", (tipe_id,)).fetchone()
+    if r:
+        label = label_tipe(r["kelompok"], r["kode"], r["b_cm"] / 100, r["h_cm"] / 100)
+        catat("penulangan", f"Tipe {label} {pesan}", r["proyek_id"])
 
 
 def kembalikan_tipe_bawaan(tipe_id: int) -> Penulangan:
@@ -144,6 +153,7 @@ def kembalikan_tipe_bawaan(tipe_id: int) -> Penulangan:
             (*[getattr(p, k) for k in _KOLOM_KONFIG], tipe_id),
         )
         conn.commit()
+        _catat_tipe(conn, tipe_id, f"kembali ke bawaan {p.ringkas()}")
         return p
     finally:
         conn.close()

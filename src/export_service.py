@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from aktivitas import catat
 from database.biaya_repository import ringkasan_biaya
 from database.estimasi_repository import BUK_RATE, PPN_RATE, _connect, get_hasil_estimasi_by_proyek
 from database.penulangan_repository import daftar_tipe, kebutuhan_besi
@@ -69,6 +70,7 @@ def ambil_data_export(proyek_id: int) -> dict:
     if not baris:
         raise ValueError("Belum ada hasil estimasi untuk di-export.")
     return {
+        "proyek_id": proyek_id,
         "nama_proyek": pr["nama_proyek"],
         "path_ifc": pr["path_file_ifc"],
         "baris": baris,
@@ -585,14 +587,14 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
         atur_cetak(wd, hdr, "landscape")
 
     wb.save(str(path))
-    log.info("Export Excel: %s", path)
+    catat("export", f"Export Excel: {path} (isi: {_isi(opsi)}; kolom: {', '.join(opsi.kolom) or '-'})", data.get("proyek_id"))
     return str(path)
 
 
 # ---------------------------------------------------------------- PDF
 
 
-def export_pdf(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -> str:
+def export_pdf(path, data: dict, meta: dict, opsi: OpsiExport | None = None, catat_log: bool = True) -> str:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import ParagraphStyle
@@ -827,8 +829,15 @@ def export_pdf(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -> 
         bottomMargin=1.6 * cm, title=f"RAB {nama}", author="CostStruct",
     )
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
-    log.info("Export PDF: %s", path)
+    if catat_log:  # pratinjau (KF-6) tidak dicatat sebagai export
+        catat("export", f"Export PDF {opsi.orientasi_pdf}: {path} (isi: {_isi(opsi)})", data.get("proyek_id"))
     return str(path)
+
+
+def _isi(opsi: OpsiExport) -> str:
+    bagian = [("RAB", True), ("rekap", opsi.rekap), ("rinci", opsi.rinci), ("besi", opsi.besi),
+              ("per lantai", opsi.lantai), ("detail", opsi.detail)]
+    return ", ".join(n for n, ada in bagian if ada)
 
 
 def _esc(teks) -> str:

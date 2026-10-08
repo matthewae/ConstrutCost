@@ -27,6 +27,7 @@ from database.berkas_proyek import EKSTENSI, BerkasTidakValid, baca_berkas, buka
 from database.preferensi_repository import folder_export, folder_ifc, muat_preferensi
 from database.proyek_repository import ProyekTidakValid, get_proyek, ubah_info_proyek
 from gui import tema
+from gui.galat import tampilkan_galat
 
 FILTER = f"File Proyek CostStruct (*{EKSTENSI})"
 
@@ -62,7 +63,7 @@ def simpan_file_proyek(parent, proyek_id: int) -> Path | None:
         hasil = simpan_berkas(proyek_id, path, sertakan_ifc=sertakan)
     except (OSError, BerkasTidakValid) as e:  # KF-14
         QApplication.restoreOverrideCursor()
-        QMessageBox.critical(parent, "Gagal Menyimpan", f"File proyek tidak dapat disimpan.\n\n{e}")
+        tampilkan_galat(parent, "Gagal Menyimpan", e, "Simpan file proyek", proyek_id)
         return None
     QApplication.restoreOverrideCursor()
     tema.toast(parent, f"Proyek berhasil disimpan: {hasil.name}")
@@ -77,7 +78,7 @@ def buka_file_proyek(parent) -> tuple | None:
     try:
         data = baca_berkas(path)
     except BerkasTidakValid as e:
-        QMessageBox.critical(parent, "File Proyek Tidak Valid", str(e))
+        tampilkan_galat(parent, "File Proyek Tidak Valid", e, f"Buka file proyek {path}")
         return None
     nama = (data.get("proyek") or {}).get("nama_proyek") or Path(path).stem
     info = f"Disimpan {data.get('disimpan', '-')}, {len(data.get('elemen', []))} elemen."
@@ -90,7 +91,7 @@ def buka_file_proyek(parent) -> tuple | None:
         pid = buka_berkas(path)
     except (OSError, BerkasTidakValid) as e:
         QApplication.restoreOverrideCursor()
-        QMessageBox.critical(parent, "Gagal Membuka", f"File proyek tidak dapat dibuka.\n\n{e}")
+        tampilkan_galat(parent, "Gagal Membuka", e, f"Buka file proyek {path}")
         return None
     QApplication.restoreOverrideCursor()
     return pid, nama

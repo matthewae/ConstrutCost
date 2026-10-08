@@ -9,6 +9,7 @@ selalu memakai asumsi yang sama (KNF-3 konsistensi hasil).
 import json
 from dataclasses import fields, replace
 
+from aktivitas import catat
 from database.estimasi_repository import _connect
 from rules.parameter import PARAMETER_DEFAULT, ParameterEstimasi
 
@@ -114,5 +115,7 @@ def simpan_parameter(proyek_id: int, nilai: dict) -> None:
             (json.dumps(beda) if beda else None, proyek_id),
         )
         conn.commit()
+        teks = ", ".join(f"{_SPEK[k][0].lower()} {v:g} {_SPEK[k][1]}" for k, v in beda.items()) or "semua nilai bawaan"
+        catat("parameter", f"Parameter aturan disimpan: {teks}", proyek_id)
     finally:
         conn.close()

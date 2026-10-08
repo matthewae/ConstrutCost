@@ -3,10 +3,12 @@ Data access layer untuk hasil_estimasi (QTO & RAB per proyek).
 """
 
 import sqlite3
-from pathlib import Path
 
-# Selalu <root proyek>/data/coststruct.db, tidak bergantung pada folder tempat aplikasi dijalankan.
-DB_PATH = Path(__file__).resolve().parents[2] / "data" / "coststruct.db"
+from lokasi import path_database
+
+# KNF-8: <root proyek>/data/coststruct.db saat dijalankan dari kode sumber, %APPDATA%\CostStruct\coststruct.db
+# saat dijalankan sebagai .exe (lihat lokasi.py). Tidak bergantung pada folder kerja aplikasi.
+DB_PATH = path_database()
 
 # Biaya Umum & Keuntungan (overhead + profit). HSPK Kota Bandung 2027 memakai 10% (rentang 10%-15%).
 # Harga satuan pekerjaan = (jumlah bahan + upah + alat) x (1 + BUK_RATE).
@@ -17,7 +19,8 @@ PPN_RATE = 0.11
 
 
 def _connect():
-    conn = sqlite3.connect(DB_PATH)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)  # folder %APPDATA%\CostStruct pada pemakaian pertama
+    conn = sqlite3.connect(DB_PATH, timeout=10)  # tunggu bila database sedang ditulis proses lain
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -130,6 +133,7 @@ def update_volume_estimasi(hasil_id: int, pekerjaan_id: int, volume_baru: float)
             (volume_baru, subtotal_baru, hasil_id),
         )
         conn.commit()
+        _catat_baris(hasil_id, f"Volume diubah menjadi {volume_baru:g}")
         return subtotal_baru
     finally:
         conn.close()
@@ -171,6 +175,9 @@ def ubah_harga_baris(hasil_ids, harga: float | None) -> None:
         conn.commit()
     finally:
         conn.close()
+    if hasil_ids:
+        teks = f"Harga satuan khusus Rp {harga:,.0f}".replace(",", ".") if harga is not None else "Kembali ke harga master"
+        _catat_baris(hasil_ids[0], f"{teks} ({len(hasil_ids)} baris)")
 
 
 def ubah_catatan(hasil_id: int, catatan: str) -> None:
@@ -183,3 +190,22 @@ def ubah_catatan(hasil_id: int, catatan: str) -> None:
         conn.commit()
     finally:
         conn.close()
+    _catat_baris(hasil_id, f"Catatan: {teks}" if teks else "Catatan dihapus")
+
+
+def _catat_baris(hasil_id: int, pesan: str) -> None:
+    """KF-15: catat edit hasil estimasi beserta nama pekerjaan & elemennya."""
+    from aktivitas import catat
+
+    conn = _connect()
+    try:
+        r = conn.execute(
+            """SELECT h.proyek_id, p.nama_pekerjaan, e.nama FROM hasil_estimasi h
+               JOIN pekerjaan p ON p.id = h.pekerjaan_id LEFT JOIN elemen_proyek e ON e.id = h.elemen_id
+               WHERE h.id = ?""",
+            (hasil_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if r:
+        catat("edit", f"{r['nama_pekerjaan']} · {r['nama'] or '-'}: {pesan}", r["proyek_id"])

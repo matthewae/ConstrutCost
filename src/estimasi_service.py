@@ -6,7 +6,9 @@ tipe menghitung ulang pembesian seluruh proyek (hitung_ulang_penulangan).
 """
 
 import json
+from pathlib import Path
 
+from aktivitas import catat
 from database.estimasi_repository import BUK_RATE, _connect
 from database.init_db import pastikan_skema
 from database.parameter_repository import muat_parameter
@@ -131,6 +133,7 @@ def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=None)
             (proyek_id,),
         )
         conn.commit()
+        catat("estimasi", f"Estimasi dari IFC {Path(row['path_file_ifc']).name}: {len(elemen)} elemen, {n_hasil} item pekerjaan", proyek_id)
         return {
             "elemen": len(elemen),
             "baris_hasil": n_hasil,
@@ -228,6 +231,7 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=None) -> dict:
             "UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (el["proyek_id"],)
         )
         conn.commit()
+        catat("dimensi", f"Ubah dimensi {el.get('nama') or elemen_id}: {', '.join(berubah)}; QTO elemen dihitung ulang", el["proyek_id"])
         return {"baris": n, "dilewati": dilewati, "berubah": berubah}
     finally:
         conn.close()
@@ -261,6 +265,7 @@ def hitung_ulang_penulangan(proyek_id: int, parameter=None) -> dict:
         rapikan_tipe(conn, proyek_id)
         conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (proyek_id,))
         conn.commit()
+        catat("penulangan", f"Pembesian dihitung ulang: {n} baris, total {round(berat)} kg", proyek_id)
         return {"baris": n, "berat": berat}
     finally:
         conn.close()
@@ -306,6 +311,7 @@ def hitung_ulang_dari_elemen(proyek_id: int, parameter=None) -> dict:
         rapikan_tipe(conn, proyek_id)
         conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (proyek_id,))
         conn.commit()
+        catat("estimasi", f"Hitung ulang dari elemen tersimpan: {n} item pekerjaan, {manual} volume manual diganti", proyek_id)
         return {"baris": n, "peringatan": peringatan, "manual_diganti": manual}
     finally:
         conn.close()

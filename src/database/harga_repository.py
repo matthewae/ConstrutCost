@@ -11,6 +11,7 @@ Hasil estimasi proyek menyimpan subtotal; `terapkan_ke_estimasi()` menghitung ul
 subtotal dengan harga terbaru tanpa mengubah volume (termasuk volume yang diedit manual).
 """
 
+from aktivitas import catat, rp
 from database.estimasi_repository import BUK_RATE, _connect
 
 TIPE = ("bahan", "upah", "alat")
@@ -96,6 +97,13 @@ def ubah_sumber_daya(sumber_daya_id: int, harga, merk: str | None = None) -> Non
         conn.commit()
     finally:
         conn.close()
+    _catat_sd(sumber_daya_id, f"Harga diubah menjadi {rp(nilai)}" + (f", merk {merk}" if merk else ""))
+
+
+def _catat_sd(sumber_daya_id: int, pesan: str) -> None:
+    sd = ambil_sumber_daya(sumber_daya_id)
+    if sd:
+        catat("harga", f"{sd['nama']} ({sd['satuan']}): {pesan}")
 
 
 def kembalikan_harga_bawaan(sumber_daya_id: int) -> None:
@@ -110,6 +118,7 @@ def kembalikan_harga_bawaan(sumber_daya_id: int) -> None:
         conn.commit()
     finally:
         conn.close()
+    _catat_sd(sumber_daya_id, f"Harga dikembalikan ke bawaan HSPK {rp(r['harga_bawaan'])}")
 
 
 def tambah_sumber_daya(tipe: str, nama: str, satuan: str, harga, merk: str | None = None) -> int:
@@ -135,6 +144,7 @@ def tambah_sumber_daya(tipe: str, nama: str, satuan: str, harga, merk: str | Non
             (tipe, nama, satuan, nilai, (merk or "").strip() or None),
         ).lastrowid
         conn.commit()
+        catat("harga", f"{LABEL_TIPE[tipe]} baru: {nama} ({satuan}) {rp(nilai)}")
         return sid
     finally:
         conn.close()
@@ -155,9 +165,11 @@ def hapus_sumber_daya(sumber_daya_id: int) -> None:
             "SELECT 1 FROM komponen_harga WHERE sumber_daya_id = ? LIMIT 1", (sumber_daya_id,)
         ).fetchone():
             raise HargaTidakValid("Masih dipakai di analisa pekerjaan. Hapus komponennya terlebih dahulu.")
+        nama = conn.execute("SELECT nama FROM sumber_daya WHERE id = ?", (sumber_daya_id,)).fetchone()["nama"]
         conn.execute("DELETE FROM riwayat_harga WHERE sumber_daya_id = ?", (sumber_daya_id,))
         conn.execute("DELETE FROM sumber_daya WHERE id = ?", (sumber_daya_id,))
         conn.commit()
+        catat("harga", f"Sumber daya dihapus: {nama}")
     finally:
         conn.close()
 
@@ -271,6 +283,8 @@ def tambah_komponen(pekerjaan_id: int, sumber_daya_id: int, koefisien) -> int:
             (pekerjaan_id, sd["tipe"], sd["nama"], sd["satuan"], koef, sd["harga"], sd["id"]),
         ).lastrowid
         conn.commit()
+        kode = conn.execute("SELECT kode_ahsp FROM pekerjaan WHERE id = ?", (pekerjaan_id,)).fetchone()[0]
+        catat("harga", f"Komponen {sd['nama']} (koefisien {koef:g}) ditambahkan ke analisa {kode}")
         return kid
     finally:
         conn.close()
@@ -287,8 +301,13 @@ def hapus_komponen(komponen_id: int) -> None:
             return
         if not r["diubah_manual"]:
             raise HargaTidakValid("Komponen bawaan AHSP tidak bisa dihapus.")
+        info = conn.execute(
+            "SELECT k.nama_komponen, p.kode_ahsp FROM komponen_harga k JOIN pekerjaan p ON p.id = k.pekerjaan_id WHERE k.id = ?",
+            (komponen_id,),
+        ).fetchone()
         conn.execute("DELETE FROM komponen_harga WHERE id = ?", (komponen_id,))
         conn.commit()
+        catat("harga", f"Komponen {info['nama_komponen']} dihapus dari analisa {info['kode_ahsp']}")
     finally:
         conn.close()
 
@@ -321,6 +340,7 @@ def terapkan_ke_estimasi(proyek_id: int | None = None) -> int:
         else:
             conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (proyek_id,))
         conn.commit()
+        catat("harga", f"Harga satuan terbaru diterapkan ke {n} baris estimasi", proyek_id)
         return n
     finally:
         conn.close()

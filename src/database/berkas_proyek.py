@@ -21,6 +21,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+from aktivitas import catat
 from database.estimasi_repository import BUK_RATE, _connect
 
 FORMAT = "coststruct-proyek"
@@ -164,7 +165,10 @@ def duplikat_proyek(proyek_id: int, nama_baru: str) -> int:
     """KF-9: salin proyek lengkap (elemen, tipe penulangan, biaya, hasil, parameter)."""
     if not nama_baru.strip():
         raise BerkasTidakValid("Nama proyek tidak boleh kosong.")
-    return impor_data(ekspor_data(proyek_id), nama=nama_baru)
+    data = ekspor_data(proyek_id)
+    pid = impor_data(data, nama=nama_baru)
+    catat("proyek", f"Proyek diduplikasi dari '{data['proyek']['nama_proyek']}' menjadi '{nama_baru.strip()}'", pid)
+    return pid
 
 
 def simpan_berkas(proyek_id: int, path, sertakan_ifc: bool = True) -> Path:
@@ -181,6 +185,7 @@ def simpan_berkas(proyek_id: int, path, sertakan_ifc: bool = True) -> Path:
             data["ifc_disertakan"] = Path(ifc).name
         z.writestr("proyek.json", json.dumps(data, ensure_ascii=False, indent=1))
     sementara.replace(path)
+    catat("berkas", f"Proyek disimpan ke file {path}" + (" (beserta model IFC)" if "ifc_disertakan" in data else ""), proyek_id)
     return path
 
 
@@ -218,4 +223,6 @@ def buka_berkas(path, folder_ifc=None, nama: str | None = None) -> int:
         with zipfile.ZipFile(path) as z, z.open("model.ifc") as src, open(tujuan, "wb") as dst:
             shutil.copyfileobj(src, dst)
         path_ifc = str(tujuan)
-    return impor_data(data, nama=nama, path_ifc=path_ifc)
+    pid = impor_data(data, nama=nama, path_ifc=path_ifc)
+    catat("berkas", f"Proyek dibuka dari file {path}" + (f", model IFC disalin ke {path_ifc}" if path_ifc else ""), pid)
+    return pid

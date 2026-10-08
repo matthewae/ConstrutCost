@@ -26,7 +26,9 @@ from database.harga_repository import jumlah_estimasi_kedaluwarsa, terapkan_ke_e
 from database.preferensi_repository import folder_ifc, muat_preferensi
 from database.proyek_repository import create_proyek, delete_proyek, get_all_proyek, get_proyek
 from estimasi_service import jalankan_estimasi
+from aktivitas import catat
 from gui import tema
+from gui.galat import tampilkan_galat
 from gui.aksi_proyek import InfoProyekDialog, buka_file_proyek, duplikat, simpan_file_proyek
 from gui.import_dialog import RingkasanImportDialog, tampilkan_hasil_proses
 from gui.proses_latar import jalankan_di_latar
@@ -295,7 +297,7 @@ class ProyekPage(QWidget):
                     self, "Membaca elemen & menghitung kuantitas...", jalankan_estimasi, p["id"], pakai_progress=True,
                 )
             except Exception as e:
-                QMessageBox.critical(self, "Parsing Gagal", str(e))
+                tampilkan_galat(self, "Parsing Gagal", e, "Hitung ulang dari IFC baru", p["id"])
                 return
             self.muat()
             tampilkan_hasil_proses(self, f"Proyek '{baru['nama_proyek']}'", r)
@@ -335,11 +337,12 @@ class ProyekPage(QWidget):
             info = jalankan_di_latar(
                 self, "Memvalidasi file IFC...", buka_dan_validasi, file_path, terisolasi=True
             )
-        except FileIFCTidakValid as e:
+        except FileIFCTidakValid as e:  # UC-01 alternatif: file ditolak dengan alasan yang jelas
+            catat("import", f"File IFC ditolak: {Path(file_path).name}: {e}", tingkat="PERINGATAN")
             QMessageBox.critical(self, "File Tidak Valid", str(e))
             return
         except Exception as e:
-            QMessageBox.critical(self, "File Tidak Valid", f"File IFC tidak dapat dibuka.\n\nDetail: {e}")
+            tampilkan_galat(self, "File Tidak Valid", e, f"Validasi file IFC {Path(file_path).name}")
             return
 
         # 2. Ringkasan + konfirmasi
@@ -347,6 +350,7 @@ class ProyekPage(QWidget):
         if not dialog.exec():
             return
         nama = dialog.nama_proyek() or Path(file_path).stem
+        catat("import", f"File IFC diterima: {Path(file_path).name} ({info.skema}, {info.total_elemen} elemen)")
 
         # 3. Parsing + klasifikasi + rule engine + QTO di latar
         proyek_id = create_proyek(nama_proyek=nama, path_file_ifc=info.path)
@@ -357,10 +361,10 @@ class ProyekPage(QWidget):
             )
         except Exception as e:
             self.muat()
-            QMessageBox.critical(
-                self, f"Proyek '{nama}'",
-                f"Proyek dibuat, tetapi parsing gagal:\n{e}\n\n"
-                "Proyek tetap tersimpan; estimasi dapat dijalankan ulang dari halaman proyek.",
+            tampilkan_galat(
+                self, f"Proyek '{nama}'", e,
+                "Proyek dibuat, tetapi parsing gagal (proyek tetap tersimpan; estimasi dapat dijalankan ulang)",
+                proyek_id,
             )
             return
 

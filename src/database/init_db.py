@@ -1,5 +1,6 @@
 import sqlite3
 import sys
+from datetime import date
 from pathlib import Path
 
 if __package__ in (None, ""):  # dijalankan langsung: python src/database/init_db.py
@@ -49,6 +50,29 @@ def init_db():
         pastikan_skema(conn)
     finally:
         conn.close()
+
+
+def cadangkan_database(simpan: int = 7, folder: Path | None = None) -> Path | None:
+    """Salinan cadangan harian database (KF-14 / KNF-8) di folder `cadangan`, disimpan `simpan` hari
+    terakhir. Memakai API backup SQLite agar salinan konsisten. Return path cadangan bila dibuat."""
+    from lokasi import folder_cadangan
+
+    if not DB_PATH.is_file():
+        return None
+    folder = Path(folder or folder_cadangan())
+    folder.mkdir(parents=True, exist_ok=True)
+    tujuan = folder / f"coststruct-{date.today():%Y%m%d}.db"
+    if tujuan.is_file():
+        return None
+    sumber, salinan = sqlite3.connect(DB_PATH, timeout=10), sqlite3.connect(tujuan)
+    try:
+        sumber.backup(salinan)
+    finally:
+        salinan.close()
+        sumber.close()
+    for lama in sorted(folder.glob("coststruct-*.db"))[:-simpan]:
+        lama.unlink(missing_ok=True)
+    return tujuan
 
 
 def siapkan_database():

@@ -10,6 +10,7 @@ KF-13 Ringkasan biaya: biaya langsung (per pekerjaan / kategori), biaya tidak la
 
 import math
 
+from aktivitas import catat, rp
 from database.estimasi_repository import BUK_RATE, PPN_RATE, _connect
 from terbilang import terbilang
 
@@ -46,6 +47,10 @@ def _validasi(uraian: str, jenis: str, nilai) -> tuple:
     return uraian, jenis, nilai
 
 
+def _nilai(jenis: str, nilai: float) -> str:
+    return f"{nilai:g}% × A" if jenis == "persen" else rp(nilai)
+
+
 def daftar_biaya(proyek_id: int) -> list:
     conn = _connect()
     try:
@@ -68,6 +73,7 @@ def tambah_biaya(proyek_id: int, uraian: str, jenis: str, nilai) -> int:
             (proyek_id, uraian, jenis, nilai, urutan),
         ).lastrowid
         conn.commit()
+        catat("biaya", f"Biaya tidak langsung ditambah: {uraian} ({_nilai(jenis, nilai)})", proyek_id)
         return bid
     finally:
         conn.close()
@@ -82,6 +88,8 @@ def ubah_biaya(biaya_id: int, uraian: str, jenis: str, nilai) -> None:
             (uraian, jenis, nilai, biaya_id),
         )
         conn.commit()
+        pid = conn.execute("SELECT proyek_id FROM biaya_tidak_langsung WHERE id = ?", (biaya_id,)).fetchone()
+        catat("biaya", f"Biaya tidak langsung diubah: {uraian} ({_nilai(jenis, nilai)})", pid[0] if pid else None)
     finally:
         conn.close()
 
@@ -89,8 +97,11 @@ def ubah_biaya(biaya_id: int, uraian: str, jenis: str, nilai) -> None:
 def hapus_biaya(biaya_id: int) -> None:
     conn = _connect()
     try:
+        r = conn.execute("SELECT proyek_id, uraian FROM biaya_tidak_langsung WHERE id = ?", (biaya_id,)).fetchone()
         conn.execute("DELETE FROM biaya_tidak_langsung WHERE id = ?", (biaya_id,))
         conn.commit()
+        if r:
+            catat("biaya", f"Biaya tidak langsung dihapus: {r['uraian']}", r["proyek_id"])
     finally:
         conn.close()
 

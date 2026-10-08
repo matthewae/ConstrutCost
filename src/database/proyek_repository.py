@@ -4,6 +4,7 @@ Data access layer untuk tabel proyek (KF-7, KF-9).
 
 from pathlib import Path
 
+from aktivitas import catat
 from database.estimasi_repository import _connect
 
 
@@ -52,6 +53,8 @@ def create_proyek(nama_proyek: str, path_file_ifc: str | None = None) -> int:
             (nama_proyek, path_file_ifc),
         )
         conn.commit()
+        catat("proyek", f"Proyek dibuat: {nama_proyek}" + (f" (file {Path(path_file_ifc).name})" if path_file_ifc else ""),
+              cur.lastrowid)
         return cur.lastrowid
     finally:
         conn.close()
@@ -61,12 +64,14 @@ def delete_proyek(proyek_id: int) -> None:
     """Hapus proyek beserta elemen & hasil estimasinya."""
     conn = _connect()
     try:
+        r = conn.execute("SELECT nama_proyek FROM proyek WHERE id = ?", (proyek_id,)).fetchone()
         conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ?", (proyek_id,))
         conn.execute("DELETE FROM elemen_proyek WHERE proyek_id = ?", (proyek_id,))
         conn.execute("DELETE FROM tipe_penulangan WHERE proyek_id = ?", (proyek_id,))
         conn.execute("DELETE FROM biaya_tidak_langsung WHERE proyek_id = ?", (proyek_id,))
         conn.execute("DELETE FROM proyek WHERE id = ?", (proyek_id,))
         conn.commit()
+        catat("proyek", f"Proyek dihapus: {r['nama_proyek'] if r else proyek_id}", proyek_id)
     finally:
         conn.close()
 
@@ -95,5 +100,6 @@ def ubah_info_proyek(proyek_id: int, nama: str, lokasi: str = "", pemilik: str =
              int(tahun) if tahun else None, path_ifc or None, proyek_id),
         )
         conn.commit()
+        catat("proyek", f"Info proyek diubah: {nama}" + (f", file IFC {Path(path_ifc).name}" if path_ifc else ""), proyek_id)
     finally:
         conn.close()

@@ -17,14 +17,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from aktivitas import catat
 from gui import tema
+from gui.aktivitas_page import AktivitasPage
 from gui.estimasi_page import EstimasiPage
 from gui.harga_page import HargaPage
 from gui.pengaturan_page import PengaturanPage
 from gui.proyek_page import ProyekPage
 
-VERSI_APLIKASI = "v1.3.0"
-NAV_PROYEK, NAV_HARGA, NAV_PENGATURAN = 0, 1, 2
+VERSI_APLIKASI = "v1.4.0"
+NAV_PROYEK, NAV_HARGA, NAV_PENGATURAN, NAV_AKTIVITAS = 0, 1, 2, 3
 
 
 class MainWindow(QMainWindow):
@@ -46,6 +48,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+2"), self, activated=lambda: self.tampilkan_harga())
         QShortcut(QKeySequence("Ctrl+3"), self, activated=self.tampilkan_pengaturan)
         QShortcut(QKeySequence("Ctrl+,"), self, activated=self.tampilkan_pengaturan)
+        QShortcut(QKeySequence("Ctrl+4"), self, activated=self.tampilkan_aktivitas)
         self.tampilkan_proyek()
 
     def _bangun_isi(self):
@@ -62,7 +65,8 @@ class MainWindow(QMainWindow):
         self.hal_proyek = ProyekPage()
         self.hal_harga = HargaPage()
         self.hal_pengaturan = PengaturanPage()
-        for hal in (self.hal_proyek, self.hal_harga, self.hal_pengaturan):
+        self.hal_aktivitas = AktivitasPage()
+        for hal in (self.hal_proyek, self.hal_harga, self.hal_pengaturan, self.hal_aktivitas):
             self.stack.addWidget(hal)
         self.setCentralWidget(pusat)  # pusat lama (bila ada) dihapus Qt
 
@@ -99,11 +103,12 @@ class MainWindow(QMainWindow):
 
         self.grup_nav = QButtonGroup(self)
         self.grup_nav.setExclusive(True)
-        for idx, (teks_nav, nama_ikon, pintas) in enumerate((
-            ("Proyek", "proyek", "Ctrl+1"),
-            ("Harga Satuan", "harga", "Ctrl+2"),
-            ("Pengaturan", "pengaturan", "Ctrl+3"),
-        )):
+        for idx, (teks_nav, nama_ikon, pintas) in (
+            (NAV_PROYEK, ("Proyek", "proyek", "Ctrl+1")),
+            (NAV_HARGA, ("Harga Satuan", "harga", "Ctrl+2")),
+            (NAV_AKTIVITAS, ("Riwayat Aktivitas", "file", "Ctrl+4")),
+            (NAV_PENGATURAN, ("Pengaturan", "pengaturan", "Ctrl+3")),
+        ):
             b = QPushButton(f"  {teks_nav}")
             b.setObjectName("navItem")
             b.setCheckable(True)
@@ -125,6 +130,8 @@ class MainWindow(QMainWindow):
             self.tampilkan_proyek()
         elif idx == NAV_HARGA:
             self.tampilkan_harga()
+        elif idx == NAV_AKTIVITAS:
+            self.tampilkan_aktivitas()
         else:
             self.tampilkan_pengaturan()
 
@@ -160,6 +167,15 @@ class MainWindow(QMainWindow):
         if pekerjaan_id is not None:
             self.hal_harga.fokus_pekerjaan(pekerjaan_id)
         self.stack.setCurrentWidget(self.hal_harga)
+
+    def tampilkan_aktivitas(self):
+        self.grup_nav.button(NAV_AKTIVITAS).setChecked(True)
+        self.hal_aktivitas.muat()
+        self.stack.setCurrentWidget(self.hal_aktivitas)
+
+    def closeEvent(self, event):
+        catat("aplikasi", "Aplikasi ditutup")
+        super().closeEvent(event)
 
     def tampilkan_pengaturan(self):
         self.grup_nav.button(NAV_PENGATURAN).setChecked(True)

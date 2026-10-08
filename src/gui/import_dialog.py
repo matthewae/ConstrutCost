@@ -157,7 +157,7 @@ class RingkasanImportDialog(QDialog):
 
 
 def tampilkan_hasil_proses(parent, judul: str, r: dict) -> None:
-    """Pesan ringkas hasil parsing + rule engine; seluruh peringatan bisa dibuka di 'Show Details'."""
+    """Pesan ringkas hasil parsing + rule engine; seluruh peringatan bisa dibuka di 'Tampilkan Rincian'."""
     from PySide6.QtWidgets import QMessageBox
 
     kotak = QMessageBox(parent)
@@ -172,7 +172,7 @@ def tampilkan_hasil_proses(parent, judul: str, r: dict) -> None:
     else:
         kotak.setIcon(QMessageBox.Information)
     if r["peringatan"]:
-        teks += f"\n\n{len(r['peringatan'])} peringatan (elemen dengan data dimensi kosong). Klik 'Show Details' untuk melihat."
+        teks += f"\n\n{len(r['peringatan'])} peringatan (elemen dengan data dimensi kosong). Klik 'Tampilkan Rincian' untuk melihat."
         kotak.setDetailedText("\n".join(r["peringatan"]))
     kotak.setText(teks)
     kotak.exec()

@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
-    QMessageBox,
     QFrame,
     QGraphicsDropShadowEffect,
 )
@@ -279,16 +278,23 @@ class SplashScreen(QWidget):
             try:
                 siapkan_database()  # idempotent: skema + data master harga
                 get_all_proyek()
+                from aktivitas import catat, pangkas
+                from database.init_db import cadangkan_database
+                from lokasi import folder_data
+
+                pangkas()
+                catat("aplikasi", f"Aplikasi dibuka ({VERSI_APLIKASI}), folder data: {folder_data()}")
+                cadangan = cadangkan_database()
+                if cadangan:
+                    catat("aplikasi", f"Cadangan database harian dibuat: {cadangan.name}")
             except Exception as e:
                 self.timer.stop()
                 self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
                 self.show()
-                QMessageBox.critical(
-                    self,
-                    "Database Bermasalah",
-                    f"CostStruct tidak bisa mengakses database.\n\n"
-                    f"Periksa izin tulis folder data aplikasi.\n\nDetail: {e}",
-                )
+                from gui.galat import tampilkan_galat
+                from lokasi import folder_data
+
+                tampilkan_galat(self, "Database Bermasalah", e, f"Membuka database di {folder_data()}")
                 QApplication.quit()
                 return
 
@@ -307,7 +313,15 @@ class SplashScreen(QWidget):
 
 
 def main():
+    from aktivitas import siapkan_log
+    from gui.galat import pasang_penangkap_galat, pasang_terjemahan
+
+    siapkan_log()  # KF-15: file log harian di folder data
     app = QApplication(sys.argv)
+    app.setApplicationName("CostStruct")
+    app.setWindowIcon(tema.ikon_aplikasi())
+    pasang_terjemahan(app)  # KNF-6: tombol bawaan Qt berbahasa Indonesia
+    pasang_penangkap_galat()  # KF-14 / KNF-4: kesalahan tak terduga tidak menutup aplikasi
     tema.terapkan(app)
     splash = SplashScreen()
     splash.show()

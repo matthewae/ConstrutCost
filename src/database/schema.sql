@@ -137,3 +137,14 @@ CREATE TABLE IF NOT EXISTS preferensi_pengguna (
     kunci TEXT PRIMARY KEY,
     nilai TEXT
 );
+-- log_aktivitas: KF-15, jejak aktivitas penting (import, edit, harga, export, file proyek, kesalahan)
+CREATE TABLE IF NOT EXISTS log_aktivitas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    waktu TEXT NOT NULL,              -- waktu lokal 'YYYY-MM-DD HH:MM:SS'
+    tingkat TEXT NOT NULL,            -- INFO, PERINGATAN, GALAT
+    jenis TEXT NOT NULL,              -- import, estimasi, edit, harga, export, ...
+    proyek_id INTEGER,                -- tanpa FK: log tetap ada walau proyek dihapus
+    pesan TEXT NOT NULL,
+    detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_log_waktu ON log_aktivitas (waktu);

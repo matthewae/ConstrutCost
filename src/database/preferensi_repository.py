@@ -135,6 +135,10 @@ def simpan_preferensi(p: Preferensi) -> None:
         conn.commit()
     finally:
         conn.close()
+    from aktivitas import catat
+
+    format_ = "/".join(n for n, a in (("Excel", p.format_excel), ("PDF", p.format_pdf)) if a)
+    catat("pengaturan", f"Pengaturan disimpan: tema {p.tema}, format {format_}, kolom {p.kolom_laporan or '-'}")
 
 
 def simpan_pilihan_export(p: Preferensi) -> None:
@@ -163,4 +167,7 @@ def reset_preferensi() -> Preferensi:
         conn.commit()
     finally:
         conn.close()
+    from aktivitas import catat
+
+    catat("pengaturan", "Pengaturan dikembalikan ke nilai bawaan")
     return Preferensi()

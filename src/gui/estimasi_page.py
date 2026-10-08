@@ -57,7 +57,9 @@ from database.harga_repository import LABEL_TIPE, analisa_pekerjaan, terapkan_ke
 from database.proyek_repository import get_proyek
 from estimasi_service import ambil_elemen, jalankan_estimasi
 from export_service import kelompokkan
+from aktivitas import catat
 from gui import tema
+from gui.galat import tampilkan_galat
 from gui.aksi_proyek import InfoProyekDialog, duplikat, simpan_file_proyek
 from gui.biaya_dialog import BiayaDialog
 from gui.dimensi_dialog import DimensiDialog
@@ -143,10 +145,12 @@ class _PerintahPotret(QUndoCommand):
             self._baru = False
             return
         pulihkan_proyek(self.halaman.proyek_id, self.sesudah)
+        catat("riwayat", f"Diulangi: {self.text()}", self.halaman.proyek_id)
         self.halaman._setelah_riwayat(f"Diulangi: {self.text()}")
 
     def undo(self):
         pulihkan_proyek(self.halaman.proyek_id, self.sebelum)
+        catat("riwayat", f"Dibatalkan: {self.text()}", self.halaman.proyek_id)
         self.halaman._setelah_riwayat(f"Dibatalkan: {self.text()}")
 
 
@@ -916,7 +920,7 @@ class EstimasiPage(QWidget):
                 self.proyek_id, pakai_progress=True,
             )
         except Exception as e:
-            QMessageBox.critical(self, "Parsing Gagal", str(e))
+            tampilkan_galat(self, "Parsing Gagal", e, "Hitung ulang dari IFC", self.proyek_id)
             return False
         self._catat("Hitung ulang dari IFC", sebelum)
         self.muat()

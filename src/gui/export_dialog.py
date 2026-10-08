@@ -9,6 +9,7 @@ jumlah file yang akan dibuat.
 """
 
 import logging
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -38,7 +39,9 @@ from dataclasses import replace
 from database.estimasi_repository import PPN_RATE
 from database.proyek_repository import get_proyek
 from database.preferensi_repository import folder_export, muat_preferensi, simpan_pilihan_export
+from aktivitas import catat
 from gui import tema
+from gui.galat import pesan_galat, tampilkan_galat
 from export_service import (
     KOLOM_OPSIONAL,
     OpsiExport,
@@ -366,13 +369,18 @@ class ExportDialog(QDialog):
             try:
                 fungsi(tujuan, data, meta, opsi)
                 berhasil.append(tujuan)
-            except PermissionError:
+            except PermissionError as e:
+                catat("galat", f"Export {label} gagal: {tujuan} sedang dibuka / akses ditolak", self.proyek_id,
+                      detail=repr(e), tingkat="GALAT")
                 gagal.append(
-                    f"{label}: file '{tujuan.name}' sedang dibuka di program lain. Tutup dulu, lalu coba lagi."
+                    f"{label}: file '{tujuan.name}' sedang dibuka di program lain atau folder tidak bisa ditulis. "
+                    "Tutup file tersebut atau pilih folder lain, lalu coba lagi."
                 )
-            except Exception as e:  # KF-14: pesan jelas bila ada kesalahan
-                log.exception("Export %s gagal", label)
-                gagal.append(f"{label}: {e}")
+            except Exception as e:  # KF-14: pesan jelas + saran solusi, rincian di log
+                pesan, saran = pesan_galat(e)
+                catat("galat", f"Export {label} gagal: {pesan}", self.proyek_id,
+                      detail="".join(traceback.format_exception(e)), tingkat="GALAT")
+                gagal.append(f"{label}: {pesan}" + (f"\n{saran}" if saran else ""))
         if berhasil:
             self._ingat_pilihan()
         return berhasil, gagal
@@ -389,7 +397,7 @@ class ExportDialog(QDialog):
         """PDF sementara dengan isi & kolom pilihan saat ini (untuk dialog pratinjau)."""
         data = ambil_data_export(self.proyek_id)
         tujuan = Path(folder) / "pratinjau.pdf"
-        export_pdf(tujuan, data, self._meta(data), self.opsi())
+        export_pdf(tujuan, data, self._meta(data), self.opsi(), catat_log=False)
         return tujuan
 
     def _pratinjau(self):
@@ -403,7 +411,7 @@ class ExportDialog(QDialog):
             path = self.buat_pratinjau(self._folder_pratinjau.name)
         except Exception as e:  # KF-14
             QApplication.restoreOverrideCursor()
-            QMessageBox.critical(self, "Pratinjau Gagal", str(e))
+            tampilkan_galat(self, "Pratinjau Gagal", e, "Pratinjau laporan", self.proyek_id)
             return
         QApplication.restoreOverrideCursor()
         dialog = PratinjauDialog(str(path), self.edit_nama.text().strip() or self.nama_proyek, self)
@@ -442,7 +450,7 @@ class ExportDialog(QDialog):
             berhasil, gagal = self.proses_export()
         except Exception as e:
             QApplication.restoreOverrideCursor()
-            QMessageBox.critical(self, "Export Gagal", str(e))
+            tampilkan_galat(self, "Export Gagal", e, "Export laporan", self.proyek_id)
             return
         QApplication.restoreOverrideCursor()
 
