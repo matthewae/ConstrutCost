@@ -3,12 +3,11 @@ Splash screen CostStruct — tampil sebentar saat aplikasi dibuka,
 sambil melakukan pengecekan awal (koneksi database) sebelum
 masuk ke jendela utama.
 
-Peningkatan dari versi sebelumnya:
-- Kartu bergradasi dengan sudut membulat dan bayangan (drop shadow)
-- Logo vektor digambar dengan QPainter (tanpa file gambar eksternal)
-- Animasi fade-in saat muncul dan fade-out saat berpindah ke Dashboard
-- Progress bar bergerak halus (animasi), bukan melompat
-- Indikator persen, label versi, dan footer
+Tampilan dibuat bersih (minimalis):
+- Kartu polos satu warna dengan sudut membulat dan bayangan halus
+- Logo, nama aplikasi, dan satu baris keterangan di tengah
+- Progress bar tipis yang bergerak halus, teks status, dan nomor versi
+- Animasi fade-in saat muncul dan fade-out saat berpindah ke jendela utama
 - Pengecekan database tetap nyata, dengan pesan error yang jelas
 """
 
@@ -19,14 +18,13 @@ from PySide6.QtWidgets import (
     QApplication,
     QWidget,
     QVBoxLayout,
-    QHBoxLayout,
     QLabel,
     QProgressBar,
     QFrame,
     QGraphicsDropShadowEffect,
 )
-from PySide6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QPainter, QPen
 
 from database.init_db import siapkan_database
 from database.proyek_repository import get_all_proyek
@@ -52,7 +50,7 @@ DURASI_FADE_MS = 350
 class LogoCostStruct(QWidget):
     """Logo sederhana: kotak bergradasi dengan tiga batang naik (simbol biaya/struktur)."""
 
-    UKURAN = 64
+    UKURAN = 56
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -65,39 +63,18 @@ class LogoCostStruct(QWidget):
 
 
 class KartuSplash(QFrame):
-    """Kartu splash: gradasi warna sidebar, garis aksen kuning di atas, dan cahaya lembut di belakang logo."""
+    """Kartu splash polos: satu warna latar, sudut membulat, garis tepi tipis."""
 
-    RADIUS = 20
+    RADIUS = 18
 
     def paintEvent(self, event):
         w = tema.W
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setRenderHint(QPainter.SmoothPixmapTransform)
         area = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        bentuk = QPainterPath()
-        bentuk.addRoundedRect(area, self.RADIUS, self.RADIUS)
-        p.setClipPath(bentuk)
-
-        dasar = QColor(w["sidebar"])
-        grad = QLinearGradient(area.topLeft(), area.bottomRight())
-        grad.setColorAt(0.0, dasar.lighter(135) if dasar.lightness() < 128 else dasar)
-        grad.setColorAt(1.0, dasar)
-        p.fillRect(area, grad)
-
-        cahaya = QRadialGradient(QPointF(90, 70), 260)
-        warna = QColor(w["tombol_utama"])
-        warna.setAlpha(46)
-        cahaya.setColorAt(0.0, warna)
-        warna.setAlpha(0)
-        cahaya.setColorAt(1.0, warna)
-        p.fillRect(area, cahaya)
-
-        p.fillRect(QRectF(area.left(), area.top(), area.width(), 4), QColor(w["tombol_utama"]))
-        p.setClipping(False)
         p.setPen(QPen(QColor(w["sidebar_garis"]), 1))
-        p.setBrush(Qt.NoBrush)
-        p.drawPath(bentuk)
+        p.setBrush(QColor(w["sidebar"]))
+        p.drawRoundedRect(area, self.RADIUS, self.RADIUS)
         p.end()
 
 
@@ -114,7 +91,7 @@ class SplashScreen(QWidget):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(
-            640 + 2 * self.MARGIN_BAYANGAN, 380 + 2 * self.MARGIN_BAYANGAN
+            460 + 2 * self.MARGIN_BAYANGAN, 320 + 2 * self.MARGIN_BAYANGAN
         )
         self.setWindowOpacity(0.0)
 
@@ -135,117 +112,63 @@ class SplashScreen(QWidget):
         luar.setContentsMargins(m, m, m, m)
 
         kartu = KartuSplash()
-        kartu.setObjectName("kartuSplash")
         w = tema.W
         kartu.setStyleSheet(f"""
             QLabel {{ background: transparent; }}
-            QLabel#judul {{ color: {w['sidebar_judul']}; font-size: 34px; font-weight: 800; }}
-            QLabel#subjudul {{ color: {w['sidebar_teks']}; font-size: 13px; font-weight: 600; }}
-            QLabel#deskripsi {{ color: {w['sidebar_samar']}; font-size: 12px; }}
-            QLabel#fitur {{
-                color: {w['sidebar_teks_aktif']}; background-color: {w['sidebar_hover']};
-                border: 1px solid {w['sidebar_garis']}; border-radius: 11px; padding: 4px 11px;
-                font-size: 11px; font-weight: 600;
-            }}
-            QLabel#status {{ color: {w['sidebar_teks']}; font-size: 11px; }}
-            QLabel#persen {{ color: {w['tombol_utama']}; font-size: 11px; font-weight: 700; }}
+            QLabel#judul {{ color: {w['sidebar_judul']}; font-size: 26px; font-weight: 700; }}
+            QLabel#subjudul {{ color: {w['sidebar_samar']}; font-size: 12px; }}
+            QLabel#status {{ color: {w['sidebar_samar']}; font-size: 11px; }}
             QLabel#footer {{ color: {w['sidebar_samar']}; font-size: 10px; }}
-            QLabel#namaKaki {{ color: {w['sidebar_judul']}; font-size: 11px; font-weight: 700; }}
-            QFrame#garisSplash {{ background-color: {w['sidebar_garis']}; max-height: 1px; min-height: 1px; border: none; }}
             QProgressBar {{
-                background-color: {w['sidebar_hover']}; border: none; border-radius: 3px;
-                max-height: 6px; min-height: 6px;
+                background-color: {w['sidebar_garis']}; border: none; border-radius: 1px;
+                max-height: 3px; min-height: 3px;
             }}
-            QProgressBar::chunk {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {w['tombol_utama_tekan']}, stop:1 {w['tombol_utama_hover']});
-                border-radius: 3px;
-            }}
+            QProgressBar::chunk {{ background-color: {w['tombol_utama']}; border-radius: 1px; }}
         """)
 
         bayangan = QGraphicsDropShadowEffect(self)
-        bayangan.setBlurRadius(36)
-        bayangan.setOffset(0, 10)
-        bayangan.setColor(QColor(0, 0, 0, 170))
+        bayangan.setBlurRadius(30)
+        bayangan.setOffset(0, 8)
+        bayangan.setColor(QColor(0, 0, 0, 140))
         kartu.setGraphicsEffect(bayangan)
         luar.addWidget(kartu)
 
         layout = QVBoxLayout(kartu)
-        layout.setContentsMargins(44, 42, 44, 22)
+        layout.setContentsMargins(56, 0, 56, 22)
         layout.setSpacing(0)
+        layout.addStretch(3)
 
-        merek = QHBoxLayout()
-        merek.setSpacing(18)
-        merek.addWidget(LogoCostStruct(), alignment=Qt.AlignVCenter)
-        teks = QVBoxLayout()
-        teks.setSpacing(2)
+        layout.addWidget(LogoCostStruct(), alignment=Qt.AlignHCenter)
+        layout.addSpacing(18)
         judul = QLabel("CostStruct")
         judul.setObjectName("judul")
-        subjudul = QLabel("BIM-Based Quantity Take-Off & Estimasi RAB")
+        judul.setAlignment(Qt.AlignCenter)
+        layout.addWidget(judul)
+        layout.addSpacing(4)
+        subjudul = QLabel("Quantity Take-Off & Estimasi RAB dari model IFC")
         subjudul.setObjectName("subjudul")
-        teks.addWidget(judul)
-        teks.addWidget(subjudul)
-        merek.addLayout(teks)
-        merek.addStretch()
-        layout.addLayout(merek)
-        layout.addSpacing(18)
+        subjudul.setAlignment(Qt.AlignCenter)
+        layout.addWidget(subjudul)
 
-        deskripsi = QLabel(
-            "Volume pekerjaan dihitung langsung dari model IFC, lalu disusun menjadi RAB\n"
-            "dengan analisa harga satuan (AHSP) — per pekerjaan, per tipe elemen, dan per lantai."
-        )
-        deskripsi.setObjectName("deskripsi")
-        layout.addWidget(deskripsi)
-        layout.addSpacing(14)
-
-        fitur = QHBoxLayout()
-        fitur.setSpacing(8)
-        for teks_fitur in ("IFC2x3 · IFC4", "QTO otomatis", "RAB · AHSP", "Excel & PDF"):
-            chip = QLabel(teks_fitur)
-            chip.setObjectName("fitur")
-            fitur.addWidget(chip)
-        fitur.addStretch()
-        layout.addLayout(fitur)
-
-        layout.addStretch(1)
-
-        baris_status = QHBoxLayout()
-        self.status = QLabel("Memulai...")
-        self.status.setObjectName("status")
-        self.persen = QLabel("0%")
-        self.persen.setObjectName("persen")
-        self.persen.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        baris_status.addWidget(self.status)
-        baris_status.addStretch()
-        baris_status.addWidget(self.persen)
-        layout.addLayout(baris_status)
-        layout.addSpacing(8)
+        layout.addStretch(2)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setTextVisible(False)
         layout.addWidget(self.progress)
-        layout.addSpacing(18)
+        layout.addSpacing(10)
 
-        garis = QFrame()
-        garis.setObjectName("garisSplash")
-        layout.addWidget(garis)
-        layout.addSpacing(12)
+        self.status = QLabel("Memulai...")
+        self.status.setObjectName("status")
+        self.status.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.status)
+        layout.addStretch(1)
 
-        kaki = QHBoxLayout()
-        kaki.setSpacing(10)
-        kaki.addWidget(tema.Logo(22))
-        nama = QLabel("CostStruct")
-        nama.setObjectName("namaKaki")
-        kaki.addWidget(nama)
-        kaki.addStretch()
-        footer = QLabel(f"{VERSI_APLIKASI}  ·  Offline, data tersimpan lokal")
+        footer = QLabel(VERSI_APLIKASI)
         footer.setObjectName("footer")
-        kaki.addWidget(footer)
-        layout.addLayout(kaki)
-
-        self.progress.valueChanged.connect(lambda v: self.persen.setText(f"{v}%"))
+        footer.setAlignment(Qt.AlignCenter)
+        layout.addWidget(footer)
 
     def _pusatkan_di_layar(self):
         layar = (self.screen() or QApplication.primaryScreen()).availableGeometry()

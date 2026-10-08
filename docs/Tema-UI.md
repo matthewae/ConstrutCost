@@ -52,10 +52,10 @@ Penandanya `versi_tema` di preferensi.
 
 ## Modernisasi tampilan (tahap 2)
 
-**Splash screen**
-- Kartu lebih lebar dengan garis aksen di atas dan cahaya lembut di belakang logo.
-- Ditambah deskripsi singkat aplikasi dan chip fitur: IFC2x3 · IFC4, QTO otomatis, RAB · AHSP, Excel & PDF.
-- Kaki splash berisi nama aplikasi, versi, dan keterangan bahwa data disimpan lokal (offline).
+**Splash screen** (dibuat bersih / minimalis)
+- Kartu polos satu warna (warna sidebar tema) dengan sudut membulat dan bayangan halus.
+- Hanya logo CostStruct, nama aplikasi, dan satu baris keterangan di tengah.
+- Di bawahnya progress bar tipis (3 px), teks status, dan nomor versi.
 
 **Sidebar**
 - Menu utama dengan item lebih lega.
