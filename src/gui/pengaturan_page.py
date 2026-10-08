@@ -1,13 +1,14 @@
 """
 Halaman Pengaturan / User Preference (KF-10, UC-07).
 
-- Tema antarmuka: Gelap / Terang (langsung diterapkan setelah disimpan).
+- Tema antarmuka: Hitam Kuning (bawaan), Terang Emas, Biru Malam, Terang Biru (langsung diterapkan setelah disimpan).
 - Direktori default: folder awal saat memilih file IFC dan folder tujuan export.
 - Format laporan default: Excel / PDF, serta isi rekapitulasi / detail per elemen.
 - Reset ke Default dengan konfirmasi.
 """
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -15,11 +16,12 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLineEdit,
     QMessageBox,
-    QPushButton,
     QScrollArea,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -37,7 +39,7 @@ from database.preferensi_repository import (
 )
 from gui import tema
 
-LABEL_TEMA = {"gelap": "Gelap", "terang": "Terang"}
+
 LABEL_KOLOM = {"no": "No", "kode": "Kode analisa", "harga": "Harga satuan", "bobot": "Bobot (%)", "rumus": "Uraian rumus"}
 
 
@@ -70,22 +72,30 @@ class PengaturanPage(QWidget):
 
         # --- Tampilan ---
         kartu, f = self._kartu("TAMPILAN")
-        baris_tema = QHBoxLayout()
-        baris_tema.setSpacing(0)
+        baris_tema = QGridLayout()  # kartu tema: 4 sejajar, menyesuaikan lebar layar (lihat resizeEvent)
+        baris_tema.setHorizontalSpacing(12)
+        baris_tema.setVerticalSpacing(12)
+        self._grid_tema = baris_tema
         self.grup_tema = QButtonGroup(self)
         for i, nama in enumerate(TEMA):
-            b = QPushButton(LABEL_TEMA[nama])
-            b.setObjectName("segmen")
-            b.setProperty("posisi", "kiri" if i == 0 else "kanan")
+            judul, ket = tema.NAMA_TEMA[nama]
+            b = QToolButton()
+            b.setObjectName("kartuTema")
+            b.setText(judul)
+            b.setToolTip(ket)
+            b.setIcon(QIcon(tema.pratinjau_tema(nama)))
+            b.setIconSize(QSize(150, 85))
+            b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
             b.setCheckable(True)
             b.setCursor(Qt.PointingHandCursor)
-            b.setMinimumWidth(110)
             self.grup_tema.addButton(b, i)
-            baris_tema.addWidget(b)
-        baris_tema.addStretch()
+            baris_tema.addWidget(b, 0, i)
+        baris_tema.setColumnStretch(len(TEMA), 1)
         self.grup_tema.idClicked.connect(self._berubah)
+        self.grup_tema.idClicked.connect(self._tampilkan_ket_tema)
         f.addRow(tema.label("Tema antarmuka", "formLabel"), baris_tema)
-        f.addRow(QWidget(), tema.label("Tema terang cocok untuk ruangan terang atau saat presentasi.", "infoKecil"))
+        self.label_ket_tema = tema.label("", "infoKecil", wrap=True)
+        f.addRow(QWidget(), self.label_ket_tema)
         root.addWidget(kartu)
 
         # --- Direktori default ---
@@ -124,8 +134,14 @@ class PengaturanPage(QWidget):
             return b
 
         f.addRow(tema.label("Format file", "formLabel"), baris(self.cek_excel, self.cek_pdf, self.combo_orientasi))
-        f.addRow(tema.label("Isi dokumen", "formLabel"), baris(self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_per_lantai,
-                                                                     self.cek_detail))
+        isi_grid = QGridLayout()  # 3 kolom agar tidak melebar di layar laptop
+        isi_grid.setHorizontalSpacing(24)
+        isi_grid.setVerticalSpacing(10)
+        for i, cek in enumerate((self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_per_lantai,
+                                 self.cek_detail)):
+            isi_grid.addWidget(cek, i // 3, i % 3)
+        isi_grid.setColumnStretch(3, 1)
+        f.addRow(tema.label("Isi dokumen", "formLabel"), isi_grid)
         f.addRow(tema.label("Kolom laporan", "formLabel"), baris(*self.cek_kolom.values()))
         f.addRow(QWidget(), tema.label(
             "Dipakai sebagai pilihan awal di dialog Export RAB (KF-17). Uraian, volume, satuan, dan jumlah harga "
@@ -221,6 +237,7 @@ class PengaturanPage(QWidget):
         for w in widget:
             w.blockSignals(True)
         self.grup_tema.button(TEMA.index(p.tema)).setChecked(True)
+        self._tampilkan_ket_tema(TEMA.index(p.tema))
         self.edit_ifc.setText(p.direktori_ifc)
         self.edit_export.setText(p.direktori_export)
         self.cek_excel.setChecked(p.format_excel)
@@ -251,6 +268,24 @@ class PengaturanPage(QWidget):
         self.btn_reset.setEnabled(self._dari_form() != Preferensi())
 
     # ---------------------------------------------------------------- aksi
+
+    def resizeEvent(self, event):
+        """Kartu tema 4 sejajar di layar lebar, 2 x 2 di laptop / skala Windows besar."""
+        super().resizeEvent(event)
+        kolom = 4 if self.width() >= 1180 else 2
+        if getattr(self, "_kolom_tema", None) == kolom:
+            return
+        self._kolom_tema = kolom
+        for i, b in enumerate(self.grup_tema.buttons()):
+            self._grid_tema.removeWidget(b)
+            self._grid_tema.addWidget(b, i // kolom, i % kolom)
+        for c in range(5):
+            self._grid_tema.setColumnStretch(c, 1 if c == kolom else 0)
+
+    def _tampilkan_ket_tema(self, idx: int):
+        judul, ket = tema.NAMA_TEMA[TEMA[idx]]
+        aktif = " (sedang dipakai)" if TEMA[idx] == tema.TEMA_AKTIF else " — klik Simpan Pengaturan untuk menerapkan"
+        self.label_ket_tema.setText(f"{judul}: {ket}{aktif}.")
 
     def _simpan(self):
         """UC-07 langkah 4-6."""

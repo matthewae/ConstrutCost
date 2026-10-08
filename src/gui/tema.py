@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -27,7 +28,114 @@ from PySide6.QtWidgets import (
 
 # ---------------------------------------------------------------- token warna
 
+# Kuning Mandajaya Rekayasa Konstruksi, diambil dari logo perusahaan (#F9D759).
+KUNING_LOGO = "#F9D759"
+
 PALET = {
+    # Bawaan: hitam-kuning seperti identitas PT Mandajaya Rekayasa Konstruksi.
+    "hitam_kuning": {
+        "latar": "#111111",
+        "sidebar": "#0a0a0a",
+        "permukaan": "#191919",
+        "permukaan_2": "#1e1e1e",
+        "permukaan_3": "#272727",
+        "garis": "#2b2b2b",
+        "garis_kuat": "#3b3b3b",
+        "garis_hover": "#76652c",
+        "teks": "#ece8df",
+        "teks_kuat": "#ffffff",
+        "teks_redup": "#a8a397",
+        "teks_samar": "#716d63",
+        "aksen": KUNING_LOGO,
+        "aksen_hover": "#fbe384",
+        "aksen_tekan": "#e9c440",
+        "aksen_teks": "#141414",
+        "aksen_lembut": "#2c2611",
+        "aksen_garis": "#5f501d",
+        "pilih": "#3b3216",
+        "seleksi_teks": "#4d421c",
+        "fokus_latar": "#1d1a11",
+        "sekunder_hover": "#323232",
+        "gulir": "#3d3d3d",
+        "gulir_hover": "#5c5c5c",
+        "sukses": "#7ed492",
+        "sukses_lembut": "#15301f",
+        "peringatan": "#ffa94d",
+        "peringatan_lembut": "#352312",
+        "peringatan_garis": "#5c3b18",
+        "bahaya": "#ff7d76",
+        "bahaya_lembut": "#3a1d1d",
+        "bahaya_garis": "#5a2c2c",
+        "info_teks": "#f5df8f",
+        "info_tombol": "#c9ab45",
+        "utama_awal": KUNING_LOGO,
+        "utama_akhir": "#e2b62f",
+        "utama_garis": "#f3cf4d",
+        "utama_judul": "#4a3c0f",
+        "utama_ket": "#5a4a17",
+        "utama_nilai": "#141414",
+        "logo_awal": KUNING_LOGO,
+        "logo_akhir": "#e2b62f",
+        "logo_batang": "#141414",
+        "sidebar_aktif": "#2c2611",
+    },
+    # Terang dengan sidebar hitam dan tombol kuning; teks aksen memakai emas tua agar terbaca di latar putih.
+    "terang_emas": {
+        "latar": "#f6f5f0",
+        "sidebar": "#141414",
+        "permukaan": "#ffffff",
+        "permukaan_2": "#faf9f5",
+        "permukaan_3": "#f0eee6",
+        "garis": "#e6e2d6",
+        "garis_kuat": "#d6d0bf",
+        "garis_hover": "#b59a3c",
+        "teks": "#1f1d18",
+        "teks_kuat": "#0c0b08",
+        "teks_redup": "#615c50",
+        "teks_samar": "#8f897b",
+        "aksen": "#9a7200",
+        "aksen_hover": "#b58600",
+        "aksen_tekan": "#7f5e00",
+        "aksen_teks": "#ffffff",
+        "aksen_lembut": "#fbf1cf",
+        "aksen_garis": "#ecd27a",
+        "pilih": "#fbeaa9",
+        "seleksi_teks": "#f6dc7c",
+        "fokus_latar": "#ffffff",
+        "sekunder_hover": "#e9e5da",
+        "gulir": "#cfc9b8",
+        "gulir_hover": "#b3ac98",
+        "sukses": "#157a43",
+        "sukses_lembut": "#e2f3e8",
+        "peringatan": "#b45309",
+        "peringatan_lembut": "#fdf0e1",
+        "peringatan_garis": "#f0cfa6",
+        "bahaya": "#c0392b",
+        "bahaya_lembut": "#fde8e6",
+        "bahaya_garis": "#f0c2bd",
+        "info_teks": "#6f5300",
+        "info_tombol": "#9a7200",
+        "utama_awal": KUNING_LOGO,
+        "utama_akhir": "#edc23d",
+        "utama_garis": "#e3bd3b",
+        "utama_judul": "#4a3c0f",
+        "utama_ket": "#5a4a17",
+        "utama_nilai": "#141414",
+        "tombol_utama": KUNING_LOGO,
+        "tombol_utama_hover": "#fbe384",
+        "tombol_utama_tekan": "#e9c440",
+        "tombol_utama_teks": "#141414",
+        "logo_awal": KUNING_LOGO,
+        "logo_akhir": "#e2b62f",
+        "logo_batang": "#141414",
+        "sidebar_teks": "#b9b4a8",
+        "sidebar_teks_aktif": "#ffffff",
+        "sidebar_hover": "#232323",
+        "sidebar_aktif": "#2c2611",
+        "sidebar_garis": "#232323",
+        "sidebar_judul": "#ffffff",
+        "sidebar_samar": "#7d786c",
+    },
     "gelap": {
         "latar": "#111a24",
         "sidebar": "#0d151d",
@@ -104,11 +212,15 @@ PALET = {
         "bahaya_garis": "#efc2c2",
         "info_teks": "#1f5fae",
         "info_tombol": "#6c9ad0",
-        "utama_awal": "#2f7de1",
+        "utama_awal": "#2468c0",
         "utama_akhir": "#1f5fae",
         "utama_garis": "#2a6fc9",
         "utama_judul": "#dbe9fb",
         "utama_ket": "#cfe1f8",
+        # tombol utama sedikit lebih gelap dari aksen agar teks putih memenuhi kontras WCAG 4.5:1
+        "tombol_utama": "#2468c0",
+        "tombol_utama_hover": "#2a72d4",
+        "tombol_utama_tekan": "#1f5aa8",
     },
 }
 
@@ -122,17 +234,49 @@ _TIPE = {
     "terang": {"bahan": "#1f6fd1", "upah": "#138a6b", "alat": "#b26b00"},
 }
 
+_KATEGORI["hitam_kuning"] = [KUNING_LOGO, "#7fd1b9", "#ffa94d", "#c39bf5", "#ff8b8b", "#9bd16b", "#f0a6ca", "#8fd3f4"]
+_KATEGORI["terang_emas"] = ["#9a7200", "#138a6b", "#c2410c", "#7a4cc2", "#c63d3d", "#4e8a1e", "#b8467f", "#1b84a8"]
+_TIPE["hitam_kuning"] = {"bahan": KUNING_LOGO, "upah": "#7fd1b9", "alat": "#ffa94d"}
+_TIPE["terang_emas"] = {"bahan": "#9a7200", "upah": "#138a6b", "alat": "#c2410c"}
+
+# Nama tampilan & keterangan tema untuk halaman Pengaturan (urutan = urutan kartu).
+NAMA_TEMA = {
+    "hitam_kuning": ("Hitam Kuning", "Identitas Mandajaya; nyaman untuk kerja lama"),
+    "terang_emas": ("Terang Emas", "Latar terang, sidebar hitam, tombol kuning"),
+    "gelap": ("Biru Malam", "Tema gelap biru versi sebelumnya"),
+    "terang": ("Terang Biru", "Cocok untuk ruangan terang / presentasi"),
+}
+TEMA_BAWAAN = "hitam_kuning"
+
+
+def _lengkapi(nama: str, p: dict) -> None:
+    """Token yang tidak ditulis eksplisit mengikuti token dasar palet."""
+    bawaan = {
+        "tombol_utama": p["aksen"], "tombol_utama_hover": p["aksen_hover"], "tombol_utama_tekan": p["aksen_tekan"],
+        "tombol_utama_teks": p["aksen_teks"], "utama_nilai": "#ffffff",
+        "logo_awal": "#6bb2ff", "logo_akhir": "#2b6cd4", "logo_batang": "#ffffff",
+        "sidebar_teks": p["teks_redup"], "sidebar_teks_aktif": p["teks_kuat"], "sidebar_hover": p["permukaan"],
+        "sidebar_aktif": p["aksen_lembut"], "sidebar_garis": p["garis"], "sidebar_judul": p["teks_kuat"],
+        "sidebar_samar": p["teks_samar"],
+    }
+    for k, v in bawaan.items():
+        p.setdefault(k, v)
+
+
+for _nama, _p in PALET.items():
+    _lengkapi(_nama, _p)
+
 # Token aktif. Diubah di tempat oleh pilih_tema(), sehingga semua modul yang memakai
 # tema.W[...] / tema.WARNA_KATEGORI langsung mendapat warna tema terpilih.
-W = dict(PALET["gelap"])
-WARNA_KATEGORI = list(_KATEGORI["gelap"])
-WARNA_TIPE = dict(_TIPE["gelap"])
-TEMA_AKTIF = "gelap"
+W = dict(PALET[TEMA_BAWAAN])
+WARNA_KATEGORI = list(_KATEGORI[TEMA_BAWAAN])
+WARNA_TIPE = dict(_TIPE[TEMA_BAWAAN])
+TEMA_AKTIF = TEMA_BAWAAN
 
 
 def pilih_tema(nama: str) -> None:
     global TEMA_AKTIF
-    nama = nama if nama in PALET else "gelap"
+    nama = nama if nama in PALET else TEMA_BAWAAN
     W.clear()
     W.update(PALET[nama])
     WARNA_KATEGORI[:] = _KATEGORI[nama]
@@ -196,16 +340,20 @@ QLabel {{ background: transparent; }}
 QToolTip {{ background-color: {c['permukaan_3']}; color: {c['teks']}; border: 1px solid {c['garis_kuat']}; padding: 6px 8px; }}
 
 /* ---------- sidebar ---------- */
-QFrame#sidebar {{ background-color: {c['sidebar']}; border-right: 1px solid {c['garis']}; }}
-QLabel#namaAplikasi {{ font-size: 16px; font-weight: 700; color: {c['teks_kuat']}; }}
-QLabel#taglineAplikasi {{ font-size: 11px; color: {c['teks_samar']}; }}
-QLabel#infoSidebar {{ font-size: 11px; color: {c['teks_samar']}; }}
+QFrame#sidebar {{ background-color: {c['sidebar']}; border-right: 1px solid {c['sidebar_garis']}; }}
+QFrame#sidebar QLabel#bagian {{ color: {c['sidebar_samar']}; }}
+QLabel#namaAplikasi {{ font-size: 16px; font-weight: 700; color: {c['sidebar_judul']}; }}
+QLabel#taglineAplikasi {{ font-size: 11px; color: {c['sidebar_samar']}; }}
+QLabel#infoSidebar {{ font-size: 11px; color: {c['sidebar_samar']}; }}
 QPushButton#navItem {{
-    text-align: left; padding: 10px 14px; border: none; border-radius: 8px;
-    background: transparent; color: {c['teks_redup']}; font-weight: 600;
+    text-align: left; padding: 10px 14px; border: none; border-left: 3px solid transparent; border-radius: 8px;
+    background: transparent; color: {c['sidebar_teks']}; font-weight: 600;
 }}
-QPushButton#navItem:hover {{ background-color: {c['permukaan']}; color: {c['teks']}; }}
-QPushButton#navItem:checked {{ background-color: {c['aksen_lembut']}; color: {c['teks_kuat']}; }}
+QPushButton#navItem:hover {{ background-color: {c['sidebar_hover']}; color: {c['sidebar_teks_aktif']}; }}
+QPushButton#navItem:checked {{
+    background-color: {c['sidebar_aktif']}; color: {c['sidebar_teks_aktif']};
+    border-left: 3px solid {c['tombol_utama']}; border-top-left-radius: 2px; border-bottom-left-radius: 2px;
+}}
 
 /* ---------- tab ---------- */
 QTabWidget::pane {{ border: none; border-top: 1px solid {c['garis']}; top: -1px; }}
@@ -244,6 +392,7 @@ QLabel#chip[jenis="bahaya"] {{ background-color: {c['bahaya_lembut']}; color: {c
 /* ---------- kartu & panel ---------- */
 QFrame#kartu, QFrame#panel {{ background-color: {c['permukaan']}; border: 1px solid {c['garis']}; border-radius: 12px; }}
 QFrame#kartuStat {{ background-color: {c['permukaan']}; border: 1px solid {c['garis']}; border-radius: 12px; }}
+QFrame#kartuStat[klik="true"]:hover {{ border: 1px solid {c['garis_hover']}; background-color: {c['permukaan_2']}; }}
 QFrame#kartuStatUtama {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {c['utama_awal']}, stop:1 {c['utama_akhir']});
     border: 1px solid {c['utama_garis']}; border-radius: 12px;
@@ -252,7 +401,7 @@ QLabel#statJudul {{ color: {c['teks_redup']}; font-size: 11px; font-weight: 700;
 QLabel#statNilai {{ color: {c['teks_kuat']}; font-size: 21px; font-weight: 700; }}
 QLabel#statKet {{ color: {c['teks_samar']}; font-size: 11px; }}
 QFrame#kartuStatUtama QLabel#statJudul {{ color: {c['utama_judul']}; }}
-QFrame#kartuStatUtama QLabel#statNilai {{ color: #ffffff; }}
+QFrame#kartuStatUtama QLabel#statNilai {{ color: {c['utama_nilai']}; }}
 QFrame#kartuStatUtama QLabel#statKet {{ color: {c['utama_ket']}; }}
 QFrame#kartuKosong {{ background-color: {c['permukaan']}; border: 1px dashed {c['garis_kuat']}; border-radius: 14px; }}
 QLabel#kosongJudul {{ font-size: 17px; font-weight: 700; color: {c['teks_kuat']}; }}
@@ -274,9 +423,9 @@ QFrame#toast QLabel {{ color: {c['teks_kuat']}; font-weight: 600; }}
 
 /* ---------- tombol ---------- */
 QPushButton {{ border-radius: 8px; padding: 9px 18px; font-weight: 600; border: none; }}
-QPushButton#btnPrimary {{ background-color: {c['aksen']}; color: {c['aksen_teks']}; }}
-QPushButton#btnPrimary:hover {{ background-color: {c['aksen_hover']}; }}
-QPushButton#btnPrimary:pressed {{ background-color: {c['aksen_tekan']}; }}
+QPushButton#btnPrimary {{ background-color: {c['tombol_utama']}; color: {c['tombol_utama_teks']}; }}
+QPushButton#btnPrimary:hover {{ background-color: {c['tombol_utama_hover']}; }}
+QPushButton#btnPrimary:pressed {{ background-color: {c['tombol_utama_tekan']}; }}
 QPushButton#btnPrimary:disabled {{ background-color: {c['permukaan_3']}; color: {c['teks_samar']}; }}
 QPushButton#btnSecondary {{ background-color: {c['permukaan_3']}; color: {c['teks']}; border: 1px solid {c['garis_kuat']}; }}
 QPushButton#btnSecondary:hover {{ background-color: {c['sekunder_hover']}; }}
@@ -310,6 +459,13 @@ QPushButton#segmen[posisi="tengah"] {{ border-radius: 0; border-left: none; }}
 QPushButton#segmen:hover {{ color: {c['teks']}; }}
 QPushButton#segmen:checked {{ background-color: {c['aksen_lembut']}; color: {c['teks_kuat']}; border-color: {c['aksen_garis']}; }}
 QPushButton:focus {{ outline: none; }}
+
+QToolButton#kartuTema {{
+    background-color: {c['permukaan']}; border: 2px solid {c['garis']}; border-radius: 12px;
+    padding: 10px 10px 8px 10px; color: {c['teks']}; font-weight: 600;
+}}
+QToolButton#kartuTema:hover {{ border-color: {c['garis_hover']}; }}
+QToolButton#kartuTema:checked {{ border-color: {c['tombol_utama']}; background-color: {c['aksen_lembut']}; }}
 
 /* ---------- input ---------- */
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit {{
@@ -372,7 +528,7 @@ QProgressBar::chunk {{ background-color: {c['aksen']}; border-radius: 5px; }}
 
 
 def terapkan(app, nama_tema: str | None = None) -> None:
-    """Pasang tema ke seluruh aplikasi. `nama_tema` = 'gelap' / 'terang' (None = tema aktif)."""
+    """Pasang tema ke seluruh aplikasi. `nama_tema` = salah satu kunci PALET (None = tema aktif)."""
     if nama_tema:
         pilih_tema(nama_tema)
     # angka di kotak input mengikuti format Indonesia: 1.234,56
@@ -460,11 +616,43 @@ def tombol(teks: str, peran: str = "secondary", ikon_nama: str | None = None, to
     b.setObjectName({"primary": "btnPrimary", "secondary": "btnSecondary", "ghost": "btnGhost", "danger": "btnDanger"}[peran])
     b.setCursor(Qt.PointingHandCursor)
     if ikon_nama:
-        warna = W["aksen_teks"] if peran == "primary" else (W["bahaya"] if peran == "danger" else W["teks"])
+        warna = W["tombol_utama_teks"] if peran == "primary" else (W["bahaya"] if peran == "danger" else W["teks"])
         b.setIcon(ikon(ikon_nama, warna))
     if tooltip:
         b.setToolTip(tooltip)
     return b
+
+
+class LabelPotong(QLabel):
+    """Label satu baris yang memotong teks panjang dengan "…" (teks lengkap di tooltip),
+    sehingga judul panjang tidak mendorong tombol di sebelahnya keluar layar."""
+
+    def __init__(self, teks: str = "", parent=None):
+        super().__init__(parent)
+        self._penuh = ""
+        self.setMinimumWidth(120)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setText(teks)
+
+    def setText(self, teks: str) -> None:  # noqa: N802 (API Qt)
+        self._penuh = teks or ""
+        self.setToolTip(self._penuh)
+        self._potong()
+
+    def text(self) -> str:  # noqa: N802
+        return self._penuh
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._potong()
+
+    def _potong(self):
+        super().setText(self.fontMetrics().elidedText(self._penuh, Qt.ElideRight, max(self.width(), 40)))
+
+    def sizeHint(self):
+        h = super().sizeHint()
+        h.setWidth(self.fontMetrics().horizontalAdvance(self._penuh) + 8)
+        return h
 
 
 def label(teks: str = "", nama: str | None = None, wrap: bool = False) -> QLabel:
@@ -495,14 +683,20 @@ def garis() -> QFrame:
     return g
 
 
-def header_halaman(judul: str, sub: str = "", remah: str | None = None):
-    """Kolom judul halaman. Return (layout, label_judul, label_sub)."""
+def header_halaman(judul: str, sub: str = "", remah: str | None = None, potong: bool = False):
+    """Kolom judul halaman. Return (layout, label_judul, label_sub).
+    potong=True: judul & subjudul dipotong dengan "…" bila ruang sempit (teks lengkap di tooltip)."""
     kol = QVBoxLayout()
     kol.setSpacing(2)
     if remah:
         kol.addWidget(label(remah, "remah"))
-    lj = label(judul, "judulHalaman")
-    ls = label(sub, "subjudul")
+    if potong:
+        lj, ls = LabelPotong(judul), LabelPotong(sub)
+        lj.setObjectName("judulHalaman")
+        ls.setObjectName("subjudul")
+    else:
+        lj = label(judul, "judulHalaman")
+        ls = label(sub, "subjudul")
     kol.addWidget(lj)
     kol.addWidget(ls)
     return kol, lj, ls
@@ -542,6 +736,20 @@ class KartuStat(QFrame):
 
     def set_judul(self, judul: str):
         self._judul.setText(judul.upper())
+
+    def bisa_diklik(self, aksi, tooltip: str = "") -> None:
+        """Jadikan kartu sebagai tombol (mis. kartu Biaya Tidak Langsung membuka dialognya)."""
+        self._aksi = aksi
+        self.setCursor(Qt.PointingHandCursor)
+        self.setProperty("klik", True)
+        if tooltip:
+            self.setToolTip(tooltip)
+
+    def mouseReleaseEvent(self, event):
+        aksi = getattr(self, "_aksi", None)
+        if aksi and event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
+            aksi()
+        super().mouseReleaseEvent(event)
 
 
 class IkonKosong(QWidget):
@@ -696,8 +904,8 @@ def gambar_logo(p: QPainter, s: float) -> None:
     p.setRenderHint(QPainter.Antialiasing)
     area = QRectF(0, 0, s, s)
     grad = QLinearGradient(area.topLeft(), area.bottomRight())
-    grad.setColorAt(0.0, QColor("#6bb2ff"))
-    grad.setColorAt(1.0, QColor("#2b6cd4"))
+    grad.setColorAt(0.0, QColor(W["logo_awal"]))
+    grad.setColorAt(1.0, QColor(W["logo_akhir"]))
     p.setPen(Qt.NoPen)
     p.setBrush(QBrush(grad))
     p.drawRoundedRect(area, s * 0.28, s * 0.28)
@@ -705,8 +913,48 @@ def gambar_logo(p: QPainter, s: float) -> None:
     x0 = (s - (3 * lebar + 2 * jarak)) / 2
     dasar = s * 0.74
     for i, (t, a) in enumerate(zip([0.22, 0.38, 0.54], [170, 215, 255])):
-        p.setBrush(QColor(255, 255, 255, a))
+        batang = QColor(W["logo_batang"])
+        batang.setAlpha(a)
+        p.setBrush(batang)
         p.drawRoundedRect(QRectF(x0 + i * (lebar + jarak), dasar - s * t, lebar, s * t), s * 0.05, s * 0.05)
+
+
+def pratinjau_tema(nama: str, lebar: int = 184, tinggi: int = 104) -> QPixmap:
+    """Miniatur aplikasi dengan warna tema `nama` (kartu pilihan tema di halaman Pengaturan)."""
+    c = PALET[nama]
+    skala = 2  # gambar 2x agar tajam di layar HiDPI
+    pm = QPixmap(lebar * skala, tinggi * skala)
+    pm.setDevicePixelRatio(skala)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    bingkai = QPainterPath()
+    bingkai.addRoundedRect(QRectF(0, 0, lebar, tinggi), 8, 8)
+    p.setClipPath(bingkai)
+    p.fillRect(QRectF(0, 0, lebar, tinggi), QColor(c["latar"]))
+    p.fillRect(QRectF(0, 0, 44, tinggi), QColor(c["sidebar"]))
+    p.setBrush(QColor(c["logo_awal"]))
+    p.drawRoundedRect(QRectF(8, 8, 12, 12), 3, 3)
+    for i in range(4):  # menu sidebar, yang pertama aktif
+        p.setBrush(QColor(c["sidebar_aktif"] if i == 0 else c["sidebar_hover"]))
+        p.drawRoundedRect(QRectF(6, 30 + i * 13, 32, 8), 2, 2)
+    p.setBrush(QColor(c["tombol_utama"]))
+    p.drawRect(QRectF(6, 30, 2, 8))
+    for i, warna in enumerate((c["permukaan"], c["permukaan"], c["utama_awal"])):  # kartu angka
+        p.setBrush(QColor(warna))
+        p.drawRoundedRect(QRectF(52 + i * 42, 10, 38, 20), 4, 4)
+    p.setBrush(QColor(c["permukaan"]))
+    p.drawRoundedRect(QRectF(52, 36, 124, 60), 5, 5)
+    for i in range(4):  # baris tabel
+        p.setBrush(QColor(c["teks_redup"] if i else c["aksen"]))
+        p.drawRoundedRect(QRectF(58, 44 + i * 12, 60 if i else 46, 4), 2, 2)
+        p.setBrush(QColor(c["teks_samar"]))
+        p.drawRoundedRect(QRectF(140, 44 + i * 12, 28, 4), 2, 2)
+    p.setBrush(QColor(c["tombol_utama"]))
+    p.drawRoundedRect(QRectF(140, 10, 36, 10), 3, 3)
+    p.end()
+    return pm
 
 
 def gambar_ikon_aplikasi(ukuran: int = 256) -> QPixmap:

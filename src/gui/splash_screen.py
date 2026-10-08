@@ -25,8 +25,8 @@ from PySide6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
 )
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRectF
-from PySide6.QtGui import QColor, QPainter, QLinearGradient, QBrush, QPen
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QColor, QPainter
 
 from database.init_db import siapkan_database
 from database.proyek_repository import get_all_proyek
@@ -60,34 +60,7 @@ class LogoCostStruct(QWidget):
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-
-        # Latar kotak membulat dengan gradasi biru
-        area = QRectF(0, 0, self.width(), self.height())
-        grad = QLinearGradient(area.topLeft(), area.bottomRight())
-        grad.setColorAt(0.0, QColor("#6bb2ff"))
-        grad.setColorAt(1.0, QColor("#2b6cd4"))
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(grad))
-        p.drawRoundedRect(area, 20, 20)
-
-        # Tiga batang naik berwarna putih
-        lebar, jarak = 12, 8
-        total = 3 * lebar + 2 * jarak
-        x0 = (self.width() - total) / 2
-        dasar = self.height() - 18
-        tinggi = [18, 30, 44]
-        alpha = [170, 215, 255]
-        for i, t in enumerate(tinggi):
-            warna = QColor(255, 255, 255, alpha[i])
-            p.setBrush(warna)
-            p.drawRoundedRect(
-                QRectF(x0 + i * (lebar + jarak), dasar - t, lebar, t), 3, 3
-            )
-
-        # Garis dasar tipis
-        p.setPen(QPen(QColor(255, 255, 255, 120), 2, Qt.SolidLine, Qt.RoundCap))
-        p.drawLine(int(x0 - 4), int(dasar + 5), int(x0 + total + 4), int(dasar + 5))
+        tema.gambar_logo(p, self.width())  # warna mengikuti tema (Hitam Kuning: kuning Mandajaya)
         p.end()
 
 
@@ -126,49 +99,29 @@ class SplashScreen(QWidget):
 
         kartu = QFrame()
         kartu.setObjectName("kartu")
-        kartu.setStyleSheet("""
-            QFrame#kartu {
+        w = tema.W
+        kartu.setStyleSheet(f"""
+            QFrame#kartu {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #223142, stop:1 #111a24);
-                border: 1px solid #2f4258;
+                    stop:0 {w['permukaan_3']}, stop:1 {w['sidebar']});
+                border: 1px solid {w['garis_kuat']};
                 border-radius: 18px;
-            }
-            QLabel { background: transparent; }
-            QLabel#judul {
-                color: #ffffff;
-                font-size: 32px;
-                font-weight: 700;
-                letter-spacing: 1px;
-            }
-            QLabel#subjudul {
-                color: #9fb3c8;
-                font-size: 12px;
-            }
-            QLabel#status {
-                color: #cfd8e3;
-                font-size: 11px;
-            }
-            QLabel#persen {
-                color: #6bb2ff;
-                font-size: 11px;
-                font-weight: 600;
-            }
-            QLabel#footer {
-                color: #5f7388;
-                font-size: 10px;
-            }
-            QProgressBar {
-                background-color: #2a3947;
-                border: none;
-                border-radius: 3px;
-                max-height: 6px;
-                min-height: 6px;
-            }
-            QProgressBar::chunk {
+            }}
+            QLabel {{ background: transparent; }}
+            QLabel#judul {{ color: {w['teks_kuat']}; font-size: 32px; font-weight: 700; letter-spacing: 1px; }}
+            QLabel#subjudul {{ color: {w['teks_redup']}; font-size: 12px; }}
+            QLabel#status {{ color: {w['teks']}; font-size: 11px; }}
+            QLabel#persen {{ color: {w['aksen']}; font-size: 11px; font-weight: 600; }}
+            QLabel#footer {{ color: {w['teks_samar']}; font-size: 10px; }}
+            QProgressBar {{
+                background-color: {w['permukaan_3']}; border: none; border-radius: 3px;
+                max-height: 6px; min-height: 6px;
+            }}
+            QProgressBar::chunk {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #3d86ee, stop:1 #7cc4ff);
+                    stop:0 {w['tombol_utama_tekan']}, stop:1 {w['tombol_utama_hover']});
                 border-radius: 3px;
-            }
+            }}
         """)
 
         bayangan = QGraphicsDropShadowEffect(self)
@@ -282,11 +235,14 @@ class SplashScreen(QWidget):
                 from database.init_db import cadangkan_database
                 from lokasi import folder_data
 
-                pangkas()
                 catat("aplikasi", f"Aplikasi dibuka ({VERSI_APLIKASI}), folder data: {folder_data()}")
-                cadangan = cadangkan_database()
-                if cadangan:
-                    catat("aplikasi", f"Cadangan database harian dibuat: {cadangan.name}")
+                try:  # perawatan rutin: kegagalannya tidak boleh menghentikan aplikasi
+                    pangkas()
+                    cadangan = cadangkan_database()
+                    if cadangan:
+                        catat("aplikasi", f"Cadangan database harian dibuat: {cadangan.name}")
+                except Exception as e:
+                    catat("aplikasi", f"Cadangan / pemangkasan log dilewati: {e}", tingkat="PERINGATAN")
             except Exception as e:
                 self.timer.stop()
                 self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
@@ -322,7 +278,13 @@ def main():
     app.setWindowIcon(tema.ikon_aplikasi())
     pasang_terjemahan(app)  # KNF-6: tombol bawaan Qt berbahasa Indonesia
     pasang_penangkap_galat()  # KF-14 / KNF-4: kesalahan tak terduga tidak menutup aplikasi
-    tema.terapkan(app)
+    try:  # tema pilihan pengguna sudah dipakai sejak splash screen
+        from database.preferensi_repository import muat_preferensi
+
+        tema.terapkan(app, muat_preferensi().tema)
+    except Exception:  # database belum siap / rusak: tema bawaan, galat ditangani tahap pemeriksaan database
+        tema.terapkan(app)
+    app.setWindowIcon(tema.ikon_aplikasi())
     splash = SplashScreen()
     splash.show()
     sys.exit(app.exec())

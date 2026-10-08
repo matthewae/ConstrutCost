@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -238,6 +239,13 @@ def tulis_aman(path, tulis) -> Path:
         for n in range(1, 50):
             tujuan = path if n == 1 else path.with_name(f"{path.stem} ({n}){path.suffix}")
             try:
+                if n == 1:  # antivirus / OneDrive sering mengunci sesaat: coba ulang dulu sebelum ganti nama
+                    for _ in range(3):
+                        try:
+                            os.replace(tmp, tujuan)
+                            return tujuan
+                        except PermissionError:
+                            time.sleep(0.2)
                 os.replace(tmp, tujuan)
                 if n > 1:
                     log.warning("%s sedang dikunci program lain; hasil disimpan sebagai %s", path.name, tujuan.name)

@@ -16,6 +16,7 @@ Fungsi ekspor/impor yang sama dipakai untuk menduplikasi proyek (KF-9).
 """
 
 import json
+import re
 import shutil
 import zipfile
 from datetime import datetime
@@ -179,12 +180,15 @@ def simpan_berkas(proyek_id: int, path, sertakan_ifc: bool = True) -> Path:
     data = ekspor_data(proyek_id)
     ifc = data["proyek"].get("path_file_ifc")
     sementara = path.with_name(path.name + ".tmp")
-    with zipfile.ZipFile(sementara, "w", compression=zipfile.ZIP_DEFLATED) as z:
-        if sertakan_ifc and ifc and Path(ifc).is_file():
-            z.write(ifc, "model.ifc")
-            data["ifc_disertakan"] = Path(ifc).name
-        z.writestr("proyek.json", json.dumps(data, ensure_ascii=False, indent=1))
-    sementara.replace(path)
+    try:
+        with zipfile.ZipFile(sementara, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            if sertakan_ifc and ifc and Path(ifc).is_file():
+                z.write(ifc, "model.ifc")
+                data["ifc_disertakan"] = Path(ifc).name
+            z.writestr("proyek.json", json.dumps(data, ensure_ascii=False, indent=1))
+        sementara.replace(path)
+    finally:  # gagal di tengah jalan (IFC / file tujuan terkunci): jangan tinggalkan file .tmp
+        sementara.unlink(missing_ok=True)
     catat("berkas", f"Proyek disimpan ke file {path}" + (" (beserta model IFC)" if "ifc_disertakan" in data else ""), proyek_id)
     return path
 
@@ -214,7 +218,10 @@ def buka_berkas(path, folder_ifc=None, nama: str | None = None) -> int:
     if data.get("_ada_ifc"):
         folder = Path(folder_ifc) if folder_ifc else path.parent
         folder.mkdir(parents=True, exist_ok=True)
-        nama_ifc = data.get("ifc_disertakan") or f"{path.stem}.ifc"
+        # hanya nama file: nama di dalam file proyek tidak boleh menulis ke luar folder tujuan (..\, C:\)
+        nama_ifc = re.split(r"[\\/:]", str(data.get("ifc_disertakan") or ""))[-1].strip(" .")
+        if not nama_ifc.lower().endswith(".ifc"):
+            nama_ifc = f"{path.stem}.ifc"
         tujuan = folder / nama_ifc
         n = 1
         while tujuan.exists():

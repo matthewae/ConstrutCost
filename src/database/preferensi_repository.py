@@ -10,7 +10,9 @@ from pathlib import Path
 
 from database.estimasi_repository import _connect
 
-TEMA = ("gelap", "terang")
+# Urutan = urutan kartu di Pengaturan. "hitam_kuning" (identitas Mandajaya) adalah bawaan sejak tema v2.
+TEMA = ("hitam_kuning", "terang_emas", "gelap", "terang")
+TEMA_BAWAAN = "hitam_kuning"
 ORIENTASI = ("portrait", "landscape")
 # KF-17: kolom laporan yang bisa dipilih (sama dengan export_service.KOLOM_OPSIONAL)
 KOLOM_LAPORAN = ("no", "kode", "harga", "bobot", "rumus")
@@ -47,7 +49,8 @@ class PreferensiTidakValid(ValueError):
 
 @dataclass
 class Preferensi:
-    tema: str = "gelap"
+    tema: str = TEMA_BAWAAN
+    versi_tema: str = "2"  # pengguna versi lama (tema "gelap" bawaan) dipindah sekali ke Hitam Kuning
     direktori_ifc: str = ""  # kosong = folder Dokumen
     direktori_export: str = ""  # kosong = folder Dokumen
     format_excel: bool = True
@@ -67,6 +70,16 @@ class Preferensi:
 
 
 def folder_default() -> str:
+    """Folder Dokumen pengguna. Memakai lokasi dari sistem (QStandardPaths), sehingga tetap benar bila
+    OneDrive memindahkan Dokumen ke C:\\Users\\<nama>\\OneDrive\\Documents."""
+    try:
+        from PySide6.QtCore import QStandardPaths
+
+        lokasi = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
+        if lokasi and Path(lokasi).is_dir():
+            return lokasi
+    except Exception:
+        pass
     dokumen = Path.home() / "Documents"
     return str(dokumen if dokumen.is_dir() else Path.home())
 
@@ -100,8 +113,11 @@ def muat_preferensi() -> Preferensi:
             continue
         nilai = tersimpan[f.name]
         setattr(p, f.name, nilai == "1" if f.type in (bool, "bool") else nilai)
+    if "versi_tema" not in tersimpan and p.tema == "gelap":
+        p.tema = TEMA_BAWAAN  # dulu "gelap" adalah bawaan, bukan pilihan pengguna
+    p.versi_tema = "2"
     if p.tema not in TEMA:
-        p.tema = "gelap"
+        p.tema = TEMA_BAWAAN
     if p.orientasi_pdf not in ORIENTASI:
         p.orientasi_pdf = "portrait"
     if not p.direktori_export and lama:  # folder export terakhir dari versi sebelumnya
@@ -111,7 +127,7 @@ def muat_preferensi() -> Preferensi:
 
 def validasi_preferensi(p: Preferensi) -> None:
     if p.tema not in TEMA:
-        raise PreferensiTidakValid("Tema harus Gelap atau Terang.")
+        raise PreferensiTidakValid("Tema tidak dikenal. Pilih salah satu tema di halaman Pengaturan.")
     for label, folder in (("Folder file IFC", p.direktori_ifc), ("Folder hasil export", p.direktori_export)):
         if folder and not Path(folder).is_dir():
             raise PreferensiTidakValid(f"{label} tidak ditemukan:\n{folder}")

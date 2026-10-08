@@ -450,7 +450,15 @@ class ExportDialog(QDialog):
         QApplication.restoreOverrideCursor()
         dialog = PratinjauDialog(str(path), self.edit_nama.text().strip() or self.nama_proyek, self)
         dialog.btn_export.setEnabled(self.btn_export.isEnabled())
-        if dialog.exec() == QDialog.Accepted:
+        diterima = dialog.exec() == QDialog.Accepted
+        # Windows: PDF yang masih dibuka QPdfDocument tidak bisa dihapus -> tutup dulu, lalu bersihkan folder
+        dialog.dok.close()
+        dialog.deleteLater()
+        try:
+            self._folder_pratinjau.cleanup()
+        except OSError:
+            pass
+        if diterima:
             self._export()
 
     def opsi(self) -> OpsiExport:

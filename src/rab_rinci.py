@@ -27,6 +27,17 @@ _AWALAN_STRUKTUR = ("BTN.", "BSK.", "BSI.")
 _URUTAN_ITEM = {"BTN": 0, "BSK": 1, "BSI": 2}
 
 
+def cocok_saring(r: dict, saring) -> bool:
+    """True bila baris hasil `r` termasuk item RAB rinci dengan penyaring `saring` (lihat susun_rinci)."""
+    if not saring:
+        return True
+    if saring[0] == "tipe":
+        return _per_tipe(r) and r.get("tipe_id") == saring[1] and (saring[2] is None or r.get("uraian") == saring[2])
+    if saring[0] == "elemen":
+        return not _per_tipe(r) and nama_tipe_elemen(r.get("nama_elemen")) == saring[1]
+    return not _per_tipe(r)
+
+
 def urutan_kategori(k: str):
     return (URUTAN_KATEGORI.index(k) if k in URUTAN_KATEGORI else len(URUTAN_KATEGORI), k)
 
@@ -88,6 +99,9 @@ def susun_rinci(baris: list, per_tipe_elemen: bool = False) -> list:
             "volume": 0.0,
             "jumlah": 0.0,
             "diameter": r.get("diameter") if kunci_grup is not None else None,
+            # penyaring baris hasil yang membentuk item ini (panel rincian & "Pakai Harga Ini" hanya ke baris itu)
+            "saring": ("tipe", kunci_grup, r.get("uraian") if r.get("diameter") else None)
+            if kunci_grup is not None else ("lain",),
         })
         it["volume"] += r["volume_pekerjaan"]
         it["jumlah"] += r["subtotal_biaya"]
@@ -144,6 +158,7 @@ def _susun_rinci_per_tipe_elemen(baris: list) -> list:
                     "label": f"{nama} — {it['n']} buah", "kode": g["kode"], "pekerjaan_id": pid,
                     "satuan": g["satuan"], "volume": it["volume"], "jumlah": it["jumlah"],
                     "harga": it["jumlah"] / it["volume"] if it["volume"] else 0.0, "diameter": None,
+                    "saring": ("elemen", nama),
                 })
             total = sum(i["jumlah"] for i in items)
             k["grup"].append({"judul": g["judul"], "tipe_id": None, "jumlah_elemen": sum(v["n"] for v in g["items"].values()),

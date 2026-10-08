@@ -224,8 +224,10 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=None) -> dict:
             (*[el[k] for k in kolom], el.get("sumber_volume"),
              json.dumps(el["sumber_dimensi"], ensure_ascii=False), el["tipe_id"], elemen_id),
         )
+        khusus = _simpan_khusus(conn, "elemen_id = ?", (elemen_id,))  # KF-6: harga khusus & catatan tetap
         conn.execute("DELETE FROM hasil_estimasi WHERE elemen_id = ?", (elemen_id,))
         n = _simpan_hasil(conn, el["proyek_id"], elemen_id, hasil, harga, kode_ke_id, dilewati)
+        _pulihkan_khusus(conn, khusus)
         rapikan_tipe(conn, el["proyek_id"])
         conn.execute(
             "UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (el["proyek_id"],)
@@ -235,6 +237,40 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=None) -> dict:
         return {"baris": n, "dilewati": dilewati, "berubah": berubah}
     finally:
         conn.close()
+
+
+def _simpan_khusus(conn, syarat: str, args: tuple) -> dict:
+    """KF-6: harga satuan khusus & catatan baris hasil yang akan dihitung ulang, agar bisa dipulihkan.
+    Kunci (elemen_id, pekerjaan_id, uraian)."""
+    return {
+        (r["elemen_id"], r["pekerjaan_id"], r["uraian"]): (r["harga_manual"], r["catatan"])
+        for r in conn.execute(
+            "SELECT elemen_id, pekerjaan_id, uraian, harga_manual, catatan FROM hasil_estimasi "
+            f"WHERE ({syarat}) AND (harga_manual IS NOT NULL OR catatan IS NOT NULL)",
+            args,
+        )
+    }
+
+
+def _pulihkan_khusus(conn, simpan: dict) -> None:
+    """Pasang kembali harga khusus & catatan ke baris baru dengan elemen, pekerjaan, dan uraian sama.
+    Bila uraian berubah (mis. tulangan 6 D13 -> 4 D16 setelah tipe penulangan diubah), dipasang ke baris
+    elemen & pekerjaan yang sama, karena harga khusus berlaku per satuan pekerjaan."""
+    for (eid, pid, uraian), (hm, catatan) in simpan.items():
+        cur = conn.execute(
+            """UPDATE hasil_estimasi SET harga_manual = ?, catatan = ?,
+                   subtotal_biaya = CASE WHEN ? IS NULL THEN subtotal_biaya ELSE volume_pekerjaan * ? END
+               WHERE elemen_id = ? AND pekerjaan_id = ? AND uraian IS ?""",
+            (hm, catatan, hm, hm, eid, pid, uraian),
+        )
+        if cur.rowcount == 0:
+            conn.execute(
+                """UPDATE hasil_estimasi SET harga_manual = COALESCE(harga_manual, ?),
+                       catatan = COALESCE(catatan, ?),
+                       subtotal_biaya = CASE WHEN ? IS NULL THEN subtotal_biaya ELSE volume_pekerjaan * ? END
+                   WHERE elemen_id = ? AND pekerjaan_id = ? AND harga_manual IS NULL""",
+                (hm, catatan, hm, hm, eid, pid),
+            )
 
 
 def hitung_ulang_penulangan(proyek_id: int, parameter=None) -> dict:
@@ -251,17 +287,16 @@ def hitung_ulang_penulangan(proyek_id: int, parameter=None) -> dict:
         konteks = siapkan_konteks(semua)
         pasang_tipe(conn, proyek_id, semua, parameter.batas_kemiringan_dak)
         harga, kode_ke_id = _harga_dan_kode(conn)
-        conn.execute(
-            """DELETE FROM hasil_estimasi WHERE proyek_id = ? AND pekerjaan_id IN
-                   (SELECT id FROM pekerjaan WHERE kode_ahsp LIKE 'BSI.%')""",
-            (proyek_id,),
-        )
+        syarat_bsi = "proyek_id = ? AND pekerjaan_id IN (SELECT id FROM pekerjaan WHERE kode_ahsp LIKE 'BSI.%')"
+        khusus = _simpan_khusus(conn, syarat_bsi, (proyek_id,))  # KF-6: harga khusus & catatan tetap
+        conn.execute(f"DELETE FROM hasil_estimasi WHERE {syarat_bsi}", (proyek_id,))
         n, berat, catatan = 0, 0.0, []
         for el in semua:
             conn.execute("UPDATE elemen_proyek SET tipe_id = ? WHERE id = ?", (el["tipe_id"], el["id"]))
             hasil, _ = terapkan_rules(el, konteks, parameter, RULES_PEMBESIAN)
             n += _simpan_hasil(conn, proyek_id, el["id"], hasil, harga, kode_ke_id, catatan)
             berat += sum(h.volume for h in hasil)
+        _pulihkan_khusus(conn, khusus)
         rapikan_tipe(conn, proyek_id)
         conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (proyek_id,))
         conn.commit()
@@ -282,14 +317,7 @@ def hitung_ulang_dari_elemen(proyek_id: int, parameter=None) -> dict:
         semua = [_baris_ke_elemen(r) for r in conn.execute(
             "SELECT * FROM elemen_proyek WHERE proyek_id = ? ORDER BY id", (proyek_id,)
         )]
-        simpan = {
-            (r["elemen_id"], r["pekerjaan_id"], r["uraian"]): (r["harga_manual"], r["catatan"])
-            for r in conn.execute(
-                "SELECT elemen_id, pekerjaan_id, uraian, harga_manual, catatan FROM hasil_estimasi "
-                "WHERE proyek_id = ? AND (harga_manual IS NOT NULL OR catatan IS NOT NULL)",
-                (proyek_id,),
-            )
-        }
+        simpan = _simpan_khusus(conn, "proyek_id = ?", (proyek_id,))
         manual = conn.execute(
             "SELECT COUNT(*) FROM hasil_estimasi WHERE proyek_id = ? AND diedit_manual = 1", (proyek_id,)
         ).fetchone()[0]
@@ -301,13 +329,7 @@ def hitung_ulang_dari_elemen(proyek_id: int, parameter=None) -> dict:
         for el, hasil in keluaran:
             conn.execute("UPDATE elemen_proyek SET tipe_id = ? WHERE id = ?", (el["tipe_id"], el["id"]))
             n += _simpan_hasil(conn, proyek_id, el["id"], hasil, harga, kode_ke_id, peringatan)
-        for (eid, pid, uraian), (hm, catatan) in simpan.items():
-            conn.execute(
-                """UPDATE hasil_estimasi SET harga_manual = ?, catatan = ?,
-                       subtotal_biaya = CASE WHEN ? IS NULL THEN subtotal_biaya ELSE volume_pekerjaan * ? END
-                   WHERE elemen_id = ? AND pekerjaan_id = ? AND uraian IS ?""",
-                (hm, catatan, hm, hm, eid, pid, uraian),
-            )
+        _pulihkan_khusus(conn, simpan)
         rapikan_tipe(conn, proyek_id)
         conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (proyek_id,))
         conn.commit()

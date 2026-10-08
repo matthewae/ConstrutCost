@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
             b.setObjectName("navItem")
             b.setCheckable(True)
             b.setCursor(Qt.PointingHandCursor)
-            b.setIcon(tema.ikon(nama_ikon, tema.W["teks"]))
+            b.setIcon(tema.ikon(nama_ikon, tema.W["sidebar_teks_aktif"]))
             b.setToolTip(f"{teks_nav} ({pintas})")
             self.grup_nav.addButton(b, idx)
             lay.addWidget(b)
