@@ -15,8 +15,6 @@ SUMBER DATA
 Harga satuan pekerjaan = sum(koefisien x harga dasar) x (1 + BUK 10%); hasilnya sama dengan
 harga F di dokumen HSPK (diuji di tests/test_hspk.py).
 
-Naikkan SEED_VERSI setiap kali isi seed diubah; seed otomatis diperbarui saat aplikasi berjalan.
-Harga dasar yang diubah pengguna dan komponen tambahan pengguna tidak ditimpa.
 """
 
 from database.estimasi_repository import _connect
