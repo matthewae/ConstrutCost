@@ -16,6 +16,19 @@ Urutannya mengikuti elevasi. Modul perhitungan ada di `src/kebutuhan_lantai.py`.
 - di bawahnya, rincian per kategori pekerjaan;
 - baris terakhir **JUMLAH n LANTAI**.
 
+**Panel kanan Rincian Perhitungan** (mode Per Lantai) menampilkan rincian berurutan dari lantai terbawah sampai
+penutup bangunan, mis. `00 FONDASI` → `01 LANTAI 1` → `02 LANTAI 2` → **PENUTUP BANGUNAN**. Untuk setiap lantai:
+- volume setiap pekerjaan per kategori;
+- beton per mutu dan bekisting;
+- besi per diameter beserta perhitungannya (`berat ÷ berat/m' = panjang → n batang @ 12 m`) dan total besi
+  dengan rasio kg/m³;
+- bahan utama, dengan semen dihitung dalam zak (`kg ÷ 50 kg`).
+
+Bagian **Penutup bangunan** ditulis di lantai teratas yang memuat atap (penutup + rangka) atau dak beton,
+ditambah plafon di lantai itu. Bila model langsung beratap atau hanya memakai plafon, yang ditulis adalah
+plafon tersebut. Memilih satu lantai di tabel menampilkan rincian lengkap lantai itu, termasuk tenaga kerja
+dan alat.
+
 **Satu lantai** dibuka dengan klik dua kali nama lantai, atau dengan memilih lantai di filter. Isinya:
 
 | Bagian | Isi |
@@ -43,6 +56,7 @@ Urutannya mengikuti elevasi. Modul perhitungan ada di `src/kebutuhan_lantai.py`.
 | Isi (dialog Export) | Excel | PDF |
 |---|---|---|
 | **Rekap per lantai** | Sheet *Rekap per Lantai*: biaya per kategori ditambah kolom beton, bekisting, dan besi. Sheet *Kebutuhan per Lantai*: tabel silang **kebutuhan × lantai** (satu kolom per lantai, ditambah kolom Total) untuk besi per diameter, beton per mutu & bekisting, bahan, tenaga kerja, dan alat | Rekap per lantai dengan kolom beton/bekisting/besi, ditambah tabel besi per diameter × lantai (dipecah per 6 lantai bila lebih banyak) |
+| (bagian dari *Rekap per lantai*) | Sheet *Rincian Perhitungan Lantai*: urutan yang sama dengan panel kanan, dari lantai terbawah sampai **PENUTUP BANGUNAN** (atap / dak beton / plafon), dengan kolom Keterangan / Perhitungan | Bagian *Rincian Perhitungan per Lantai* dengan isi yang sama |
 | **Rincian per lantai** (baru) | **Satu sheet untuk setiap lantai**: `Lt01 00 FONDASI`, `Lt02 01 LANTAI 1`, ... berisi bagian I–VII seperti di aplikasi | Satu bagian (halaman baru) untuk setiap lantai, berisi bagian I–VII |
 
 **Ketentuan nama sheet:**

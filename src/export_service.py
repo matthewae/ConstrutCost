@@ -10,6 +10,9 @@ Isi dokumen:
 - Rekap per Lantai : biaya, beton, bekisting, dan besi tiap lantai dirinci per kategori (KF-12).
 - Kebutuhan per Lantai : tabel silang besi per diameter, beton per mutu, bahan, tenaga kerja, dan alat
                      untuk setiap lantai (kolom lantai sebanyak lantai di model).
+- Rincian Perhitungan Lantai : berurutan dari lantai terbawah sampai penutup bangunan (atap / dak /
+                     plafon): volume pekerjaan, beton, bekisting, besi per diameter (berat ÷ berat/m' =
+                     panjang -> batang 12 m), dan bahan per lantai.
 - Lt01 ... LtNN    : satu sheet / bagian per lantai: biaya per kategori, struktur beton per tipe, besi per
                      diameter, bahan, tenaga kerja, alat (koefisien AHSP), dan RAB rinci lantai.
 - Detail Elemen    : volume tiap elemen dan lantai (KF-12), opsional dengan uraian rumus (KF-18).
@@ -29,8 +32,11 @@ from database.biaya_repository import ringkasan_biaya
 from database.estimasi_repository import BUK_RATE, PPN_RATE, _connect, get_hasil_estimasi_by_proyek
 from database.penulangan_repository import daftar_tipe, kebutuhan_besi
 from kebutuhan_lantai import (
+    BERAT_ZAK_SEMEN,
     TIPE_SUMBER_DAYA,
     komponen_pekerjaan,
+    pekerjaan_lantai,
+    penutup_bangunan,
     matriks_lantai,
     rasio_wajar,
     rincian_per_lantai,
@@ -639,6 +645,49 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
                         catatan="Kuantitas mengikuti koefisien analisa harga satuan HSPK yang dipakai di RAB.")
         atur_cetak(wk, hdr_pertama + 1, "landscape")
         wk.print_title_rows = None  # beberapa tabel: judul kolom tiap tabel ditulis sendiri
+
+        # ---------- Sheet Rincian Perhitungan Lantai (berurutan sampai penutup bangunan) ----------
+        wp = wb.create_sheet("Rincian Perhitungan Lantai")
+        for kol, lebar in zip("ABCDE", (6, 56, 15, 8, 62)):
+            wp.column_dimensions[kol].width = lebar
+        r = judul_sheet(wp, "RINCIAN PERHITUNGAN PER LANTAI (DARI LANTAI TERBAWAH SAMPAI PENUTUP BANGUNAN)", 5)
+        hdr_p = r
+        header(wp, r, ["No", "Uraian", "Volume", "Sat", "Keterangan / Perhitungan"])
+        r += 1
+        no = 0
+        for e in entri_rincian_perhitungan(rincian):
+            if e[0] == "lantai":
+                no = 0
+                r += 1 if r > hdr_p + 1 else 0
+                gaya_baris(wp, r, 5, f_bold, fill_kat)
+                wp.cell(r, 2, e[1])
+                wp.cell(r, 5, f"{e[2]}; biaya langsung Rp {_rp(e[3], 0)}")
+            elif e[0] == "bagian":
+                gaya_baris(wp, r, 5, f_bold, fill_grup)
+                wp.cell(r, 2, e[1])
+            elif e[0] == "item":
+                no += 1
+                gaya_baris(wp, r, 5, f_bold if e[1] == "Total besi" else f_norm)
+                wp.cell(r, 1, no).alignment = Alignment(horizontal="center")
+                wp.cell(r, 2, e[1]).alignment = Alignment(wrap_text=True, vertical="top")
+                wp.cell(r, 3, e[2]).number_format = ANGKA
+                wp.cell(r, 4, e[3]).alignment = Alignment(horizontal="center")
+                wp.cell(r, 5, e[4]).alignment = Alignment(wrap_text=True, vertical="top")
+            else:  # penutup bangunan
+                r += 1
+                gaya_baris(wp, r, 5, f_bold, fill_kat)
+                wp.cell(r, 2, "PENUTUP BANGUNAN" + (f" ({e[1]})" if e[1] else ""))
+                if not e[2]:
+                    r += 1
+                    gaya_baris(wp, r, 5)
+                    wp.cell(r, 2, "Model tidak memuat atap, dak beton, maupun plafon.")
+                for jenis, uraian in e[2]:
+                    r += 1
+                    gaya_baris(wp, r, 5)
+                    wp.cell(r, 2, jenis).font = f_bold
+                    wp.cell(r, 5, uraian).alignment = Alignment(wrap_text=True, vertical="top")
+            r += 1
+        atur_cetak(wp, hdr_p, "landscape")
         wk.freeze_panes = "D1"  # kolom No, Uraian, Sat tetap terlihat saat digeser ke kanan (banyak lantai)
 
     # ---------- Sheet per lantai (satu sheet tiap lantai, berapa pun jumlah lantainya) ----------
@@ -692,6 +741,50 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
     wb.save(str(path))
     catat("export", f"Export Excel: {path} (isi: {_isi(opsi)}; kolom: {', '.join(opsi.kolom) or '-'})", data.get("proyek_id"))
     return str(path)
+
+
+def entri_rincian_perhitungan(rincian: list) -> list:
+    """Baris rincian perhitungan berurutan per lantai (sama dengan panel Rincian Perhitungan di aplikasi):
+    ('lantai', judul, keterangan, biaya) | ('bagian', judul) | ('item', uraian, volume, satuan, keterangan)
+    | ('penutup', lantai, [(jenis, uraian)])."""
+    out = []
+    n = len(rincian)
+    lantai_penutup, unsur_penutup = penutup_bangunan(rincian)
+    for i, x in enumerate(rincian, 1):
+        elev = "" if x["elevasi"] is None else f", elevasi {_rp(x['elevasi'])} m"
+        out.append(("lantai", x["lantai"].upper(), f"Lantai {i} dari {n}{elev}, {x['jumlah_elemen']} elemen", x["total"]))
+        for k in pekerjaan_lantai(x["baris"]):
+            out.append(("bagian", k["kategori"].upper()))
+            for d in k["items"]:
+                out.append(("item", d["nama"], d["volume"], d["satuan"], ""))
+        rs = ringkas_lantai(x)
+        if rs["beton"] or rs["besi"]:
+            out.append(("bagian", "STRUKTUR: BETON, BEKISTING & BESI"))
+            for m in x["beton_mutu"]:
+                out.append(("item", f"Beton {m['mutu']}", m["volume"], "m³", ""))
+            if rs["bekisting"]:
+                out.append(("item", "Bekisting", rs["bekisting"], "m²", ""))
+            for k in x["besi"]:
+                out.append(("item", f"Besi {k['label']} {k['jenis']}", k["berat"], "kg",
+                            f"{_rp(k['berat'])} kg ÷ {_rp(k['berat_per_m'], 3)} kg/m' = {_rp(k['panjang'], 1)} m' "
+                            f"→ {k['batang']} batang @ 12 m"))
+            if x["besi_rasio"] > 1e-9:
+                out.append(("item", "Besi tanpa rincian diameter (asumsi rasio kg/m³)", x["besi_rasio"], "kg", ""))
+            if rs["besi"]:
+                out.append(("item", "Total besi", rs["besi"], "kg",
+                            f"rasio {_rp(rs['besi'] / rs['beton'], 0)} kg/m³ beton" if rs["beton"] else ""))
+        bahan = x["sumber_daya"]["bahan"]
+        if bahan:
+            out.append(("bagian", "BAHAN / MATERIAL (KOEFISIEN AHSP)"))
+            for d in bahan:
+                ket = (f"{_rp(d['jumlah'])} kg ÷ {BERAT_ZAK_SEMEN} kg = {d['keterangan'].replace('≈ ', '')}"
+                       if "zak" in d["keterangan"] else d["keterangan"])
+                out.append(("item", d["nama"], d["jumlah"], d["satuan"], ket))
+        if x["lantai"] == lantai_penutup:
+            out.append(("penutup", x["lantai"], unsur_penutup))
+    if lantai_penutup is None:
+        out.append(("penutup", None, []))
+    return out
 
 
 def _struktur_per_kategori(baris: list) -> dict:
@@ -1114,6 +1207,38 @@ def export_pdf(path, data: dict, meta: dict, opsi: OpsiExport | None = None, cat
                         baris_m.append(_rp(m["total"]))
                     isi.append(baris_m)
                 story += [tabel(isi, [0.3] + [0.14] * (len(isi[0]) - 1), kanan_dari=1), Spacer(1, 6)]
+
+        story += [PageBreak()] + kop("RINCIAN PERHITUNGAN PER LANTAI")
+        story.append(Paragraph("Berurutan dari lantai terbawah sampai penutup bangunan (atap / dak beton / plafon).", s_cat))
+        isi, gaya, no = None, [], 0
+
+        def tutup_tabel():
+            if isi and len(isi) > 1:
+                story.append(tabel(isi, (0.05, 0.4, 0.12, 0.06, 0.37), gaya + [
+                    ("ALIGN", (2, 1), (2, -1), "RIGHT"), ("ALIGN", (3, 1), (3, -1), "CENTER")]))
+
+        for e in entri_rincian_perhitungan(rincian):
+            if e[0] == "lantai":
+                tutup_tabel()
+                story += [Spacer(1, 8), Paragraph(f"<b>{_esc(e[1])}</b> &nbsp; <font size=8>{_esc(e[2])}; biaya "
+                                                  f"langsung Rp {_rp(e[3], 0)}</font>", s_info), Spacer(1, 3)]
+                isi, gaya, no = [["No", "Uraian", "Volume", "Sat", "Keterangan / Perhitungan"]], [], 0
+            elif e[0] == "bagian":
+                isi.append(["", Paragraph(f"<b>{_esc(e[1])}</b>", s_sel), "", "", ""])
+                gaya.append(("BACKGROUND", (0, len(isi) - 1), (-1, len(isi) - 1), muda))
+            elif e[0] == "item":
+                no += 1
+                isi.append([str(no), Paragraph(_esc(e[1]), s_selb if e[1] == "Total besi" else s_sel),
+                            _rp(e[2]), e[3], Paragraph(_esc(e[4]), s_sel)])
+            else:
+                tutup_tabel()
+                isi = None
+                story += [Spacer(1, 8), Paragraph("<b>PENUTUP BANGUNAN</b>" + (f" ({_esc(e[1])})" if e[1] else ""), s_info)]
+                if not e[2]:
+                    story.append(Paragraph("Model tidak memuat atap, dak beton, maupun plafon.", s_cat))
+                for jenis, uraian in e[2]:
+                    story.append(Paragraph(f"<b>{_esc(jenis)}</b>: {_esc(uraian)}", s_info))
+        tutup_tabel()
 
     if opsi.per_lantai:
         for i, x in enumerate(rincian, 1):

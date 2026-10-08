@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -65,7 +66,8 @@ class ExportDialog(QDialog):
         )
         self.setWindowTitle("Export RAB")
         self.setModal(True)
-        self.setMinimumWidth(1000)
+        self.setMinimumWidth(min(1000, (QApplication.primaryScreen().availableGeometry().width() - 40)))
+        self.setMinimumHeight(420)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 24, 28, 22)
@@ -79,6 +81,22 @@ class ExportDialog(QDialog):
         root.addWidget(judul)
         root.addWidget(self.label_ringkasan)
 
+        # Isi dialog bisa digulir; nama file dan tombol Export selalu terlihat di bawah walau layar
+        # laptop pendek atau skala tampilan Windows 125-150%.
+        gulir = QScrollArea()
+        gulir.setWidgetResizable(True)
+        gulir.setFrameShape(QFrame.NoFrame)
+        badan = QWidget()
+        badan.setObjectName("badanDialog")
+        badan.setStyleSheet("QWidget#badanDialog { background: transparent; }")
+        gulir.viewport().setAutoFillBackground(False)
+        gulir.setWidget(badan)
+        isi = QVBoxLayout(badan)
+        isi.setContentsMargins(0, 0, 6, 0)
+        isi.setSpacing(14)
+        root.addWidget(gulir, stretch=1)
+        self._gulir = gulir
+
         # --- Kartu angka ringkasan ---
         self.baris_kartu = QWidget()
         kartu_layout = QHBoxLayout(self.baris_kartu)
@@ -90,7 +108,7 @@ class ExportDialog(QDialog):
         self.kartu_total = tema.KartuStat("Total RAB", utama=True)
         for kartu in (self.kartu_subtotal, self.kartu_btl, self.kartu_ppn, self.kartu_total):
             kartu_layout.addWidget(kartu, stretch=1)
-        root.addWidget(self.baris_kartu)
+        isi.addWidget(self.baris_kartu)
 
         # --- Informasi dokumen ---
         kartu_info = QFrame()
@@ -125,8 +143,8 @@ class ExportDialog(QDialog):
             baris, kol = divmod(i, 2)
             form.addWidget(self._label_form(teks), baris, kol * 2)
             form.addWidget(w, baris, kol * 2 + 1, alignment=Qt.AlignLeft if w is self.spin_tahun else Qt.Alignment())
-        root.addWidget(self._bagian("INFORMASI DOKUMEN"))
-        root.addWidget(kartu_info)
+        isi.addWidget(self._bagian("INFORMASI DOKUMEN"))
+        isi.addWidget(kartu_info)
 
         # --- Format file & isi dokumen (dua kolom) ---
         self.cek_excel = QCheckBox("Excel (.xlsx)")
@@ -202,8 +220,8 @@ class ExportDialog(QDialog):
         baris_opsi.addLayout(kolom_format, stretch=1)
         baris_opsi.addLayout(kolom_isi, stretch=1)
         baris_opsi.addLayout(kolom_kolom, stretch=1)
-        root.addLayout(baris_opsi)
-        root.addWidget(QLabel(
+        isi.addLayout(baris_opsi)
+        isi.addWidget(QLabel(
             "Uraian, volume, satuan, dan jumlah harga selalu ditampilkan. Pilihan ini diingat untuk export berikutnya."
         , objectName="infoKecil"))
 
@@ -219,8 +237,8 @@ class ExportDialog(QDialog):
         btn_cari.clicked.connect(self._pilih_folder)
         baris_folder.addWidget(self.edit_folder, stretch=1)
         baris_folder.addWidget(btn_cari)
-        root.addWidget(self._bagian("FOLDER TUJUAN"))
-        root.addLayout(baris_folder)
+        isi.addWidget(self._bagian("FOLDER TUJUAN"))
+        isi.addLayout(baris_folder)
 
         self.label_nama_file = QLabel("")
         self.label_nama_file.setObjectName("namaFile")
@@ -250,6 +268,19 @@ class ExportDialog(QDialog):
         self._muat_ringkasan()
         self._perbarui_nama_file()
         self._perbarui_tombol()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, "_sudah_diatur", False):
+            return
+        self._sudah_diatur = True
+        layar = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+        # tinggi ideal = seluruh isi tanpa gulir; bila layar lebih pendek, isi digulir & tombol tetap terlihat
+        ideal = self.sizeHint().height() - self._gulir.sizeHint().height() + self._gulir.widget().sizeHint().height() + 4
+        tinggi = max(self.minimumHeight(), min(ideal, layar.height() - 60))
+        lebar = min(max(self.width(), 1000), layar.width() - 40)
+        self.resize(lebar, tinggi)
+        self.move(layar.x() + (layar.width() - lebar) // 2, layar.y() + max(10, (layar.height() - tinggi) // 2))
 
     # ---------- UI helper ----------
 

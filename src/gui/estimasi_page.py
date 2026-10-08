@@ -70,9 +70,13 @@ from gui.penulangan_dialog import PenulanganDialog
 from gui.proses_latar import jalankan_di_latar
 from klasifikasi import LABEL, ElementType
 from kebutuhan_lantai import (
+    BERAT_ZAK_SEMEN,
     RASIO_WAJAR,
     TIPE_SUMBER_DAYA,
     komponen_pekerjaan,
+    pekerjaan_lantai,
+    penutup_bangunan,
+    penutup_lantai,
     rasio_wajar,
     rincian_per_lantai,
     ringkas_lantai,
@@ -177,6 +181,7 @@ class EstimasiPage(QWidget):
         self.nama_proyek = nama_proyek
         self._data = []
         self._komponen = None
+        self._rincian_tampil = []
         self._index = {}
         self._warna_kategori = {}
         self._volume_terakhir = {}
@@ -547,7 +552,19 @@ class EstimasiPage(QWidget):
         self.label_jumlah.setText(teks)
         self._tampilkan_indikator()
         self.stack.setCurrentIndex(self.HAL_TABEL if baris else self.HAL_TIDAK_ADA)
-        self.panel.kosongkan()
+        if self.mode != self.MODE_LANTAI:
+            self._rincian_tampil = []
+        self._panel_bawaan()
+
+    def _panel_bawaan(self):
+        """Panel kanan saat tidak ada baris dipilih. Mode Per Lantai: rincian perhitungan tiap lantai,
+        dari lantai terbawah sampai penutup bangunan (atap / dak / plafon)."""
+        if self.mode == self.MODE_LANTAI and self._rincian_tampil:
+            self.panel.tampilkan_lantai(
+                self._rincian_tampil, satu=self.combo_lantai.currentText() != SEMUA_LANTAI, warna=self._warna_kategori,
+            )
+        else:
+            self.panel.kosongkan()
 
     # ---------------------------------------------------------------- KF-16 pengurutan
 
@@ -678,7 +695,8 @@ class EstimasiPage(QWidget):
     def _rincian_lantai(self, baris) -> list:
         if self._komponen is None:
             self._komponen = komponen_pekerjaan(r["pekerjaan_id"] for r in self._data)
-        return rincian_per_lantai(baris, self._komponen)
+        self._rincian_tampil = rincian_per_lantai(baris, self._komponen)  # urut elevasi, untuk panel kanan
+        return list(self._rincian_tampil)
 
     def _isi_lantai(self, baris) -> int:
         """Ringkasan semua lantai: biaya per kategori beserta beton, bekisting, dan besi (KF-12)."""
@@ -692,7 +710,7 @@ class EstimasiPage(QWidget):
         )
         rekap = self._rincian_lantai(baris) if baris else []
         for x in rekap:
-            x.update(ringkas_lantai(x))
+            x["ringkas"] = ringkas_lantai(x)
             per_kat = {}
             for r in x["baris"]:
                 k = per_kat.setdefault(r["kategori"], {"beton": 0.0, "bekisting": 0.0, "besi": 0.0})
@@ -704,12 +722,14 @@ class EstimasiPage(QWidget):
             for k in x["kategori"]:
                 k.update(per_kat.get(k["kategori"], {}))
         kunci_urut = {1: lambda x: x["lantai"].lower(), 2: lambda x: x.get("jumlah_elemen", 0),
-                      3: lambda x: x.get("beton", 0), 4: lambda x: x.get("bekisting", 0), 5: lambda x: x.get("besi", 0),
+                      3: lambda x: x["ringkas"]["beton"], 4: lambda x: x["ringkas"]["bekisting"],
+                      5: lambda x: x["ringkas"]["besi"],
                       6: lambda x: x["total"], 7: lambda x: x["total"]}
         rekap = self._terurut(rekap, kunci_urut)
         for x in rekap:
-            x["kategori"] = self._terurut(x["kategori"], {k: f for k, f in kunci_urut.items() if k not in (1, 2)}
-                                          | {1: lambda k: k["kategori"].lower()})
+            x["kategori"] = self._terurut(x["kategori"], {
+                1: lambda k: k["kategori"].lower(), 3: lambda k: k.get("beton", 0), 4: lambda k: k.get("bekisting", 0),
+                5: lambda k: k.get("besi", 0), 6: lambda k: k["total"], 7: lambda k: k["total"]})
         total = sum(x["total"] for x in rekap) or 1.0
         t.setRowCount(sum(1 + len(x["kategori"]) for x in rekap) + (1 if rekap else 0))
 
@@ -724,7 +744,7 @@ class EstimasiPage(QWidget):
             t.setItem(r, 1, tema.sel(f"{x['lantai']}{elev}", warna=tema.W["aksen"], tebal=True, tooltip=tip))
             t.setItem(r, 2, tema.sel(f"{x['jumlah_elemen']} elemen", "kanan", tema.W["teks_redup"]))
             for c, kunci in ((3, "beton"), (4, "bekisting"), (5, "besi")):
-                t.setItem(r, c, tema.sel(angka(x[kunci]), "kanan", tema.W["aksen"], tebal=True))
+                t.setItem(r, c, tema.sel(angka(x["ringkas"][kunci]), "kanan", tema.W["aksen"], tebal=True))
             t.setItem(r, 6, tema.sel(tema.format_rupiah(x["total"]), "kanan", tema.W["aksen"], tebal=True))
             t.setItem(r, 7, tema.sel(f"{x['total'] / total:.1%}".replace(".", ","), "kanan", tebal=True))
             r += 1
@@ -740,7 +760,7 @@ class EstimasiPage(QWidget):
         if rekap:
             t.setItem(r, 1, tema.sel(f"JUMLAH {len(rekap)} LANTAI", "kanan", tebal=True))
             for c, kunci in ((3, "beton"), (4, "bekisting"), (5, "besi")):
-                t.setItem(r, c, tema.sel(angka(sum(x[kunci] for x in rekap)), "kanan", tebal=True))
+                t.setItem(r, c, tema.sel(angka(sum(x["ringkas"][kunci] for x in rekap)), "kanan", tebal=True))
             t.setItem(r, 6, tema.sel(tema.format_rupiah(sum(x["total"] for x in rekap)), "kanan", tebal=True))
             t.setItem(r, 7, tema.sel("100,0%", "kanan", tebal=True))
         tema.atur_lebar(t, 1, isi_konten=(0, 2, 3, 4, 5, 6, 7))
@@ -1034,17 +1054,24 @@ class EstimasiPage(QWidget):
         it = self.tabel.item(baris, 0) if baris >= 0 else None
         data = it.data(Qt.UserRole) if it else None
         if not data or not self.tabel.selectedItems():
-            self.panel.kosongkan()
+            self._panel_bawaan()
             return
         jenis, kunci = data
-        if jenis == "detail" and kunci in self._index:
+        if jenis == "lantai":
+            terpilih = [x for x in self._rincian_tampil if x["lantai"] == kunci]
+            if terpilih:
+                self.panel.tampilkan_lantai(terpilih, satu=True, warna=self._warna_kategori,
+                                            semua=self._rincian_tampil)
+            else:
+                self._panel_bawaan()
+        elif jenis == "detail" and kunci in self._index:
             self.panel.tampilkan_elemen(self._index[kunci])
         elif jenis == "rekap" and kunci is not None:
             lantai = self.combo_lantai.currentText()  # KF-12: ikut filter lantai
             baris_pekerjaan = [r for r in self._data if r["pekerjaan_id"] == kunci and self._cocok(r, "", "", lantai)]
             self.panel.tampilkan_pekerjaan(kunci, baris_pekerjaan)
         else:
-            self.panel.kosongkan()
+            self._panel_bawaan()
 
     # ---------------------------------------------------------------- KF-19 ubah dimensi
 
@@ -1359,6 +1386,128 @@ class PanelRincian(QFrame):
         edit.returnPressed.connect(simpan)
         self._lay.addWidget(edit)
         self._lay.addWidget(btn)
+        self._lay.addStretch()
+
+    def _baris_kecil(self, kiri: str, kanan: str, warna: str | None = None, tebal: bool = False, ket: str = ""):
+        """Satu baris rincian: uraian (terbungkus) di kiri, nilai di kanan, keterangan kecil di bawahnya."""
+        b = QHBoxLayout()
+        b.setSpacing(8)
+        kiri_l = tema.label(kiri, wrap=True)
+        kiri_l.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        gaya = (f"color: {warna};" if warna else "") + ("font-weight: 600;" if tebal else "")
+        if gaya:
+            kiri_l.setStyleSheet(gaya)
+        b.addWidget(kiri_l, stretch=1)
+        kanan_l = tema.label(kanan)
+        kanan_l.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        kanan_l.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
+        if tebal:
+            kanan_l.setStyleSheet("font-weight: 600;")
+        b.addWidget(kanan_l, alignment=Qt.AlignTop)
+        self._lay.addLayout(b)
+        if ket:
+            k = tema.label(ket, "infoKecil", wrap=True)
+            k.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            self._lay.addWidget(k)
+
+    def tampilkan_lantai(self, daftar: list, satu: bool = False, warna: dict | None = None, semua: list | None = None):
+        """Rincian perhitungan per lantai, urut dari lantai terbawah (fondasi) sampai penutup bangunan.
+        satu=True: satu lantai dengan bahan, tenaga kerja, dan alat lengkap."""
+        self._bersihkan()
+        if not daftar:
+            self.kosongkan()
+            return
+        warna = warna or {}
+        semua = semua or daftar
+
+        def label(teks, gaya, warna_teks=None):
+            """Label terbungkus yang tidak melebarkan panel (angka di kanan tetap terlihat)."""
+            lb = tema.label(teks, gaya, wrap=True)
+            lb.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            if warna_teks:
+                lb.setStyleSheet(f"color: {warna_teks};")
+            self._lay.addWidget(lb)
+        n = len(semua)
+        angka = tema.format_angka
+        if satu:
+            label("RINCIAN PERHITUNGAN LANTAI", "bagian")
+        else:
+            label(f"RINCIAN PERHITUNGAN PER LANTAI ({n} LANTAI)", "bagian")
+            label("Urut dari lantai terbawah sampai penutup bangunan. Pilih satu lantai di tabel untuk "
+                  "melihat bahan, tenaga kerja, dan alatnya.", "infoKecil")
+        lantai_penutup, unsur_penutup = penutup_bangunan(semua)
+
+        for x in daftar:
+            urutan = next((i for i, y in enumerate(semua, 1) if y["lantai"] == x["lantai"]), 1)
+            self._lay.addWidget(tema.garis())
+            label(x["lantai"].upper(), "judulPanel")
+            elev = "" if x["elevasi"] is None else f"  ·  elevasi {angka(x['elevasi'], 2)} m"
+            label(f"Lantai {urutan} dari {n}{elev}  ·  {x['jumlah_elemen']} elemen", "infoKecil")
+            self._baris_kecil("Biaya langsung lantai", tema.format_rupiah(x["total"]), tebal=True)
+
+            # volume pekerjaan per kategori
+            for k in pekerjaan_lantai(x["baris"]):
+                self._lay.addSpacing(4)
+                label(k["kategori"].upper(), "formLabel", warna.get(k["kategori"], tema.W["teks_redup"]))
+                for d in k["items"]:
+                    self._baris_kecil(d["nama"], f"{angka(d['volume'], 2)} {d['satuan']}")
+
+            # struktur: beton, bekisting, besi per diameter
+            rs = ringkas_lantai(x)
+            if rs["beton"] or rs["besi"]:
+                self._lay.addSpacing(4)
+                label("STRUKTUR", "formLabel")
+                for m in x["beton_mutu"]:
+                    self._baris_kecil(f"Beton {m['mutu']}", f"{angka(m['volume'], 3)} m³")
+                if rs["bekisting"]:
+                    self._baris_kecil("Bekisting", f"{angka(rs['bekisting'], 2)} m²")
+                for k in x["besi"]:
+                    self._baris_kecil(
+                        f"Besi {k['label']} ({k['jenis']})", f"{angka(k['berat'], 2)} kg",
+                        ket=f"{angka(k['berat'], 2)} kg ÷ {angka(k['berat_per_m'], 3)} kg/m' = "
+                            f"{angka(k['panjang'], 1)} m' → {k['batang']} batang @ 12 m",
+                    )
+                if x["besi_rasio"] > 1e-9:
+                    self._baris_kecil("Besi asumsi rasio (tanpa diameter)", f"{angka(x['besi_rasio'], 2)} kg")
+                if rs["besi"]:
+                    self._baris_kecil("Total besi", f"{angka(rs['besi'], 2)} kg", tebal=True,
+                                      ket=(f"rasio {angka(rs['besi'] / rs['beton'], 0)} kg/m³ beton" if rs["beton"] else ""))
+                for g in x["struktur"]:
+                    if not rasio_wajar(g["rasio"]):
+                        label(f"⚠ {g['label']}: rasio besi {angka(g['rasio'], 0)} kg/m³ di luar "
+                              f"{RASIO_WAJAR[0]:.0f}–{RASIO_WAJAR[1]:.0f} kg/m³, periksa dimensi di model.", "peringatan")
+
+            # bahan, tenaga kerja, alat (AHSP)
+            for tipe, nama in TIPE_SUMBER_DAYA:
+                items = x["sumber_daya"][tipe]
+                if not items or (not satu and tipe != "bahan"):
+                    continue
+                tampil = items if satu else items[:6]
+                self._lay.addSpacing(4)
+                label(nama.upper() + ("" if satu else " UTAMA") + " (KOEFISIEN AHSP)", "formLabel")
+                for d in tampil:
+                    ket = ""
+                    if "zak" in d["keterangan"]:
+                        ket = f"{angka(d['jumlah'], 2)} kg ÷ {BERAT_ZAK_SEMEN} kg = {d['keterangan'].replace('≈ ', '')}"
+                    self._baris_kecil(d["nama"], f"{angka(d['jumlah'], 2)} {d['satuan']}", ket=ket)
+                if len(items) > len(tampil):
+                    self._lay.addWidget(tema.label(f"+ {len(items) - len(tampil)} bahan lain", "infoKecil"))
+
+            # penutup bangunan
+            unsur = penutup_lantai(x)
+            if x["lantai"] == lantai_penutup:
+                unsur = unsur_penutup
+            if unsur and (x["lantai"] == lantai_penutup or satu):
+                self._lay.addSpacing(4)
+                judul = "PENUTUP BANGUNAN" if x["lantai"] == lantai_penutup else "ATAP / PLAFON DI LANTAI INI"
+                label(judul, "formLabel")
+                for jenis, uraian in unsur:
+                    self._baris_kecil(jenis, "", tebal=True, ket=uraian)
+
+        if not satu and lantai_penutup is None:
+            self._lay.addWidget(tema.garis())
+            label("Model tidak memuat atap, dak beton, maupun plafon, sehingga penutup bangunan tidak tercatat.",
+                  "peringatan")
         self._lay.addStretch()
 
     def tampilkan_pekerjaan(self, pekerjaan_id: int, baris: list):

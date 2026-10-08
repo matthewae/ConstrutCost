@@ -286,3 +286,49 @@ def matriks_lantai(rincian: list, kunci: str) -> list:
     for b in hasil:
         b["total"] = sum(b["per_lantai"])
     return hasil
+
+
+# ---------------------------------------------------------------- penutup bangunan
+
+
+def pekerjaan_lantai(baris: list) -> list:
+    """Volume tiap pekerjaan di satu lantai, urut kategori: [{'kategori', 'items': [{'nama', 'volume',
+    'satuan', 'jumlah'}]}]. Pembesian rinci digabung per pekerjaan (rinciannya ada di besi per diameter)."""
+    from rab_rinci import urutan_kategori
+
+    kat = {}
+    for r in baris:
+        d = kat.setdefault(r["kategori"], {}).setdefault(r["pekerjaan_id"], {
+            "nama": r["nama_pekerjaan"], "satuan": r["satuan"], "volume": 0.0, "jumlah": 0.0})
+        d["volume"] += r["volume_pekerjaan"] or 0.0
+        d["jumlah"] += r["subtotal_biaya"] or 0.0
+    return [{"kategori": k, "items": sorted(kat[k].values(), key=lambda d: d["nama"])}
+            for k in sorted(kat, key=urutan_kategori)]
+
+
+def penutup_lantai(x: dict) -> list:
+    """Unsur penutup bangunan di lantai ini: [(jenis, uraian)] untuk dak beton, atap, dan plafon."""
+    hasil = []
+    dak = [g for g in x["struktur"] if g["label"].startswith(NAMA_KELOMPOK["DAK"])]
+    if dak:
+        hasil.append(("Dak beton", ", ".join(g["label"] for g in dak)
+                      + f" ({sum(g['beton'] for g in dak):,.2f} m³)".replace(",", "X").replace(".", ",").replace("X", ".")))
+    for kategori, jenis in (("Atap", "Atap"), ("Plafon", "Plafon")):
+        items = next((k["items"] for k in pekerjaan_lantai(x["baris"]) if k["kategori"] == kategori), [])
+        if items:
+            hasil.append((jenis, "; ".join(
+                f"{d['nama']} {d['volume']:,.2f} {d['satuan']}".replace(",", "X").replace(".", ",").replace("X", ".")
+                for d in items)))
+    return hasil
+
+
+def penutup_bangunan(rincian: list) -> tuple:
+    """(lantai, [(jenis, uraian)]) untuk lantai teratas yang memuat atap atau dak beton, ditambah plafon
+    bila ada di lantai itu. Bila model tidak punya atap/dak, dipakai lantai teratas yang punya plafon.
+    (None, []) bila tidak ditemukan sama sekali."""
+    for syarat in (("Atap", "Dak beton"), ("Plafon",)):
+        for x in reversed(rincian):
+            unsur = penutup_lantai(x)
+            if any(j in syarat for j, _ in unsur):
+                return x["lantai"], unsur
+    return None, []

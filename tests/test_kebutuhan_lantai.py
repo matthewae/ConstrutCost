@@ -268,3 +268,113 @@ def test_halaman_per_lantai_ringkas_dan_rinci(proyek_bertingkat):
     assert any(x.startswith("Kolom") for x in teks)
     hal.combo_lantai.setCurrentText(SEMUA_LANTAI)
     assert t.horizontalHeaderItem(3).text() == "BETON (m³)"
+
+
+# ---------------------------------------------------------------- rincian perhitungan & penutup bangunan
+
+
+def _teks_panel(panel) -> list:
+    from PySide6.QtWidgets import QLabel
+
+    return [lb.text() for lb in panel._isi.findChildren(QLabel)]
+
+
+def test_penutup_bangunan_atap_dak_plafon(db_sementara, proyek_bertingkat):
+    from conftest import AC20
+    from database.proyek_repository import create_proyek
+    from estimasi_service import jalankan_estimasi
+    from export_service import ambil_data_export
+    from kebutuhan_lantai import penutup_bangunan, rincian_per_lantai
+
+    _, d = proyek_bertingkat
+    # model sintetis tanpa atap/dak: penutupnya plafon di bawah pelat lantai teratas
+    lantai, unsur = penutup_bangunan(rincian_per_lantai(d["baris"], d["komponen"]))
+    assert lantai == "04 DAK [ATAP]" and [j for j, _ in unsur] == ["Plafon"]
+    assert penutup_bangunan([]) == (None, [])
+    hasil = {}
+    for nama, path in (("AC20", AC20), ("Duplex", DUPLEX)):
+        pid = create_proyek(nama, str(path))
+        jalankan_estimasi(pid)
+        dd = ambil_data_export(pid)
+        hasil[nama] = penutup_bangunan(rincian_per_lantai(dd["baris"], dd["komponen"]))
+    lantai, unsur = hasil["AC20"]  # atap genteng + rangka baja ringan, plafon gypsum di lantai teratas
+    assert lantai == "Dachgeschoss" and [j for j, _ in unsur] == ["Atap", "Plafon"]
+    assert "Genteng" in dict(unsur)["Atap"] and "Gypsum" in dict(unsur)["Plafon"]
+    lantai, unsur = hasil["Duplex"]  # dak beton di lantai Roof
+    assert lantai == "Roof" and unsur[0][0] == "Dak beton"
+
+
+def test_panel_rincian_perhitungan_per_lantai(proyek_bertingkat):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    test_panel_rincian_perhitungan_per_lantai.app = QApplication.instance() or QApplication([])
+    from gui.estimasi_page import EstimasiPage
+
+    pid, _ = proyek_bertingkat
+    hal = EstimasiPage(pid, "Rumah 5 Lantai")
+    hal.muat()
+    hal.grup_mode.button(hal.MODE_LANTAI).setChecked(True)
+    hal._isi_ulang()
+    teks = _teks_panel(hal.panel)  # tanpa baris dipilih: semua lantai berurutan
+    assert teks[0] == f"RINCIAN PERHITUNGAN PER LANTAI ({N_LANTAI} LANTAI)"
+    judul = [t for t in teks if t in ("00 FONDASI", "01 LANTAI 1", "02 LANTAI 2", "03 LANTAI 3/MEZZANINE", "04 DAK [ATAP]")]
+    assert judul == ["00 FONDASI", "01 LANTAI 1", "02 LANTAI 2", "03 LANTAI 3/MEZZANINE", "04 DAK [ATAP]"]
+    assert any(t.startswith("Besi D") or t.startswith("Besi Ø") for t in teks)
+    assert any("batang @ 12 m" in t for t in teks) and any("zak @ 50 kg" in t for t in teks)
+    assert "PENUTUP BANGUNAN" in teks and "Plafon" in teks
+    assert teks.index("PENUTUP BANGUNAN") > teks.index("04 DAK [ATAP]")  # penutup ditulis paling akhir
+
+    hal.tabel.selectRow(0)  # pilih satu lantai: rincian lengkap lantai itu saja
+    teks = _teks_panel(hal.panel)
+    assert teks[0] == "RINCIAN PERHITUNGAN LANTAI" and "00 FONDASI" in teks and "01 LANTAI 1" not in teks
+    assert "TENAGA KERJA (KOEFISIEN AHSP)" in teks
+    hal.tabel.clearSelection()
+    assert _teks_panel(hal.panel)[0].startswith("RINCIAN PERHITUNGAN PER LANTAI")
+
+    hal.grup_mode.button(hal.MODE_REKAP).setChecked(True)
+    hal._isi_ulang()
+    assert _teks_panel(hal.panel)[0] == "RINCIAN PERHITUNGAN"  # mode lain: panel bawaan
+
+
+def test_sheet_rincian_perhitungan_urut_sampai_penutup(db_sementara, tmp_path):
+    from openpyxl import load_workbook
+
+    from conftest import AC20
+    from database.proyek_repository import create_proyek
+    from estimasi_service import jalankan_estimasi
+    from export_service import OpsiExport, ambil_data_export, export_excel
+
+    pid = create_proyek("AC20", str(AC20))
+    jalankan_estimasi(pid)
+    path = export_excel(tmp_path / "r.xlsx", ambil_data_export(pid), {}, OpsiExport())
+    ws = load_workbook(path)["Rincian Perhitungan Lantai"]
+    b = [c.value for c in ws["B"] if isinstance(c.value, str)]
+    assert b.index("ERDGESCHOSS") < b.index("DACHGESCHOSS") < b.index("PENUTUP BANGUNAN (Dachgeschoss)")
+    assert b[-2:] == ["Atap", "Plafon"]
+    assert "STRUKTUR: BETON, BEKISTING & BESI" in b and "BAHAN / MATERIAL (KOEFISIEN AHSP)" in b
+    e = [c.value for c in ws["E"] if isinstance(c.value, str)]
+    assert any("batang @ 12 m" in x for x in e) and any("zak @ 50 kg" in x for x in e)
+
+
+def test_dialog_export_tombol_selalu_terlihat(proyek_bertingkat):
+    """Layar pendek (offscreen 800 px, mirip laptop dengan skala 125-150%): isi digulir, tombol tetap terlihat."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    test_dialog_export_tombol_selalu_terlihat.app = app
+    from gui.export_dialog import ExportDialog
+
+    pid, _ = proyek_bertingkat
+    d = ExportDialog(pid, "Rumah_Tipe90_2Lantai_Carport")
+    d.show()
+    app.processEvents()
+    layar = d.screen().availableGeometry()
+    assert d.height() <= layar.height()
+    for tombol in (d.btn_export, d.btn_pratinjau):
+        assert tombol.isVisible()
+        bawah = tombol.mapTo(d, tombol.rect().bottomRight())
+        assert 0 < bawah.y() <= d.height() and 0 < bawah.x() <= d.width()
+    assert d.btn_export.text().startswith("Export")
+    d.close()
