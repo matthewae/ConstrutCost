@@ -139,22 +139,6 @@ class MainWindow(QMainWindow):
         lay.addWidget(zona)
         lay.addSpacing(10)
 
-        # Identitas perusahaan pengguna aplikasi.
-        perusahaan = QFrame()
-        perusahaan.setObjectName("kartuPerusahaan")
-        pr = QHBoxLayout(perusahaan)
-        pr.setContentsMargins(10, 10, 10, 10)
-        pr.setSpacing(10)
-        pr.addWidget(tema.LogoPerusahaan(38))
-        pk = QVBoxLayout()
-        pk.setSpacing(1)
-        nama = tema.label(tema.NAMA_PERUSAHAAN, "namaPerusahaan", wrap=True)
-        pk.addWidget(nama)
-        pk.addWidget(tema.label("Engineering Consultant", "infoSidebar"))
-        pr.addLayout(pk, stretch=1)
-        lay.addWidget(perusahaan)
-        lay.addSpacing(8)
-
         kaki = QHBoxLayout()
         kaki.setContentsMargins(4, 0, 4, 0)
         kaki.addWidget(tema.label("● Offline · data lokal", "chipOffline"))

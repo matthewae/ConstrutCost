@@ -65,14 +65,9 @@ class LogoCostStruct(QWidget):
 
 
 class KartuSplash(QFrame):
-    """Kartu splash: gradasi warna sidebar, garis aksen kuning di atas, cahaya lembut di belakang logo,
-    dan logo Mandajaya samar sebagai watermark di sisi kanan."""
+    """Kartu splash: gradasi warna sidebar, garis aksen kuning di atas, dan cahaya lembut di belakang logo."""
 
     RADIUS = 20
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._watermark = tema.logo_perusahaan(330)
 
     def paintEvent(self, event):
         w = tema.W
@@ -97,12 +92,6 @@ class KartuSplash(QFrame):
         warna.setAlpha(0)
         cahaya.setColorAt(1.0, warna)
         p.fillRect(area, cahaya)
-
-        if not self._watermark.isNull():
-            ukuran = self._watermark.width() / self._watermark.devicePixelRatio()
-            p.setOpacity(0.07)
-            p.drawPixmap(QPointF(area.right() - ukuran * 0.72, area.bottom() - ukuran * 0.86), self._watermark)
-            p.setOpacity(1.0)
 
         p.fillRect(QRectF(area.left(), area.top(), area.width(), 4), QColor(w["tombol_utama"]))
         p.setClipping(False)
@@ -161,7 +150,7 @@ class SplashScreen(QWidget):
             QLabel#status {{ color: {w['sidebar_teks']}; font-size: 11px; }}
             QLabel#persen {{ color: {w['tombol_utama']}; font-size: 11px; font-weight: 700; }}
             QLabel#footer {{ color: {w['sidebar_samar']}; font-size: 10px; }}
-            QLabel#perusahaan {{ color: {w['sidebar_judul']}; font-size: 11px; font-weight: 700; }}
+            QLabel#namaKaki {{ color: {w['sidebar_judul']}; font-size: 11px; font-weight: 700; }}
             QFrame#garisSplash {{ background-color: {w['sidebar_garis']}; max-height: 1px; min-height: 1px; border: none; }}
             QProgressBar {{
                 background-color: {w['sidebar_hover']}; border: none; border-radius: 3px;
@@ -246,12 +235,12 @@ class SplashScreen(QWidget):
 
         kaki = QHBoxLayout()
         kaki.setSpacing(10)
-        kaki.addWidget(tema.LogoPerusahaan(28))
-        perusahaan = QLabel(tema.NAMA_PERUSAHAAN)
-        perusahaan.setObjectName("perusahaan")
-        kaki.addWidget(perusahaan)
+        kaki.addWidget(tema.Logo(22))
+        nama = QLabel("CostStruct")
+        nama.setObjectName("namaKaki")
+        kaki.addWidget(nama)
         kaki.addStretch()
-        footer = QLabel(f"{VERSI_APLIKASI}  ·  Engineering Consultant")
+        footer = QLabel(f"{VERSI_APLIKASI}  ·  Offline, data tersimpan lokal")
         footer.setObjectName("footer")
         kaki.addWidget(footer)
         layout.addLayout(kaki)

@@ -1,4 +1,4 @@
-"""Komponen antarmuka bersama: logo perusahaan, kepala dialog, teks tabel kosong, kotak pesan, dialog responsif."""
+"""Komponen antarmuka bersama: ikon, kepala dialog, teks tabel kosong, kotak pesan, dialog responsif."""
 
 import os
 
@@ -16,15 +16,6 @@ def app():
     a = QApplication.instance() or QApplication([])
     tema.terapkan(a, "hitam_kuning")
     return a
-
-
-def test_logo_perusahaan_ada_dan_terbaca(app):
-    from gui import tema
-
-    assert (tema.folder_aset() / "mandajaya.png").is_file()
-    pm = tema.logo_perusahaan(64)
-    assert not pm.isNull()
-    assert round(pm.width() / pm.devicePixelRatio()) == 64
 
 
 @pytest.mark.parametrize("nama", ["cari", "panel", "info", "galat", "sukses", "tanya", "peringatan", "folder",

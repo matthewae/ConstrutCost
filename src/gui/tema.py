@@ -6,7 +6,6 @@ Stylesheet dipasang sekali di QApplication lewat `terapkan(app)`, sehingga setia
 dialog cukup memberi `objectName` / properti pada widget-nya.
 """
 
-import sys
 import tempfile
 from pathlib import Path
 
@@ -362,8 +361,6 @@ QLabel#infoSidebar {{ font-size: 11px; color: {c['sidebar_samar']}; }}
 QFrame#zonaSeret {{ border: 1px dashed {c['sidebar_samar']}; border-radius: 12px; background: transparent; }}
 QFrame#zonaSeret:hover {{ border: 1px dashed {c['tombol_utama']}; background-color: {c['sidebar_hover']}; }}
 QFrame#zonaSeret QLabel#zonaJudul {{ color: {c['sidebar_teks_aktif']}; font-size: 12px; font-weight: 600; }}
-QFrame#kartuPerusahaan {{ background-color: {c['sidebar_hover']}; border: 1px solid {c['sidebar_garis']}; border-radius: 12px; }}
-QLabel#namaPerusahaan {{ color: {c['sidebar_judul']}; font-size: 11px; font-weight: 700; }}
 QLabel#versiAplikasi {{ color: {c['sidebar_samar']}; font-size: 10px; }}
 QLabel#chipOffline {{ color: {c['sukses']}; font-size: 10px; font-weight: 700; }}
 QPushButton#navItem {{
@@ -848,47 +845,6 @@ def pasang_ikon_cari(edit: QLineEdit) -> None:
     """Kaca pembesar di sisi kiri kotak pencarian."""
     edit.addAction(ikon("cari", W["teks_samar"]), QLineEdit.LeadingPosition)
     edit.setObjectName("kotakCari")
-
-
-def folder_aset() -> Path:
-    """Folder `assets`: di samping exe (PyInstaller) atau di akar repositori."""
-    dasar = getattr(sys, "_MEIPASS", None)
-    return Path(dasar) / "assets" if dasar else Path(__file__).resolve().parents[2] / "assets"
-
-
-NAMA_PERUSAHAAN = "PT Mandajaya Rekayasa Konstruksi"
-
-
-def logo_perusahaan(ukuran: int) -> QPixmap:
-    """Logo PT Mandajaya Rekayasa Konstruksi (kuning, latar transparan). Pixmap kosong bila file tidak ada."""
-    pm = QPixmap(str(folder_aset() / "mandajaya.png"))
-    if pm.isNull():
-        return QPixmap()
-    rasio = 2
-    pm = pm.scaled(ukuran * rasio, ukuran * rasio, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-    pm.setDevicePixelRatio(rasio)
-    return pm
-
-
-class LogoPerusahaan(QWidget):
-    """Logo Mandajaya di atas lingkaran gelap, sehingga tetap terbaca di tema terang."""
-
-    def __init__(self, ukuran: int = 36, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(ukuran, ukuran)
-        self._pm = logo_perusahaan(int(ukuran * 0.86))
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.setRenderHint(QPainter.SmoothPixmapTransform)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#141414"))
-        p.drawEllipse(QRectF(0, 0, self.width(), self.height()))
-        if not self._pm.isNull():
-            w = self._pm.width() / self._pm.devicePixelRatio()
-            p.drawPixmap(QPointF((self.width() - w) / 2, (self.height() - w) / 2), self._pm)
-        p.end()
 
 
 def tombol(teks: str, peran: str = "secondary", ikon_nama: str | None = None, tooltip: str | None = None) -> QPushButton:

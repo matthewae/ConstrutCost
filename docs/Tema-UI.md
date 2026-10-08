@@ -55,12 +55,11 @@ Penandanya `versi_tema` di preferensi.
 **Splash screen**
 - Kartu lebih lebar dengan garis aksen di atas dan cahaya lembut di belakang logo.
 - Ditambah deskripsi singkat aplikasi dan chip fitur: IFC2x3 · IFC4, QTO otomatis, RAB · AHSP, Excel & PDF.
-- Logo PT Mandajaya Rekayasa Konstruksi tampil samar sebagai watermark dan di kaki splash.
+- Kaki splash berisi nama aplikasi, versi, dan keterangan bahwa data disimpan lokal (offline).
 
 **Sidebar**
 - Menu utama dengan item lebih lega.
 - Zona **Import file IFC** yang bisa diklik atau dijadikan tempat menyeret file.
-- Kartu identitas **PT Mandajaya Rekayasa Konstruksi · Engineering Consultant**.
 - Status *Offline · data lokal* dan nomor versi.
 
 **Komponen bersama** (`src/gui/tema.py`)
@@ -99,5 +98,5 @@ Penandanya `versi_tema` di preferensi.
   - opsi disusun dua kolom, sehingga tidak perlu menggulir ke samping.
 - Ubah Dimensi: isian kosong (–) langsung kosong saat diklik, siap diketik.
 
-Logo perusahaan disimpan di `assets/mandajaya.png` dan ikut dibundel ke `.exe` (`CostStruct.spec`).
+Logo perusahaan belum dimasukkan ke aplikasi (aplikasi masih untuk penelitian). Hanya warna kuning logo yang dipakai di tema.
 Tes: `tests/test_ui_modern.py`.

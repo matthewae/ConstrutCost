@@ -43,10 +43,7 @@ a = Analysis(
     [str(AKAR / "src" / "main.py")],
     pathex=[str(AKAR / "src")],
     binaries=[],
-    datas=[
-        (str(AKAR / "src" / "database" / "schema.sql"), "database"),
-        (str(AKAR / "assets" / "mandajaya.png"), "assets"),  # logo perusahaan (sidebar & splash)
-    ] + data_ifc,
+    datas=[(str(AKAR / "src" / "database" / "schema.sql"), "database")] + data_ifc,
     hiddenimports=modul_ifc + collect_submodules("rules") + ["PySide6.QtPdf", "PySide6.QtPdfWidgets"],
     hookspath=[],
     hooksconfig={},
