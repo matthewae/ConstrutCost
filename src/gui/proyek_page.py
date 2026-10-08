@@ -79,9 +79,9 @@ class ProyekPage(QWidget):
         stat = QHBoxLayout(self.baris_stat)
         stat.setContentsMargins(0, 0, 0, 0)
         stat.setSpacing(14)
-        self.stat_total = tema.KartuStat("Total Proyek")
-        self.stat_nilai = tema.KartuStat("Nilai RAB Semua Proyek", utama=True)
-        self.stat_terakhir = tema.KartuStat("Terakhir Diubah")
+        self.stat_total = tema.KartuStat("Total Proyek", nama_ikon="proyek")
+        self.stat_nilai = tema.KartuStat("Nilai RAB Semua Proyek", utama=True, nama_ikon="rupiah")
+        self.stat_terakhir = tema.KartuStat("Terakhir Diubah", nama_ikon="kalender")
         for k in (self.stat_total, self.stat_nilai, self.stat_terakhir):
             stat.addWidget(k, stretch=1)
         root.addWidget(self.baris_stat)
@@ -91,6 +91,7 @@ class ProyekPage(QWidget):
         cari = QHBoxLayout(self.baris_cari)
         cari.setContentsMargins(0, 0, 0, 0)
         self.kolom_cari = QLineEdit()
+        tema.pasang_ikon_cari(self.kolom_cari)
         self.kolom_cari.setPlaceholderText("Cari nama proyek atau file IFC...   (Ctrl+F)")
         self.kolom_cari.setClearButtonEnabled(True)
         self.kolom_cari.textChanged.connect(self._terapkan_filter)
@@ -105,6 +106,7 @@ class ProyekPage(QWidget):
         root.addWidget(self.stack, stretch=1)
 
         self.tabel = QTableWidget()
+        tema.pasang_teks_kosong(self.tabel, "Belum ada proyek yang cocok", "Ubah kata kunci pencarian, atau Import File IFC untuk proyek baru.")
         tema.siapkan_tabel(
             self.tabel,
             ["NAMA PROYEK", "FILE IFC", "ELEMEN", "TOTAL RAB (TERMASUK PPN)", "TERAKHIR DIUBAH"],

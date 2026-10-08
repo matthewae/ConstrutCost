@@ -66,12 +66,12 @@ class PenulanganDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(26, 22, 26, 20)
         lay.setSpacing(12)
-        lay.addWidget(tema.label("Tipe Penulangan", "judulHalaman"))
-        lay.addWidget(tema.label(
+        lay.addWidget(tema.kepala_dialog(
+            "Tipe Penulangan",
             "Elemen struktur dikelompokkan per penampang. Ubah konfigurasi tulangan sesuai gambar kerja; "
             "pembesian seluruh proyek dihitung ulang: W = Σ(π d²/4 × 7850 × L_eff × n) × 1,05.",
-            "subjudul", wrap=True,
-        ))
+            "besi",
+        )[0])
 
         self.tab = QTabWidget()
         lay.addWidget(self.tab, stretch=1)

@@ -48,12 +48,12 @@ class ParameterDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(26, 22, 26, 20)
         lay.setSpacing(10)
-        lay.addWidget(tema.label("Parameter Aturan Proyek", "judulHalaman"))
-        lay.addWidget(tema.label(
+        lay.addWidget(tema.kepala_dialog(
+            "Parameter Aturan Proyek",
             "Asumsi teknis yang dipakai rule engine untuk proyek ini. Nilai disimpan bersama proyek "
             "(juga di file .coststruct). Nilai yang berbeda dari bawaan ditandai.",
-            "subjudul", wrap=True,
-        ))
+            "parameter",
+        )[0])
 
         gulir = QScrollArea()
         gulir.setWidgetResizable(True)

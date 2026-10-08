@@ -205,6 +205,7 @@ class TabHargaDasar(QWidget):
         alat = QHBoxLayout()
         alat.setSpacing(10)
         self.kolom_cari = QLineEdit()
+        tema.pasang_ikon_cari(self.kolom_cari)
         self.kolom_cari.setPlaceholderText("Cari nama bahan, upah, alat, atau merk...   (Ctrl+F)")
         self.kolom_cari.setClearButtonEnabled(True)
         self.kolom_cari.textChanged.connect(lambda _: self._tunda_cari.start())
@@ -234,6 +235,7 @@ class TabHargaDasar(QWidget):
         split.setChildrenCollapsible(False)
         split.setHandleWidth(14)
         self.tabel = QTableWidget()
+        tema.pasang_teks_kosong(self.tabel, "Tidak ada data yang cocok", "Ubah kata kunci atau filter jenis.")
         tema.siapkan_tabel(
             self.tabel, ["JENIS", "NAMA", "MERK", "SATUAN", "HARGA", "STATUS", "DIPAKAI"],
             rata_kanan=(4, 6), tinggi_baris=40,
@@ -545,6 +547,7 @@ class TabAnalisa(QWidget):
         alat = QHBoxLayout()
         alat.setSpacing(10)
         self.kolom_cari = QLineEdit()
+        tema.pasang_ikon_cari(self.kolom_cari)
         self.kolom_cari.setPlaceholderText("Cari kode atau uraian pekerjaan...")
         self.kolom_cari.setClearButtonEnabled(True)
         self.kolom_cari.textChanged.connect(self._isi_tabel)

@@ -74,12 +74,9 @@ class ExportDialog(QDialog):
         root.setSpacing(14)
 
         # --- Header ---
-        judul = QLabel("Export Hasil Estimasi RAB")
-        judul.setObjectName("judulHalaman")
-        self.label_ringkasan = QLabel("")
-        self.label_ringkasan.setObjectName("subjudul")
-        root.addWidget(judul)
-        root.addWidget(self.label_ringkasan)
+        kepala, _, self.label_ringkasan = tema.kepala_dialog("Export Hasil Estimasi RAB", " ", "unduh")
+        self.label_ringkasan.setWordWrap(False)
+        root.addWidget(kepala)
 
         # Isi dialog bisa digulir; nama file dan tombol Export selalu terlihat di bawah walau layar
         # laptop pendek atau skala tampilan Windows 125-150%.
@@ -99,15 +96,15 @@ class ExportDialog(QDialog):
 
         # --- Kartu angka ringkasan ---
         self.baris_kartu = QWidget()
-        kartu_layout = QHBoxLayout(self.baris_kartu)
+        kartu_layout = QGridLayout(self.baris_kartu)  # 4 sejajar, 2 x 2 di layar sempit (_susun_responsif)
         kartu_layout.setContentsMargins(0, 0, 0, 0)
         kartu_layout.setSpacing(12)
+        self._grid_kartu = kartu_layout
         self.kartu_subtotal = tema.KartuStat("A. Biaya Langsung")
         self.kartu_btl = tema.KartuStat("B. Biaya Tidak Langsung")
         self.kartu_ppn = tema.KartuStat(f"PPN {PPN_RATE:.0%}")
         self.kartu_total = tema.KartuStat("Total RAB", utama=True)
-        for kartu in (self.kartu_subtotal, self.kartu_btl, self.kartu_ppn, self.kartu_total):
-            kartu_layout.addWidget(kartu, stretch=1)
+        self._kartu_ringkas = (self.kartu_subtotal, self.kartu_btl, self.kartu_ppn, self.kartu_total)
         isi.addWidget(self.baris_kartu)
 
         # --- Informasi dokumen ---
@@ -117,8 +114,8 @@ class ExportDialog(QDialog):
         form.setContentsMargins(18, 14, 18, 14)
         form.setHorizontalSpacing(14)
         form.setVerticalSpacing(10)
-        form.setColumnStretch(1, 1)
-        form.setColumnStretch(3, 1)
+        self._grid_info = form
+        self._isian_info = []
         self.edit_nama = QLineEdit(nama_proyek)
         self.edit_nama.textChanged.connect(self._perbarui_nama_file)
         self.edit_lokasi = QLineEdit()
@@ -140,9 +137,7 @@ class ExportDialog(QDialog):
             ("Nama pekerjaan", self.edit_nama), ("Lokasi", self.edit_lokasi),
             ("Pemilik / instansi", self.edit_pemilik), ("Tahun anggaran", self.spin_tahun),
         )):
-            baris, kol = divmod(i, 2)
-            form.addWidget(self._label_form(teks), baris, kol * 2)
-            form.addWidget(w, baris, kol * 2 + 1, alignment=Qt.AlignLeft if w is self.spin_tahun else Qt.Alignment())
+            self._isian_info.append((self._label_form(teks), w))
         isi.addWidget(self._bagian("INFORMASI DOKUMEN"))
         isi.addWidget(kartu_info)
 
@@ -215,12 +210,14 @@ class ExportDialog(QDialog):
             ],
             rapat=True,
         )
-        baris_opsi = QHBoxLayout()
-        baris_opsi.setSpacing(14)
-        baris_opsi.addLayout(kolom_format, stretch=1)
-        baris_opsi.addLayout(kolom_isi, stretch=1)
-        baris_opsi.addLayout(kolom_kolom, stretch=1)
+        baris_opsi = QGridLayout()
+        baris_opsi.setHorizontalSpacing(14)
+        baris_opsi.setVerticalSpacing(14)
+        self._grid_opsi = baris_opsi
+        self._kolom_opsi_list = (kolom_format, kolom_isi, kolom_kolom)
         isi.addLayout(baris_opsi)
+        self._sempit = None
+        self._susun_responsif()
         isi.addWidget(QLabel(
             "Uraian, volume, satuan, dan jumlah harga selalu ditampilkan. Pilihan ini diingat untuk export berikutnya."
         , objectName="infoKecil"))
@@ -281,6 +278,49 @@ class ExportDialog(QDialog):
         lebar = min(max(self.width(), 1000), layar.width() - 40)
         self.resize(lebar, tinggi)
         self.move(layar.x() + (layar.width() - lebar) // 2, layar.y() + max(10, (layar.height() - tinggi) // 2))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._susun_responsif()
+
+    def _susun_responsif(self):
+        """Lebar >= 980 px: kartu angka 4 sejajar, isian 2 pasang per baris, opsi 3 kolom.
+        Lebih sempit (laptop / skala Windows 150%): kartu 2 x 2, isian satu kolom, opsi 2 kolom."""
+        sempit = self.width() < 980
+        if sempit == self._sempit:
+            return
+        self._sempit = sempit
+        g = self._grid_kartu
+        for i, k in enumerate(self._kartu_ringkas):
+            g.removeWidget(k)
+            g.addWidget(k, *((i // 2, i % 2) if sempit else (0, i)))
+        for c in range(4):
+            g.setColumnStretch(c, 1 if (c < 2 or not sempit) else 0)
+
+        f = self._grid_info
+        for kiri, kanan in self._isian_info:
+            f.removeWidget(kiri)
+            f.removeWidget(kanan)
+        for i, (kiri, kanan) in enumerate(self._isian_info):
+            baris, kol = (i, 0) if sempit else divmod(i, 2)
+            f.addWidget(kiri, baris, kol * 2)
+            f.addWidget(kanan, baris, kol * 2 + 1, alignment=Qt.AlignLeft if kanan is self.spin_tahun else Qt.Alignment())
+        for c in range(4):
+            f.setColumnStretch(c, 1 if c in ((1,) if sempit else (1, 3)) else 0)
+
+        o = self._grid_opsi
+        kolom_format, kolom_isi, kolom_kolom = self._kolom_opsi_list
+        for lay in self._kolom_opsi_list:
+            o.removeItem(lay)
+        if sempit:
+            o.addLayout(kolom_format, 0, 0)
+            o.addLayout(kolom_kolom, 1, 0)
+            o.addLayout(kolom_isi, 0, 1, 2, 1)
+        else:
+            for i, lay in enumerate(self._kolom_opsi_list):
+                o.addLayout(lay, 0, i)
+        for c in range(3):
+            o.setColumnStretch(c, 1 if (c < 2 or not sempit) else 0)
 
     # ---------- UI helper ----------
 

@@ -46,18 +46,19 @@ class BiayaDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(26, 22, 26, 20)
         lay.setSpacing(12)
-        lay.addWidget(tema.label("Biaya Tidak Langsung", "judulHalaman"))
-        lay.addWidget(tema.label(
+        lay.addWidget(tema.kepala_dialog(
+            "Biaya Tidak Langsung",
             "Biaya di luar pekerjaan fisik, mis. perencanaan, pengawasan, perizinan, dan penerapan SMKK. "
             "Nilainya mengikuti kontrak atau ketentuan proyek, sehingga diisi sendiri (tidak dihitung otomatis).",
-            "subjudul", wrap=True,
-        ))
+            "rupiah",
+        )[0])
 
         isi = QHBoxLayout()
         isi.setSpacing(14)
         kiri = QVBoxLayout()
         kiri.setSpacing(10)
         self.tabel = QTableWidget()
+        tema.pasang_teks_kosong(self.tabel, "Belum ada biaya tidak langsung", "Tambahkan item di panel kanan, mis. perencanaan, pengawasan, atau SMKK.")
         self.tabel.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tabel.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tabel.itemSelectionChanged.connect(self._pilih)

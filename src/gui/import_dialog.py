@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from klasifikasi import LABEL, ElementType
+from gui import tema
 
 
 # Kelas yang menghasilkan pekerjaan struktur/arsitektur utama.
@@ -52,13 +53,11 @@ class RingkasanImportDialog(QDialog):
         root.setContentsMargins(28, 24, 28, 22)
         root.setSpacing(12)
 
-        judul = QLabel("Konfirmasi Import File IFC")
-        judul.setObjectName("judulHalaman")
-        sub = QLabel("File valid. Periksa ringkasan di bawah, lalu tekan Import untuk memproses.")
-        sub.setObjectName("subjudul")
-        sub.setWordWrap(True)
-        root.addWidget(judul)
-        root.addWidget(sub)
+        root.addWidget(tema.kepala_dialog(
+            "Konfirmasi Import File IFC",
+            "File valid. Periksa ringkasan di bawah, lalu tekan Import untuk memproses.",
+            "sukses", "sukses",
+        )[0])
 
         # --- Informasi file ---
         kartu = QFrame()

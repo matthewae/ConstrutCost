@@ -313,6 +313,7 @@ class EstimasiPage(QWidget):
         self.grup_mode.idClicked.connect(lambda _: self._isi_ulang())
         alat.addStretch()
         self.kolom_cari = QLineEdit()
+        tema.pasang_ikon_cari(self.kolom_cari)
         self.kolom_cari.setMinimumWidth(220)
         self.kolom_cari.setPlaceholderText("Cari pekerjaan, elemen, atau lantai...   (Ctrl+F)")
         self.kolom_cari.setClearButtonEnabled(True)
@@ -349,6 +350,12 @@ class EstimasiPage(QWidget):
         )
         alat.addWidget(self.btn_urungkan)
         alat.addWidget(self.btn_ulangi)
+        alat.addSpacing(6)
+        self.btn_panel = tema.tombol("Rincian", "ghost", "panel", "Tampilkan / sembunyikan panel Rincian Perhitungan (Ctrl+B)")
+        self.btn_panel.setCheckable(True)
+        self.btn_panel.setChecked(True)
+        self.btn_panel.toggled.connect(self._tampilkan_panel)
+        alat.addWidget(self.btn_panel)
         root.addWidget(self.baris_alat)
         self.label_mode = tema.label("")
         self.label_mode.setObjectName("keteranganMode")
@@ -405,6 +412,7 @@ class EstimasiPage(QWidget):
         root.addWidget(self.baris_bawah)
 
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self._fokus_cari)
+        QShortcut(QKeySequence("Ctrl+B"), self, activated=self.btn_panel.toggle)
         QShortcut(QKeySequence("Ctrl+E"), self, activated=self._pintasan_export)
         QShortcut(QKeySequence.Undo, self, activated=self.riwayat.undo)
         QShortcut(QKeySequence.Save, self, activated=self._simpan_file)
@@ -604,6 +612,13 @@ class EstimasiPage(QWidget):
             self._rincian_tampil = []
         self._atur_lebar_panel()
         self._panel_bawaan()
+
+    def _tampilkan_panel(self, tampil: bool):
+        """Sembunyikan panel Rincian agar tabel memakai seluruh lebar (laptop / layar 1280 px)."""
+        self.panel.setVisible(tampil)
+        if tampil:
+            self._panel_lebar = None
+            self._atur_lebar_panel()
 
     def _atur_lebar_panel(self):
         """Mode Per Lantai: panel Rincian Perhitungan diperlebar (susunan RAP + backup volume)."""

@@ -30,7 +30,7 @@ NAV_PROYEK, NAV_HARGA, NAV_PENGATURAN, NAV_AKTIVITAS = 0, 1, 2, 3
 
 
 class MainWindow(QMainWindow):
-    LEBAR_SIDEBAR = 224
+    LEBAR_SIDEBAR = 236
 
     def __init__(self):
         super().__init__()
@@ -90,15 +90,15 @@ class MainWindow(QMainWindow):
 
         merek = QHBoxLayout()
         merek.setSpacing(10)
-        merek.addWidget(tema.Logo(38))
+        merek.addWidget(tema.Logo(40))
         teks = QVBoxLayout()
         teks.setSpacing(0)
         teks.addWidget(tema.label("CostStruct", "namaAplikasi"))
         teks.addWidget(tema.label("QTO & RAB dari model IFC", "taglineAplikasi"))
         merek.addLayout(teks)
         lay.addLayout(merek)
-        lay.addSpacing(22)
-        lay.addWidget(tema.label("MENU", "bagian"))
+        lay.addSpacing(26)
+        lay.addWidget(tema.label("MENU UTAMA", "bagian"))
         lay.addSpacing(2)
 
         self.grup_nav = QButtonGroup(self)
@@ -120,9 +120,47 @@ class MainWindow(QMainWindow):
         self.grup_nav.idClicked.connect(self._nav_diklik)
 
         lay.addStretch()
-        lay.addWidget(tema.label("Seret file .ifc ke jendela ini untuk membuat proyek baru.", "infoSidebar", wrap=True))
+
+        # Zona seret: petunjuk bahwa file .ifc bisa langsung dijatuhkan ke jendela.
+        zona = QFrame()
+        zona.setObjectName("zonaSeret")
+        zona.setCursor(Qt.PointingHandCursor)
+        zona.setToolTip("Klik atau seret file .ifc ke jendela ini (Ctrl+N)")
+        zona.mouseReleaseEvent = lambda _e: self._ke_proyek_lalu_import()
+        z = QHBoxLayout(zona)
+        z.setContentsMargins(12, 10, 12, 10)
+        z.setSpacing(10)
+        z.addWidget(tema.LencanaIkon("import", "aksen", 30))
+        zk = QVBoxLayout()
+        zk.setSpacing(0)
+        zk.addWidget(tema.label("Import file IFC", "zonaJudul"))
+        zk.addWidget(tema.label("Seret .ifc ke sini · Ctrl+N", "infoSidebar"))
+        z.addLayout(zk, stretch=1)
+        lay.addWidget(zona)
+        lay.addSpacing(10)
+
+        # Identitas perusahaan pengguna aplikasi.
+        perusahaan = QFrame()
+        perusahaan.setObjectName("kartuPerusahaan")
+        pr = QHBoxLayout(perusahaan)
+        pr.setContentsMargins(10, 10, 10, 10)
+        pr.setSpacing(10)
+        pr.addWidget(tema.LogoPerusahaan(38))
+        pk = QVBoxLayout()
+        pk.setSpacing(1)
+        nama = tema.label(tema.NAMA_PERUSAHAAN, "namaPerusahaan", wrap=True)
+        pk.addWidget(nama)
+        pk.addWidget(tema.label("Engineering Consultant", "infoSidebar"))
+        pr.addLayout(pk, stretch=1)
+        lay.addWidget(perusahaan)
         lay.addSpacing(8)
-        lay.addWidget(tema.label(f"Offline · database lokal\n{VERSI_APLIKASI}", "infoSidebar"))
+
+        kaki = QHBoxLayout()
+        kaki.setContentsMargins(4, 0, 4, 0)
+        kaki.addWidget(tema.label("● Offline · data lokal", "chipOffline"))
+        kaki.addStretch()
+        kaki.addWidget(tema.label(VERSI_APLIKASI, "versiAplikasi"))
+        lay.addLayout(kaki)
         return bar
 
     def _nav_diklik(self, idx: int):

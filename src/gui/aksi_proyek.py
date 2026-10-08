@@ -130,8 +130,9 @@ class InfoProyekDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(26, 22, 26, 20)
         lay.setSpacing(12)
-        lay.addWidget(tema.label("Info Proyek", "judulHalaman"))
-        lay.addWidget(tema.label("Lokasi, pemilik, dan tahun anggaran dipakai sebagai kop laporan RAB.", "subjudul", wrap=True))
+        lay.addWidget(tema.kepala_dialog(
+            "Info Proyek", "Lokasi, pemilik, dan tahun anggaran dipakai sebagai kop laporan RAB.", "file",
+        )[0])
         f = QFormLayout()
         f.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         f.setVerticalSpacing(10)

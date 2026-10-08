@@ -27,14 +27,11 @@ class PratinjauDialog(QDialog):
         self.dok = QPdfDocument(self)
         self.dok.load(path_pdf)
         kepala = QHBoxLayout()
-        kolom = QVBoxLayout()
-        kolom.setSpacing(2)
-        kolom.addWidget(tema.label("Pratinjau Laporan", "judulHalaman"))
-        kolom.addWidget(tema.label(
+        kepala.addWidget(tema.kepala_dialog(
+            "Pratinjau Laporan",
             f"{judul}  ·  {self.dok.pageCount()} halaman. Periksa isi sebelum export; tutup untuk mengubah pilihan.",
-            "subjudul", wrap=True,
-        ))
-        kepala.addLayout(kolom, stretch=1)
+            "file",
+        )[0], stretch=1)
         self.combo_zoom = QComboBox()
         for teks, nilai in ZOOM:
             self.combo_zoom.addItem(teks, nilai)

@@ -54,6 +54,7 @@ class PengaturanPage(QWidget):
 
         luar = QVBoxLayout(self)
         luar.setContentsMargins(0, 0, 0, 0)
+        luar.setSpacing(0)
         gulir = QScrollArea()
         gulir.setWidgetResizable(True)
         gulir.setFrameShape(QFrame.NoFrame)
@@ -71,7 +72,7 @@ class PengaturanPage(QWidget):
         root.addLayout(kol)
 
         # --- Tampilan ---
-        kartu, f = self._kartu("TAMPILAN")
+        kartu, f = self._kartu("Tampilan", "Tema warna antarmuka seluruh aplikasi.", "pengaturan")
         baris_tema = QGridLayout()  # kartu tema: 4 sejajar, menyesuaikan lebar layar (lihat resizeEvent)
         baris_tema.setHorizontalSpacing(12)
         baris_tema.setVerticalSpacing(12)
@@ -99,13 +100,13 @@ class PengaturanPage(QWidget):
         root.addWidget(kartu)
 
         # --- Direktori default ---
-        kartu, f = self._kartu("DIREKTORI DEFAULT")
+        kartu, f = self._kartu("Direktori Default", "Folder awal untuk file IFC dan hasil export.", "folder")
         self.edit_ifc = self._baris_folder(f, "Folder file IFC", "Folder awal saat memilih file IFC untuk proyek baru.")
         self.edit_export = self._baris_folder(f, "Folder hasil export", "Folder tujuan bawaan saat export RAB ke Excel / PDF.")
         root.addWidget(kartu)
 
         # --- Format laporan default ---
-        kartu, f = self._kartu("FORMAT LAPORAN DEFAULT")
+        kartu, f = self._kartu("Format Laporan Default", "Pilihan awal di dialog Export RAB.", "unduh")
         self.cek_excel = QCheckBox("Excel (.xlsx)")
         self.cek_pdf = QCheckBox("PDF (.pdf)")
         self.cek_rekap = QCheckBox("Rekapitulasi biaya")
@@ -156,9 +157,16 @@ class PengaturanPage(QWidget):
                 "infoKecil", wrap=True,
             )
         )
+        # Bilah aksi di luar area gulir: tombol Simpan selalu terlihat walau halaman digulir.
+        bilah = QFrame()
+        bilah.setObjectName("bilahAksi")
+        kaki = QVBoxLayout(bilah)
+        kaki.setContentsMargins(32, 12, 32, 14)
+        kaki.setSpacing(8)
         self.label_galat = tema.label("", "galat", wrap=True)
         self.label_galat.hide()
-        root.addWidget(self.label_galat)
+        kaki.addWidget(self.label_galat)
+        luar.addWidget(bilah)
 
         tombol = QHBoxLayout()
         self.btn_reset = tema.tombol("Reset ke Default", "danger", "ulang", "Kembalikan semua pengaturan ke nilai bawaan")
@@ -167,24 +175,36 @@ class PengaturanPage(QWidget):
         self.btn_batal.clicked.connect(self.muat)
         self.btn_simpan = tema.tombol("Simpan Pengaturan", "primary")
         self.btn_simpan.clicked.connect(self._simpan)
+        self.label_status = tema.chip("Belum ada perubahan", "netral")
         tombol.addWidget(self.btn_reset)
         tombol.addStretch()
+        tombol.addWidget(self.label_status)
+        tombol.addSpacing(6)
         tombol.addWidget(self.btn_batal)
         tombol.addWidget(self.btn_simpan)
-        root.addLayout(tombol)
+        kaki.addLayout(tombol)
         root.addStretch()
 
         self.muat()
 
     # ---------------------------------------------------------------- tata letak
 
-    def _kartu(self, judul: str):
+    def _kartu(self, judul: str, ket: str, nama_ikon: str):
         kartu = QFrame()
         kartu.setObjectName("kartu")
         lay = QVBoxLayout(kartu)
-        lay.setContentsMargins(20, 16, 20, 18)
-        lay.setSpacing(12)
-        lay.addWidget(tema.label(judul, "bagian"))
+        lay.setContentsMargins(22, 18, 22, 20)
+        lay.setSpacing(14)
+        kepala = QHBoxLayout()
+        kepala.setSpacing(12)
+        kepala.addWidget(tema.LencanaIkon(nama_ikon, "aksen", 36))
+        kol = QVBoxLayout()
+        kol.setSpacing(1)
+        kol.addWidget(tema.label(judul, "judulPanel"))
+        kol.addWidget(tema.label(ket, "infoKecil"))
+        kepala.addLayout(kol, stretch=1)
+        lay.addLayout(kepala)
+        lay.addWidget(tema.garis())
         f = QFormLayout()
         f.setHorizontalSpacing(24)
         f.setVerticalSpacing(10)
@@ -265,6 +285,8 @@ class PengaturanPage(QWidget):
         ada = self._dari_form() != self._tersimpan
         self.btn_simpan.setEnabled(ada)
         self.btn_batal.setEnabled(ada)
+        tema.set_chip(self.label_status, "● Ada perubahan belum disimpan" if ada else "Tersimpan",
+                      "peringatan" if ada else "sukses")
         self.btn_reset.setEnabled(self._dari_form() != Preferensi())
 
     # ---------------------------------------------------------------- aksi

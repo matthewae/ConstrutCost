@@ -49,6 +49,11 @@ class SpinDimensi(QDoubleSpinBox):
     def wheelEvent(self, event):
         event.ignore()
 
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        if self.specialValueText() and self.value() == self.minimum():
+            self.lineEdit().clear()  # isian kosong siap diketik, bukan tanda "–"
+
 
 class DimensiDialog(QDialog):
     def __init__(self, elemen: dict, jumlah_volume_manual: int = 0, parent=None):
@@ -65,11 +70,10 @@ class DimensiDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(26, 22, 26, 20)
         lay.setSpacing(12)
-        lay.addWidget(tema.label("Ubah Dimensi Elemen", "judulHalaman"))
         info = [LABEL.get(self.kelas, self.kelas.value), elemen.get("nama") or "-"]
         if elemen.get("lantai"):
             info.append(elemen["lantai"])
-        lay.addWidget(tema.label("  ·  ".join(info), "subjudul", wrap=True))
+        lay.addWidget(tema.kepala_dialog("Ubah Dimensi Elemen", "  ·  ".join(info), "dimensi")[0])
 
         self.spin = {}
         lay.addWidget(tema.label("DIMENSI UTAMA", "bagian"))

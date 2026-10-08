@@ -49,3 +49,55 @@ Penandanya `versi_tema` di preferensi.
 
 **Harga Satuan**
 - Panel ubah harga lebih ramping, sehingga kolom STATUS terlihat di layar 1280 px.
+
+## Modernisasi tampilan (tahap 2)
+
+**Splash screen**
+- Kartu lebih lebar dengan garis aksen di atas dan cahaya lembut di belakang logo.
+- Ditambah deskripsi singkat aplikasi dan chip fitur: IFC2x3 · IFC4, QTO otomatis, RAB · AHSP, Excel & PDF.
+- Logo PT Mandajaya Rekayasa Konstruksi tampil samar sebagai watermark dan di kaki splash.
+
+**Sidebar**
+- Menu utama dengan item lebih lega.
+- Zona **Import file IFC** yang bisa diklik atau dijadikan tempat menyeret file.
+- Kartu identitas **PT Mandajaya Rekayasa Konstruksi · Engineering Consultant**.
+- Status *Offline · data lokal* dan nomor versi.
+
+**Komponen bersama** (`src/gui/tema.py`)
+- `LencanaIkon` / `kepala_dialog()`: lencana ikon, judul, dan keterangan. Dipakai seragam di dialog Export, Import,
+  Info Proyek, Ubah Dimensi, Tipe Penulangan, Biaya Tidak Langsung, Parameter, dan Pratinjau.
+- Ikon vektor baru: cari, panel, info, tanya, peringatan, galat, sukses, folder, parameter, dimensi, kubus, besi,
+  kalender, import, tutup, Rp, %.
+- **Kotak pesan** (konfirmasi dan galat):
+  - ikon bawaan Windows diganti lencana berwarna sesuai jenis pesan;
+  - judul pesan tebal;
+  - tepi lebih lega.
+- **Kotak pencarian** diberi ikon kaca pembesar.
+- **Tabel kosong** menampilkan petunjuk di tengah, mis. "Belum ada biaya tidak langsung".
+- **Toast**: lencana sukses / peringatan / galat.
+- **Kartu angka** di halaman Proyek diberi ikon.
+
+**Gaya**
+- Sudut membulat 10–14 px.
+- Tombol mode (Rekap RAB / RAB Rinci / Per Lantai / Detail) berupa *segmented control*; mode aktif terisi warna tombol utama.
+- Judul tabel diberi latar.
+- Garis pemisah panel menyala saat disorot.
+- Keterangan mode diberi garis aksen di kiri.
+- Warna kategori pekerjaan di tema Hitam Kuning / Terang Emas memakai palet hangat yang serasi dengan kuning logo.
+  Kontrasnya ≥ 4,5:1.
+
+**UX**
+- Hasil Estimasi: tombol **Rincian** (Ctrl+B) menyembunyikan atau menampilkan panel Rincian Perhitungan, sehingga
+  tabel memakai seluruh lebar layar laptop.
+- Pengaturan:
+  - tiap kartu punya ikon, judul, dan keterangan;
+  - bilah **Simpan / Batalkan / Reset** menempel di bawah layar;
+  - status *Tersimpan* atau *Ada perubahan belum disimpan* selalu terlihat.
+- Dialog Export **responsif**:
+  - di layar < 980 px, kartu angka disusun 2 × 2;
+  - isian kop dokumen menjadi satu kolom;
+  - opsi disusun dua kolom, sehingga tidak perlu menggulir ke samping.
+- Ubah Dimensi: isian kosong (–) langsung kosong saat diklik, siap diketik.
+
+Logo perusahaan disimpan di `assets/mandajaya.png` dan ikut dibundel ke `.exe` (`CostStruct.spec`).
+Tes: `tests/test_ui_modern.py`.
