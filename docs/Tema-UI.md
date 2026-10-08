@@ -54,8 +54,12 @@ Penandanya `versi_tema` di preferensi.
 
 **Splash screen** (dibuat bersih / minimalis)
 - Kartu polos satu warna (warna sidebar tema) dengan sudut membulat dan bayangan halus.
-- Hanya logo CostStruct, nama aplikasi, dan satu baris keterangan di tengah.
-- Di bawahnya progress bar tipis (3 px), teks status, dan nomor versi.
+- Pola grid tipis seperti kertas gambar kerja. Pola hanya terlihat di tepi kartu dan memudar ke tengah, sehingga isi tetap bersih.
+- Di tengah: logo CostStruct dengan dua cincin tipis berwarna aksen, nama aplikasi, dan satu baris keterangan.
+- Di bawahnya:
+  - progress bar tipis (3 px);
+  - indikator tiga tahap pemuatan **Database · Data proyek · Antarmuka**. Titik abu-abu = menunggu, titik kuning = sedang berjalan, ✓ = selesai. Teks status lengkap muncul di tooltip;
+  - nomor versi.
 
 **Sidebar**
 - Menu utama dengan item lebih lega.

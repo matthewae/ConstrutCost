@@ -103,3 +103,17 @@ def test_pengaturan_status_perubahan(app, db_sementara):
     assert "belum disimpan" in h.label_status.text()
     assert h.btn_simpan.isEnabled()
     h.deleteLater()
+
+
+def test_splash_indikator_tahap(app):
+    from gui.splash_screen import SplashScreen
+
+    s = SplashScreen()
+    assert [l.property("nama") for l in s.langkah] == ["Database", "Data proyek", "Antarmuka"]
+    s._perbarui_langkah(1, "Memuat data proyek tersimpan...")
+    teks = [l.text() for l in s.langkah]
+    assert "✓" in teks[0] and "●" in teks[1] and "●" in teks[2]
+    assert s.langkah[1].toolTip() == "Memuat data proyek tersimpan..."
+    s._perbarui_langkah(3)  # "Siap.": semua tahap selesai
+    assert all("✓" in l.text() for l in s.langkah)
+    s.deleteLater()
