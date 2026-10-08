@@ -69,7 +69,15 @@ from gui.parameter_dialog import ParameterDialog
 from gui.penulangan_dialog import PenulanganDialog
 from gui.proses_latar import jalankan_di_latar
 from klasifikasi import LABEL, ElementType
-from rab_rinci import TANPA_LANTAI, daftar_lantai, rekap_per_lantai, susun_rinci
+from kebutuhan_lantai import (
+    RASIO_WAJAR,
+    TIPE_SUMBER_DAYA,
+    komponen_pekerjaan,
+    rasio_wajar,
+    rincian_per_lantai,
+    ringkas_lantai,
+)
+from rab_rinci import TANPA_LANTAI, daftar_lantai, susun_rinci
 from rules.dimensi import kolom_dimensi
 from rules.penulangan import label_tipe
 
@@ -168,6 +176,7 @@ class EstimasiPage(QWidget):
         self.proyek_id = proyek_id
         self.nama_proyek = nama_proyek
         self._data = []
+        self._komponen = None
         self._index = {}
         self._warna_kategori = {}
         self._volume_terakhir = {}
@@ -373,6 +382,7 @@ class EstimasiPage(QWidget):
 
     def muat(self):
         self._data = [dict(r) for r in get_hasil_estimasi_by_proyek(self.proyek_id)]
+        self._komponen = None  # analisa AHSP untuk kebutuhan bahan per lantai, dimuat saat dibutuhkan
         for r in self._data:
             v = r["volume_pekerjaan"]
             r["harga_satuan"] = r["subtotal_biaya"] / v if v else 0.0
@@ -510,12 +520,20 @@ class EstimasiPage(QWidget):
                 "diubah lewat tombol Tipe Penulangan."
             )
         elif self.mode == self.MODE_LANTAI:
-            n = self._isi_lantai(baris)
-            satuan = "lantai"
-            self.label_petunjuk.setText(
-                "Biaya tiap lantai dihitung terpisah dari elemen di lantai tersebut. Klik dua kali nama lantai "
-                "untuk melihat rekap RAB lantai itu saja."
-            )
+            if lantai and lantai != SEMUA_LANTAI:
+                n = self._isi_lantai_rinci(baris)
+                satuan = "baris rincian"
+                self.label_petunjuk.setText(
+                    "Rincian satu lantai: struktur beton per tipe, besi per diameter, bahan, tenaga kerja, alat, "
+                    "dan RAB rinci. Pilih \"Semua lantai\" untuk kembali ke ringkasan."
+                )
+            else:
+                n = self._isi_lantai(baris)
+                satuan = "lantai"
+                self.label_petunjuk.setText(
+                    "Beton, bekisting, dan besi tiap lantai dihitung dari elemen di lantai tersebut. Klik dua kali "
+                    "nama lantai untuk melihat rincian kebutuhan bahan dan besinya."
+                )
         else:
             n = self._isi_detail(baris)
             satuan = "baris"
@@ -535,7 +553,9 @@ class EstimasiPage(QWidget):
 
     def _klik_judul(self, kolom: int):
         """Klik judul kolom: urutkan naik, klik lagi turun, klik ketiga kembali ke urutan asal."""
-        if self.mode == self.MODE_RINCI:  # RAB rinci mengikuti susunan tipe elemen
+        if self.mode == self.MODE_RINCI or (  # RAB rinci & rincian satu lantai mengikuti susunan bagian
+            self.mode == self.MODE_LANTAI and self.combo_lantai.currentText() != SEMUA_LANTAI
+        ):
             self._tampilkan_indikator()
             return
         lama = self._urut.get(self.mode)
@@ -655,46 +675,208 @@ class EstimasiPage(QWidget):
 
     # ---------------------------------------------------------------- mode per lantai (KF-12)
 
+    def _rincian_lantai(self, baris) -> list:
+        if self._komponen is None:
+            self._komponen = komponen_pekerjaan(r["pekerjaan_id"] for r in self._data)
+        return rincian_per_lantai(baris, self._komponen)
+
     def _isi_lantai(self, baris) -> int:
+        """Ringkasan semua lantai: biaya per kategori beserta beton, bekisting, dan besi (KF-12)."""
         t = self.tabel
         t.clearSpans()
         t.clear()
-        tema.siapkan_tabel(t, ["NO", "LANTAI / KATEGORI PEKERJAAN", "ELEMEN", "JUMLAH HARGA", "%"],
-                           rata_kanan=(2, 3, 4), tinggi_baris=36)
-        rekap = rekap_per_lantai(baris) if baris else []
-        rekap = self._terurut(rekap, {1: lambda x: x["lantai"].lower(), 2: lambda x: x["jumlah_elemen"],
-                                      3: lambda x: x["total"], 4: lambda x: x["total"]})
+        tema.siapkan_tabel(
+            t, ["NO", "LANTAI / KATEGORI PEKERJAAN", "ELEMEN", "BETON (m³)", "BEKISTING (m²)", "BESI (kg)",
+                "JUMLAH HARGA", "%"],
+            rata_kanan=(2, 3, 4, 5, 6, 7), tinggi_baris=36,
+        )
+        rekap = self._rincian_lantai(baris) if baris else []
         for x in rekap:
-            x["kategori"] = self._terurut(x["kategori"], {1: lambda k: k["kategori"].lower(), 3: lambda k: k["total"], 4: lambda k: k["total"]})
+            x.update(ringkas_lantai(x))
+            per_kat = {}
+            for r in x["baris"]:
+                k = per_kat.setdefault(r["kategori"], {"beton": 0.0, "bekisting": 0.0, "besi": 0.0})
+                kode = r.get("kode_ahsp") or ""
+                kunci = ("beton" if kode.startswith(("BTN.", "LTK.")) else "bekisting" if kode.startswith("BSK.")
+                         else "besi" if kode.startswith("BSI.") else None)
+                if kunci:
+                    k[kunci] += r["volume_pekerjaan"] or 0.0
+            for k in x["kategori"]:
+                k.update(per_kat.get(k["kategori"], {}))
+        kunci_urut = {1: lambda x: x["lantai"].lower(), 2: lambda x: x.get("jumlah_elemen", 0),
+                      3: lambda x: x.get("beton", 0), 4: lambda x: x.get("bekisting", 0), 5: lambda x: x.get("besi", 0),
+                      6: lambda x: x["total"], 7: lambda x: x["total"]}
+        rekap = self._terurut(rekap, kunci_urut)
+        for x in rekap:
+            x["kategori"] = self._terurut(x["kategori"], {k: f for k, f in kunci_urut.items() if k not in (1, 2)}
+                                          | {1: lambda k: k["kategori"].lower()})
         total = sum(x["total"] for x in rekap) or 1.0
-        t.setRowCount(sum(1 + len(x["kategori"]) for x in rekap))
+        t.setRowCount(sum(1 + len(x["kategori"]) for x in rekap) + (1 if rekap else 0))
+
+        def angka(v, d=2):
+            return tema.format_angka(v, d) if v else "-"
+
         r = 0
         for i, x in enumerate(rekap, 1):
             elev = "" if x["elevasi"] is None else f"  ·  elevasi {tema.format_angka(x['elevasi'], 2)} m"
+            tip = "Klik dua kali untuk melihat rincian kebutuhan lantai ini"
             t.setItem(r, 0, tema.sel(str(i), warna=tema.W["aksen"], tebal=True, data=("lantai", x["lantai"])))
-            t.setItem(r, 1, tema.sel(f"{x['lantai']}{elev}", warna=tema.W["aksen"], tebal=True,
-                                     tooltip="Klik dua kali untuk rekap RAB lantai ini"))
+            t.setItem(r, 1, tema.sel(f"{x['lantai']}{elev}", warna=tema.W["aksen"], tebal=True, tooltip=tip))
             t.setItem(r, 2, tema.sel(f"{x['jumlah_elemen']} elemen", "kanan", tema.W["teks_redup"]))
-            t.setItem(r, 3, tema.sel(tema.format_rupiah(x["total"]), "kanan", tema.W["aksen"], tebal=True))
-            t.setItem(r, 4, tema.sel(f"{x['total'] / total:.1%}".replace(".", ","), "kanan", tebal=True))
+            for c, kunci in ((3, "beton"), (4, "bekisting"), (5, "besi")):
+                t.setItem(r, c, tema.sel(angka(x[kunci]), "kanan", tema.W["aksen"], tebal=True))
+            t.setItem(r, 6, tema.sel(tema.format_rupiah(x["total"]), "kanan", tema.W["aksen"], tebal=True))
+            t.setItem(r, 7, tema.sel(f"{x['total'] / total:.1%}".replace(".", ","), "kanan", tebal=True))
             r += 1
             for k in x["kategori"]:
                 warna = self._warna_kategori.get(k["kategori"], tema.W["teks"])
                 t.setItem(r, 0, tema.sel("", data=("lantai", x["lantai"])))
                 t.setItem(r, 1, tema.sel(f"      {k['kategori']}", warna=warna))
-                t.setItem(r, 3, tema.sel(tema.format_rupiah(k["total"]), "kanan"))
-                t.setItem(r, 4, tema.sel(f"{k['total'] / total:.1%}".replace(".", ","), "kanan", tema.W["teks_samar"]))
+                for c, kunci in ((3, "beton"), (4, "bekisting"), (5, "besi")):
+                    t.setItem(r, c, tema.sel(angka(k.get(kunci)), "kanan", tema.W["teks_redup"]))
+                t.setItem(r, 6, tema.sel(tema.format_rupiah(k["total"]), "kanan"))
+                t.setItem(r, 7, tema.sel(f"{k['total'] / total:.1%}".replace(".", ","), "kanan", tema.W["teks_samar"]))
                 r += 1
-        tema.atur_lebar(t, 1, isi_konten=(0, 2, 3, 4))
+        if rekap:
+            t.setItem(r, 1, tema.sel(f"JUMLAH {len(rekap)} LANTAI", "kanan", tebal=True))
+            for c, kunci in ((3, "beton"), (4, "bekisting"), (5, "besi")):
+                t.setItem(r, c, tema.sel(angka(sum(x[kunci] for x in rekap)), "kanan", tebal=True))
+            t.setItem(r, 6, tema.sel(tema.format_rupiah(sum(x["total"] for x in rekap)), "kanan", tebal=True))
+            t.setItem(r, 7, tema.sel("100,0%", "kanan", tebal=True))
+        tema.atur_lebar(t, 1, isi_konten=(0, 2, 3, 4, 5, 6, 7))
         return len(rekap)
 
+    def _isi_lantai_rinci(self, baris) -> int:
+        """Rincian satu lantai: biaya per kategori, struktur beton per tipe, besi per diameter, bahan,
+        tenaga kerja, alat (koefisien AHSP), dan RAB rinci lantai."""
+        t = self.tabel
+        t.clearSpans()
+        t.clear()
+        tema.siapkan_tabel(
+            t, ["NO", "URAIAN", "VOLUME", "SAT", "KETERANGAN", "HARGA SATUAN", "JUMLAH HARGA"],
+            rata_kanan=(2, 5, 6), tinggi_baris=34,
+        )
+        daftar = self._rincian_lantai(baris) if baris else []
+        if not daftar:
+            t.setRowCount(0)
+            return 0
+        x = daftar[0]
+        isi = []  # (jenis, kolom...) disusun dulu, baru ditulis ke tabel
+
+        def judul(no, teks, jumlah=None):
+            isi.append(("judul", no, teks, jumlah))
+
+        def item(no, uraian, volume=None, satuan="", ket="", harga=None, jumlah=None, data=None, warna=None,
+                 tebal=False, tooltip=None):
+            isi.append(("item", no, uraian, volume, satuan, ket, harga, jumlah, data, warna, tebal, tooltip))
+
+        ring = ringkas_lantai(x)
+        elev = "" if x["elevasi"] is None else f"  ·  elevasi {tema.format_angka(x['elevasi'], 2)} m"
+        isi.append(("lantai", f"{x['lantai']}{elev}  ·  {x['jumlah_elemen']} elemen", x["total"]))
+
+        judul("I", "REKAP BIAYA PER KATEGORI", x["total"])
+        for k in x["kategori"]:
+            persen = f"{k['total'] / (x['total'] or 1):.1%} lantai ini".replace(".", ",")
+            item("", k["kategori"], ket=persen, jumlah=k["total"], warna=self._warna_kategori.get(k["kategori"]))
+
+        if x["struktur"]:
+            judul("II", "STRUKTUR BETON PER TIPE ELEMEN", sum(g["biaya"] for g in x["struktur"]))
+            for n, g in enumerate(x["struktur"], 1):
+                bagian = [f"{g['jumlah_elemen']} buah"] if g["jumlah_elemen"] else []
+                if g["bekisting"]:
+                    bagian.append(f"bekisting {tema.format_angka(g['bekisting'], 2)} m²")
+                if g["besi"]:
+                    bagian.append(f"besi {tema.format_angka(g['besi'], 1)} kg")
+                if g["rasio"] is not None:
+                    bagian.append(f"{tema.format_angka(g['rasio'], 0)} kg/m³" + ("" if rasio_wajar(g["rasio"]) else " ⚠ periksa"))
+                item(str(n), f"{g['label']}  ·  beton {g['mutu']}", g["beton"], "m³", "  ·  ".join(bagian),
+                     jumlah=g["biaya"], warna=None if rasio_wajar(g["rasio"]) else tema.W["peringatan"],
+                     tooltip=None if rasio_wajar(g["rasio"]) else (
+                         f"Rasio besi {tema.format_angka(g['rasio'], 0)} kg/m³ di luar rentang wajar "
+                         f"{RASIO_WAJAR[0]:.0f}–{RASIO_WAJAR[1]:.0f} kg/m³. Periksa dimensi elemen di model IFC "
+                         "atau konfigurasi tipe penulangannya."))
+            for m in x["beton_mutu"]:
+                item("", f"Total beton {m['mutu']}", m["volume"], "m³", tebal=True)
+            if ring["bekisting"]:
+                item("", "Total bekisting", ring["bekisting"], "m²", tebal=True)
+
+        if x["besi"] or x["besi_rasio"]:
+            judul("III", "KEBUTUHAN BESI TULANGAN PER DIAMETER")
+            for n, k in enumerate(x["besi"], 1):
+                item(str(n), f"{k['label']}  ·  {k['jenis']}", k["berat"], "kg",
+                     f"{tema.format_angka(k['panjang'], 1)} m'  ·  {k['batang']} batang @ 12 m  ·  "
+                     f"{tema.format_angka(k['berat_per_m'], 3)} kg/m'")
+            if x["besi_rasio"] > 1e-9:
+                item("", "Besi tanpa rincian diameter (asumsi rasio kg/m³)", x["besi_rasio"], "kg",
+                     "elemen tanpa tipe penulangan", warna=tema.W["teks_redup"])
+            item("", "Total besi", ring["besi"], "kg",
+                 f"{sum(k['batang'] for k in x['besi'])} batang @ 12 m (yang berdiameter)", tebal=True)
+
+        sd = x["sumber_daya"]
+        romawi = iter(("IV", "V", "VI"))
+        for tipe, nama in TIPE_SUMBER_DAYA:
+            if not sd[tipe]:
+                continue
+            judul(next(romawi), f"KEBUTUHAN {nama.upper()} (KOEFISIEN AHSP)", sum(d["biaya"] for d in sd[tipe]))
+            for n, d in enumerate(sd[tipe], 1):
+                item(str(n), d["nama"], d["jumlah"], d["satuan"], d["keterangan"], d["harga"], d["biaya"])
+        if sd["tanpa_analisa"]:
+            item("", "Pekerjaan tanpa analisa (tidak masuk kebutuhan): " + ", ".join(sd["tanpa_analisa"]),
+                 warna=tema.W["peringatan"])
+
+        judul("VII", "RINCIAN PEKERJAAN (RAB RINCI LANTAI)", x["total"])
+        for k in x["rinci"]:
+            item("", k["kategori"].upper(), jumlah=k["total"], warna=self._warna_kategori.get(k["kategori"]), tebal=True)
+            nomor = 0
+            for g in k["grup"]:
+                if g["judul"]:
+                    nomor += 1
+                    item(str(nomor), g["judul"], jumlah=g["total"], tebal=True)
+                for it in g["items"]:
+                    if not g["judul"]:
+                        nomor += 1
+                    item("" if g["judul"] else str(nomor), ("      –  " if g["judul"] else "") + it["label"],
+                         it["volume"], it["satuan"], it["kode"], it["harga"], it["jumlah"],
+                         data=("rekap", it["pekerjaan_id"]))
+
+        t.setRowCount(len(isi))
+        n_item = 0
+        for r, e in enumerate(isi):
+            if e[0] == "lantai":
+                t.setItem(r, 0, tema.sel("", data=("lantai", x["lantai"])))
+                t.setItem(r, 1, tema.sel(e[1], warna=tema.W["aksen"], tebal=True))
+                t.setSpan(r, 1, 1, 5)
+                t.setItem(r, 6, tema.sel(tema.format_rupiah(e[2]), "kanan", tema.W["aksen"], tebal=True))
+            elif e[0] == "judul":
+                _, no, teks, jumlah = e
+                t.setItem(r, 0, tema.sel(no, warna=tema.W["aksen"], tebal=True))
+                t.setItem(r, 1, tema.sel(teks, warna=tema.W["aksen"], tebal=True))
+                t.setSpan(r, 1, 1, 5)
+                if jumlah is not None:
+                    t.setItem(r, 6, tema.sel(tema.format_rupiah(jumlah), "kanan", tema.W["teks_redup"], tebal=True))
+            else:
+                _, no, uraian, volume, satuan, ket, harga, jumlah, data, warna, tebal, tooltip = e
+                n_item += 1
+                t.setItem(r, 0, tema.sel(no, warna=tema.W["teks_samar"], data=data))
+                t.setItem(r, 1, tema.sel(uraian, warna=warna, tebal=tebal, tooltip=tooltip or uraian))
+                if volume is not None:
+                    t.setItem(r, 2, tema.sel(tema.format_angka(volume, 2), "kanan", tebal=tebal))
+                t.setItem(r, 3, tema.sel(satuan, "tengah", tema.W["teks_redup"]))
+                t.setItem(r, 4, tema.sel(ket, warna=tema.W["teks_redup"], tooltip=tooltip or ket or None))
+                if harga is not None:
+                    t.setItem(r, 5, tema.sel(tema.format_rupiah(harga), "kanan", tema.W["teks_redup"]))
+                if jumlah is not None:
+                    t.setItem(r, 6, tema.sel(tema.format_rupiah(jumlah), "kanan", tebal=True))
+        tema.atur_lebar(t, 4, isi_konten=(0, 2, 3, 5, 6))  # keterangan (bekisting, besi, batang) melebar
+        t.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
+        t.setColumnWidth(1, 400)
+        return n_item
+
     def _buka_lantai(self, nama: str):
-        """Saring semua tampilan ke satu lantai lalu tampilkan rekap RAB-nya."""
+        """Tampilkan rincian kebutuhan satu lantai (tetap di mode Per Lantai)."""
         i = self.combo_lantai.findText(nama)
-        if i >= 0:
-            self.combo_lantai.setCurrentIndex(i)
-        self.grup_mode.button(self.MODE_REKAP).setChecked(True)
-        self._isi_ulang()
+        if i >= 0 and i != self.combo_lantai.currentIndex():
+            self.combo_lantai.setCurrentIndex(i)  # memicu _isi_ulang
 
     # ---------------------------------------------------------------- mode detail
 

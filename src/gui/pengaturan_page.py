@@ -101,11 +101,12 @@ class PengaturanPage(QWidget):
         self.cek_rekap = QCheckBox("Rekapitulasi biaya")
         self.cek_rinci = QCheckBox("RAB rinci per tipe elemen")
         self.cek_besi = QCheckBox("Kebutuhan besi")
-        self.cek_lantai = QCheckBox("Per lantai")
+        self.cek_lantai = QCheckBox("Rekap per lantai")
+        self.cek_per_lantai = QCheckBox("Rincian per lantai")
         self.cek_detail = QCheckBox("Detail per elemen && lantai")
         self.cek_kolom = {k: QCheckBox(LABEL_KOLOM[k]) for k in KOLOM_LAPORAN}
-        semua_cek = (self.cek_excel, self.cek_pdf, self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_detail,
-                     *self.cek_kolom.values())
+        semua_cek = (self.cek_excel, self.cek_pdf, self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_per_lantai,
+                     self.cek_detail, *self.cek_kolom.values())
         for cek in semua_cek:
             cek.setCursor(Qt.PointingHandCursor)
             cek.toggled.connect(self._berubah)
@@ -123,7 +124,8 @@ class PengaturanPage(QWidget):
             return b
 
         f.addRow(tema.label("Format file", "formLabel"), baris(self.cek_excel, self.cek_pdf, self.combo_orientasi))
-        f.addRow(tema.label("Isi dokumen", "formLabel"), baris(self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_detail))
+        f.addRow(tema.label("Isi dokumen", "formLabel"), baris(self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_per_lantai,
+                                                                     self.cek_detail))
         f.addRow(tema.label("Kolom laporan", "formLabel"), baris(*self.cek_kolom.values()))
         f.addRow(QWidget(), tema.label(
             "Dipakai sebagai pilihan awal di dialog Export RAB (KF-17). Uraian, volume, satuan, dan jumlah harga "
@@ -207,13 +209,14 @@ class PengaturanPage(QWidget):
             isi_rinci=self.cek_rinci.isChecked(),
             isi_besi=self.cek_besi.isChecked(),
             isi_lantai=self.cek_lantai.isChecked(),
+            isi_per_lantai=self.cek_per_lantai.isChecked(),
             kolom_laporan=",".join(k for k, c in self.cek_kolom.items() if c.isChecked()),
             orientasi_pdf=self.combo_orientasi.currentData(),
         )
 
     def _ke_form(self, p: Preferensi):
         widget = (self.grup_tema, self.edit_ifc, self.edit_export, self.cek_excel, self.cek_pdf, self.cek_rekap,
-                  self.cek_detail, self.cek_rinci, self.cek_besi, self.cek_lantai, self.combo_orientasi,
+                  self.cek_detail, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_per_lantai, self.combo_orientasi,
                   *self.cek_kolom.values())
         for w in widget:
             w.blockSignals(True)
@@ -227,6 +230,7 @@ class PengaturanPage(QWidget):
         self.cek_rinci.setChecked(p.isi_rinci)
         self.cek_besi.setChecked(p.isi_besi)
         self.cek_lantai.setChecked(p.isi_lantai)
+        self.cek_per_lantai.setChecked(p.isi_per_lantai)
         for k, c in self.cek_kolom.items():
             c.setChecked(k in p.kolom)
         self.combo_orientasi.setCurrentIndex(1 if p.orientasi_pdf == "landscape" else 0)

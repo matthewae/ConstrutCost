@@ -57,8 +57,8 @@ def test_filter_lantai_di_halaman(baris_ac20):
     ]
     hal.grup_mode.button(hal.MODE_LANTAI).click()
     assert hal.label_jumlah.text().startswith("2 lantai")
-    hal._buka_lantai("Dachgeschoss")  # klik dua kali nama lantai
-    assert hal.mode == hal.MODE_REKAP
+    hal._buka_lantai("Dachgeschoss")  # klik dua kali nama lantai: rincian kebutuhan lantai itu
+    assert hal.mode == hal.MODE_LANTAI and hal.combo_lantai.currentText() == "Dachgeschoss"
     total_dg = sum(r["subtotal_biaya"] for r in baris if r["lantai"] == "Dachgeschoss")
     assert tema.format_rupiah(total_dg) in hal.label_jumlah.text()
 
@@ -78,9 +78,9 @@ def test_export_rekap_per_lantai(db_sementara, tmp_path):
     ws = load_workbook(path)["Rekap per Lantai"]
     teks = [c.value for row in ws.iter_rows() for c in row if isinstance(c.value, str)]
     assert any(t.startswith("Level 1") for t in teks)
-    assert "JUMLAH BIAYA LANGSUNG" in teks
+    assert "JUMLAH 4 LANTAI" in teks
     export_pdf(tmp_path / "rab.pdf", data, {}, OpsiExport(detail=False))
     from pypdf import PdfReader
 
     isi = " ".join(p.extract_text() for p in PdfReader(tmp_path / "rab.pdf").pages)
-    assert "REKAPITULASI BIAYA PER LANTAI" in isi
+    assert "REKAPITULASI BIAYA & KEBUTUHAN STRUKTUR PER LANTAI" in isi

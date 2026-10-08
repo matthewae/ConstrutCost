@@ -139,6 +139,8 @@ class ExportDialog(QDialog):
         self.cek_besi = QCheckBox("Kebutuhan besi per diameter")
         self.cek_lantai = QCheckBox("Rekap biaya per lantai")
         self.cek_lantai.setChecked(pref.isi_lantai)
+        self.cek_per_lantai = QCheckBox("Rincian per lantai")
+        self.cek_per_lantai.setChecked(pref.isi_per_lantai)
         self.cek_detail = QCheckBox("Detail volume per elemen && lantai")
         self.cek_rekap.setChecked(pref.isi_rekap)
         self.cek_rinci.setChecked(pref.isi_rinci)
@@ -148,7 +150,7 @@ class ExportDialog(QDialog):
             cek.setCursor(Qt.PointingHandCursor)
             cek.toggled.connect(self._perbarui_tombol)
             cek.toggled.connect(self._perbarui_nama_file)
-        for cek in (self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_detail):
+        for cek in (self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_per_lantai, self.cek_detail):
             cek.setCursor(Qt.PointingHandCursor)
         self.combo_orientasi = QComboBox()
         self.combo_orientasi.addItem("PDF tegak (portrait)", "portrait")
@@ -179,7 +181,8 @@ class ExportDialog(QDialog):
                 (self.cek_rekap, "A, B, PPN, total, terbilang"),
                 (self.cek_rinci, "Beton, bekisting, tulangan per tipe"),
                 (self.cek_besi, "Berat & batang 12 m per Ø/D"),
-                (self.cek_lantai, "Biaya tiap lantai per kategori"),
+                (self.cek_lantai, "Biaya, beton, besi & bahan tiap lantai"),
+                (self.cek_per_lantai, "Satu sheet per lantai: struktur, besi Ø, bahan"),
                 (self.cek_detail, "Volume tiap elemen dan lantai"),
             ],
         )
@@ -427,6 +430,7 @@ class ExportDialog(QDialog):
             besi=self.cek_besi.isChecked(),
             detail=self.cek_detail.isChecked(),
             lantai=self.cek_lantai.isChecked(),
+            per_lantai=self.cek_per_lantai.isChecked(),
             orientasi_pdf=self.combo_orientasi.currentData(),
         )
 
@@ -438,6 +442,7 @@ class ExportDialog(QDialog):
                 muat_preferensi(),
                 format_excel=self.cek_excel.isChecked(), format_pdf=self.cek_pdf.isChecked(),
                 isi_rekap=o.rekap, isi_rinci=o.rinci, isi_besi=o.besi, isi_detail=o.detail, isi_lantai=o.lantai,
+                isi_per_lantai=o.per_lantai,
                 kolom_laporan=",".join(o.kolom), orientasi_pdf=o.orientasi_pdf,
                 direktori_export=self.edit_folder.text().strip(),
             ))

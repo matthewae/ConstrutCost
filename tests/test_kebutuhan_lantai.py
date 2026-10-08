@@ -1,0 +1,270 @@
+"""Rincian kebutuhan per lantai (beton, bekisting, besi per diameter, bahan/tenaga/alat AHSP) dan
+export satu sheet / bagian PDF per lantai untuk model dengan banyak lantai (lebih dari 2)."""
+
+import os
+import shutil
+import subprocess
+
+import pytest
+
+from conftest import DUPLEX
+
+N_LANTAI = 5
+
+
+@pytest.fixture(scope="module")
+def ifc_bertingkat(tmp_path_factory):
+    """Model sintetis 5 lantai (fondasi + 3 lantai + dak). Setiap lantai: 2 kolom 25/25, 1 balok 20/40,
+    1 pelat 12 cm, dan 1 dinding. Nama lantai sengaja memuat karakter yang tidak boleh di nama sheet."""
+    import ifcopenshell.api as api
+
+    f = api.run("project.create_file", version="IFC4")
+    proj = api.run("root.create_entity", f, ifc_class="IfcProject", name="Rumah Bertingkat")
+    api.run("unit.assign_unit", f, length={"is_metric": True, "raw": "METERS"})  # profil kolom dalam meter
+    model = api.run("context.add_context", f, context_type="Model")
+    body = api.run("context.add_context", f, context_type="Model", context_identifier="Body",
+                   target_view="MODEL_VIEW", parent=model)
+    site = api.run("root.create_entity", f, ifc_class="IfcSite")
+    gedung = api.run("root.create_entity", f, ifc_class="IfcBuilding")
+    api.run("aggregate.assign_object", f, products=[site], relating_object=proj)
+    api.run("aggregate.assign_object", f, products=[gedung], relating_object=site)
+    nama = ["00 FONDASI", "01 LANTAI 1", "02 LANTAI 2", "03 LANTAI 3/MEZZANINE", "04 DAK [ATAP]"]
+    for i, nm in enumerate(nama):
+        lt = api.run("root.create_entity", f, ifc_class="IfcBuildingStorey", name=nm)
+        lt.Elevation = -1.5 + 3.5 * i if i else -1.5
+        api.run("aggregate.assign_object", f, products=[lt], relating_object=gedung)
+        produk = []
+        for k in range(2):
+            kol = api.run("root.create_entity", f, ifc_class="IfcColumn", name=f"K{i}{k}")
+            api.run("geometry.assign_representation", f, product=kol, representation=api.run(
+                "geometry.add_profile_representation", f, context=body,
+                profile=f.createIfcRectangleProfileDef("AREA", None, None, 0.25, 0.25), depth=3.5))
+            produk.append(kol)
+        balok = api.run("root.create_entity", f, ifc_class="IfcBeam", name=f"B{i}")
+        api.run("geometry.assign_representation", f, product=balok, representation=api.run(
+            "geometry.add_profile_representation", f, context=body,
+            profile=f.createIfcRectangleProfileDef("AREA", None, None, 0.2, 0.4), depth=4.0))
+        pelat = api.run("root.create_entity", f, ifc_class="IfcSlab", name=f"P{i}", predefined_type="FLOOR")
+        api.run("geometry.assign_representation", f, product=pelat, representation=api.run(
+            "geometry.add_slab_representation", f, context=body, depth=0.12,
+            polyline=[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]))
+        dinding = api.run("root.create_entity", f, ifc_class="IfcWall", name=f"D{i}")
+        api.run("geometry.assign_representation", f, product=dinding, representation=api.run(
+            "geometry.add_wall_representation", f, context=body, length=4, height=3, thickness=0.15))
+        api.run("spatial.assign_container", f, products=produk + [balok, pelat, dinding], relating_structure=lt)
+    path = tmp_path_factory.mktemp("ifc") / "bertingkat.ifc"
+    f.write(str(path))
+    return path
+
+
+@pytest.fixture
+def proyek_bertingkat(db_sementara, ifc_bertingkat):
+    from database.proyek_repository import create_proyek
+    from database.seed_data import seed_pekerjaan
+    from estimasi_service import jalankan_estimasi
+    from export_service import ambil_data_export
+
+    seed_pekerjaan()
+    pid = create_proyek("Rumah 5 Lantai", str(ifc_bertingkat))
+    jalankan_estimasi(pid)
+    return pid, ambil_data_export(pid)
+
+
+# ---------------------------------------------------------------- data
+
+
+def test_lantai_dikenali_semua_urut_elevasi(proyek_bertingkat):
+    from kebutuhan_lantai import rincian_per_lantai
+
+    _, d = proyek_bertingkat
+    rl = rincian_per_lantai(d["baris"], d["komponen"])
+    assert [x["lantai"] for x in rl] == [
+        "00 FONDASI", "01 LANTAI 1", "02 LANTAI 2", "03 LANTAI 3/MEZZANINE", "04 DAK [ATAP]"]
+    assert sum(x["total"] for x in rl) == pytest.approx(d["ringkasan"]["langsung"], abs=0.01)
+    for x in rl:
+        assert x["jumlah_elemen"] == 5
+        assert sum(k["total"] for k in x["rinci"]) == pytest.approx(x["total"], abs=0.01)
+
+
+def test_struktur_besi_per_diameter_konsisten(proyek_bertingkat):
+    from kebutuhan_lantai import matriks_lantai, rincian_per_lantai, ringkas_lantai
+
+    _, d = proyek_bertingkat
+    rl = rincian_per_lantai(d["baris"], d["komponen"])
+    for x in rl:
+        s = ringkas_lantai(x)
+        # beton 2 kolom 0,25 x 0,25 x 3,5 + balok 0,2 x 0,4 x 4 + pelat 4 x 4 x 0,12 (dibulatkan geometri)
+        assert s["beton"] > 2.0 and s["bekisting"] > 0 and s["besi"] > 0
+        kolom = next(g for g in x["struktur"] if g["label"].startswith("Kolom"))
+        assert kolom["jumlah_elemen"] == 2 and kolom["mutu"] == "f'c 20 MPa"
+        assert 40 < kolom["rasio"] < 350
+        # besi per diameter + asumsi rasio = semua pembesian lantai itu
+        assert sum(k["berat"] for k in x["besi"]) + x["besi_rasio"] == pytest.approx(s["besi"])
+        for k in x["besi"]:
+            assert k["batang"] >= k["panjang"] / 12
+    # tabel silang per diameter menjumlah ke kebutuhan besi proyek
+    total_d = {f"{k['label']} {k['jenis']}": k["berat"] for k in d["besi"]}
+    for m in matriks_lantai(rl, "besi"):
+        if m["label"] in total_d:
+            assert m["total"] == pytest.approx(total_d[m["label"]])
+        assert len(m["per_lantai"]) == N_LANTAI
+
+
+def test_bahan_tenaga_alat_sesuai_koefisien_ahsp(proyek_bertingkat):
+    from database.estimasi_repository import BUK_RATE
+    from kebutuhan_lantai import rincian_per_lantai
+
+    _, d = proyek_bertingkat
+    rl = rincian_per_lantai(d["baris"], d["komponen"])
+    biaya = sum(i["biaya"] for x in rl for t in ("bahan", "upah", "alat") for i in x["sumber_daya"][t])
+    # tanpa harga khusus, harga dasar sumber daya x (1 + BUK) = biaya langsung
+    assert biaya * (1 + BUK_RATE) == pytest.approx(d["ringkasan"]["langsung"], rel=1e-9)
+    bahan = {i["nama"]: i for i in rl[1]["sumber_daya"]["bahan"]}
+    semen = bahan["Semen Portland (PC)"]
+    assert "zak @ 50 kg" in semen["keterangan"]
+    assert any("Pekerja" == i["nama"] for i in rl[1]["sumber_daya"]["upah"])
+
+
+def test_varian_sumber_daya_digabung():
+    from kebutuhan_lantai import keterangan_sumber_daya, nama_dasar
+
+    sheet = {"Galian Tanah", "Beton"}
+    assert nama_dasar("Pekerja (Galian Tanah)", sheet) == "Pekerja"
+    assert nama_dasar("Pasir beton (Beton)", sheet) == "Pasir beton"
+    assert nama_dasar("Pasir pasang (quarry - lokasi pekerjaan)", sheet) == "Pasir pasang (quarry - lokasi pekerjaan)"
+    assert keterangan_sumber_daya("Semen Portland (PC)", "kg", 1001) == "≈ 21 zak @ 50 kg"
+    assert keterangan_sumber_daya("Pekerja", "OH", 3) == "orang-hari"
+
+
+def test_nama_sheet_lantai_aman_dan_unik():
+    from export_service import nama_sheet_lantai
+
+    pakai = {"rab", "rekap per lantai"}
+    a = nama_sheet_lantai(1, "03 LANTAI 3/MEZZANINE [baru]: *?", pakai)
+    assert not set("[]:*?/\\") & set(a) and len(a) <= 31 and a.startswith("Lt01 ")
+    panjang = "Lantai dengan nama yang sangat panjang sekali dari Revit"
+    b, c = nama_sheet_lantai(2, panjang, pakai), nama_sheet_lantai(2, panjang, pakai)
+    assert b != c and len(b) <= 31 and len(c) <= 31
+    assert nama_sheet_lantai(12, "Roof", pakai) == "Lt12 Roof"
+
+
+# ---------------------------------------------------------------- export
+
+
+def test_export_excel_satu_sheet_per_lantai(proyek_bertingkat, tmp_path):
+    from openpyxl import load_workbook
+
+    from export_service import OpsiExport, export_excel
+
+    _, d = proyek_bertingkat
+    path = export_excel(tmp_path / "rab.xlsx", d, {}, OpsiExport())
+    wb = load_workbook(path)
+    lembar = [n for n in wb.sheetnames if n.startswith("Lt")]
+    assert len(lembar) == N_LANTAI
+    assert lembar[3] == "Lt04 03 LANTAI 3 MEZZANINE" and lembar[4] == "Lt05 04 DAK ATAP"
+    assert "Kebutuhan per Lantai" in wb.sheetnames and "Rekap per Lantai" in wb.sheetnames
+    ws = wb[lembar[1]]
+    teks = [c.value for c in ws["B"] if isinstance(c.value, str)]
+    for judul in ("STRUKTUR BETON PER TIPE ELEMEN", "KEBUTUHAN BESI TULANGAN PER DIAMETER",
+                  "KEBUTUHAN BAHAN / MATERIAL (KOEFISIEN AHSP)", "KEBUTUHAN TENAGA KERJA (KOEFISIEN AHSP)",
+                  "RINCIAN PEKERJAAN (RAB RINCI LANTAI)"):
+        assert judul in teks
+    wk = wb["Kebutuhan per Lantai"]
+    judul_lantai = [c.value for c in next(r for r in wk.iter_rows() if r[0].value == "No")]
+    assert judul_lantai[3:3 + N_LANTAI] == [
+        "00 FONDASI", "01 LANTAI 1", "02 LANTAI 2", "03 LANTAI 3/MEZZANINE", "04 DAK [ATAP]"]
+    # opsi dimatikan: tidak ada sheet per lantai
+    path2 = export_excel(tmp_path / "rab2.xlsx", d, {}, OpsiExport(per_lantai=False, lantai=False))
+    assert not [n for n in load_workbook(path2).sheetnames if n.startswith("Lt") or "per Lantai" in n]
+
+
+@pytest.mark.skipif(shutil.which("soffice") is None, reason="LibreOffice tidak tersedia")
+def test_export_excel_per_lantai_rumus_cocok(proyek_bertingkat, tmp_path):
+    """Dihitung ulang LibreOffice: tidak ada #ERROR dan semua baris 'Selisih' bernilai 0."""
+    from openpyxl import load_workbook
+
+    from export_service import OpsiExport, export_excel
+
+    _, d = proyek_bertingkat
+    sumber = export_excel(tmp_path / "rab.xlsx", d, {}, OpsiExport(kolom=("no", "kode", "harga", "bobot")))
+    keluar = tmp_path / "hitung"
+    subprocess.run(["soffice", "--headless", "--calc", "--convert-to", "xlsx", "--outdir", str(keluar), sumber],
+                   check=True, capture_output=True, timeout=180, env=dict(os.environ, HOME=str(tmp_path)))
+    wb = load_workbook(keluar / "rab.xlsx", data_only=True)
+    selisih = 0
+    for ws in wb.worksheets:
+        for baris in ws.iter_rows():
+            for c in baris:
+                assert not (isinstance(c.value, str) and c.value.startswith("#")), f"{ws.title}!{c.coordinate} {c.value}"
+            if any(isinstance(c.value, str) and c.value.startswith("Selisih") for c in baris):
+                angka = [c.value for c in baris if isinstance(c.value, (int, float))]
+                assert angka and abs(angka[-1]) < 0.01, ws.title
+                selisih += 1
+    assert selisih >= N_LANTAI + 2
+    wl = wb["Rekap per Lantai"]
+    total = next(r for r in wl.iter_rows() if r[1].value == f"JUMLAH {N_LANTAI} LANTAI")
+    assert total[6].value == pytest.approx(d["ringkasan"]["langsung"], abs=0.5)
+
+
+def test_export_pdf_bagian_per_lantai(proyek_bertingkat, tmp_path):
+    from pypdf import PdfReader
+
+    from export_service import OpsiExport, export_pdf
+
+    _, d = proyek_bertingkat
+    path = export_pdf(tmp_path / "rab.pdf", d, {}, OpsiExport(orientasi_pdf="landscape"))
+    teks = " ".join(p.extract_text() for p in PdfReader(path).pages)
+    for i in range(1, N_LANTAI + 1):
+        assert f"RINCIAN KEBUTUHAN LANTAI {i} DARI {N_LANTAI}" in teks
+    assert "Kebutuhan besi per diameter per lantai" in teks and "REKAPITULASI BIAYA & KEBUTUHAN STRUKTUR PER LANTAI" in teks
+
+
+def test_export_duplex_empat_lantai(db_sementara, tmp_path):
+    """Model nyata Revit (IFC2x3) dengan 4 lantai termasuk fondasi dan atap."""
+    from openpyxl import load_workbook
+
+    from database.proyek_repository import create_proyek
+    from database.seed_data import seed_pekerjaan
+    from estimasi_service import jalankan_estimasi
+    from export_service import OpsiExport, ambil_data_export, export_excel
+
+    seed_pekerjaan()
+    pid = create_proyek("Duplex", str(DUPLEX))
+    jalankan_estimasi(pid)
+    path = export_excel(tmp_path / "d.xlsx", ambil_data_export(pid), {}, OpsiExport())
+    assert [n for n in load_workbook(path).sheetnames if n.startswith("Lt")] == [
+        "Lt01 T FDN", "Lt02 Level 1", "Lt03 Level 2", "Lt04 Roof"]
+
+
+# ---------------------------------------------------------------- tampilan
+
+
+def test_halaman_per_lantai_ringkas_dan_rinci(proyek_bertingkat):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    test_halaman_per_lantai_ringkas_dan_rinci.app = QApplication.instance() or QApplication([])
+    from gui.estimasi_page import SEMUA_LANTAI, EstimasiPage
+
+    pid, _ = proyek_bertingkat
+    hal = EstimasiPage(pid, "Rumah 5 Lantai")
+    hal.muat()
+    hal.grup_mode.button(hal.MODE_LANTAI).setChecked(True)
+    hal._isi_ulang()
+    t = hal.tabel
+    judul = [t.horizontalHeaderItem(i).text() for i in range(t.columnCount())]
+    assert judul[3:6] == ["BETON (m³)", "BEKISTING (m²)", "BESI (kg)"]
+    lantai = [t.item(r, 1).text() for r in range(t.rowCount())
+              if t.item(r, 0) and t.item(r, 0).text().isdigit()]
+    assert len(lantai) == N_LANTAI and lantai[0].startswith("00 FONDASI")
+    assert t.item(t.rowCount() - 1, 1).text() == f"JUMLAH {N_LANTAI} LANTAI"
+
+    hal._klik_ganda(0, 1)  # klik dua kali lantai pertama -> rincian lantai itu
+    assert hal.combo_lantai.currentText() == "00 FONDASI"
+    teks = [t.item(r, 1).text() for r in range(t.rowCount()) if t.item(r, 1)]
+    for judul in ("STRUKTUR BETON PER TIPE ELEMEN", "KEBUTUHAN BESI TULANGAN PER DIAMETER",
+                  "KEBUTUHAN BAHAN / MATERIAL (KOEFISIEN AHSP)", "RINCIAN PEKERJAAN (RAB RINCI LANTAI)"):
+        assert judul in teks
+    assert any(x.startswith("Kolom") for x in teks)
+    hal.combo_lantai.setCurrentText(SEMUA_LANTAI)
+    assert t.horizontalHeaderItem(3).text() == "BETON (m³)"

@@ -24,7 +24,7 @@ def _model_buatan(folder: Path) -> Path:
 
     f = api.run("project.create_file", version="IFC4")
     proj = api.run("root.create_entity", f, ifc_class="IfcProject", name="Uji Mandiri")
-    api.run("unit.assign_unit", f)
+    api.run("unit.assign_unit", f, length={"is_metric": True, "raw": "METERS"})  # profil kolom dalam meter
     model = api.run("context.add_context", f, context_type="Model")
     body = api.run("context.add_context", f, context_type="Model", context_identifier="Body",
                    target_view="MODEL_VIEW", parent=model)

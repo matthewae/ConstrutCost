@@ -57,6 +57,7 @@ class Preferensi:
     isi_rinci: bool = True  # RAB rinci per tipe elemen
     isi_besi: bool = True  # kebutuhan besi per diameter
     isi_lantai: bool = True  # KF-12 rekap per lantai
+    isi_per_lantai: bool = True  # rincian kebutuhan tiap lantai (satu sheet / bagian per lantai)
     kolom_laporan: str = "no,kode,harga"  # KF-17, dipisah koma
     orientasi_pdf: str = "portrait"
 
@@ -145,7 +146,7 @@ def simpan_pilihan_export(p: Preferensi) -> None:
     """Ingat pilihan dialog Export (format, isi, kolom, orientasi) sebagai bawaan berikutnya.
     Folder tidak divalidasi di sini; pengaturan lain tidak berubah."""
     kunci = ("format_excel", "format_pdf", "isi_rekap", "isi_detail", "isi_rinci", "isi_besi", "isi_lantai",
-             "kolom_laporan", "orientasi_pdf", "direktori_export")
+             "isi_per_lantai", "kolom_laporan", "orientasi_pdf", "direktori_export")
     conn = _connect()
     try:
         _pastikan_tabel(conn)
