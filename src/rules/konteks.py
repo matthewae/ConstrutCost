@@ -20,6 +20,7 @@ class Konteks:
     elevasi_lantai_dasar: float | None
     sumber_lantai: str | None  # "covering" | "ruang" | "pelat" | None
     sumber_plafon: str | None  # "covering" | "ruang" | "pelat" | None
+    ada_pelat_dasar: bool = False  # lantai dasar sudah berupa pelat beton (tidak perlu rabat beton)
 
 
 def _ada(elemen, kelas: ElementType) -> bool:
@@ -62,4 +63,9 @@ def siapkan_konteks(elemen: list) -> Konteks:
         elevasi_lantai_dasar=elev_dasar,
         sumber_lantai=sumber(ElementType.FLOOR),
         sumber_plafon=sumber(ElementType.CEILING),
+        ada_pelat_dasar=any(
+            e["kelas"] == ElementType.SLAB.value
+            and ((e.get("predefined_type") or "") == "BASESLAB" or e["di_lantai_dasar"])
+            for e in elemen
+        ),
     )

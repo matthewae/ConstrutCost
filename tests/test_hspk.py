@@ -2,8 +2,8 @@
 
 import pytest
 
-from database.hspk_bandung_2027 import AHSP, HSD
-from database.seed_data import PEMETAAN
+from database.hspk_bandung_2027 import HSD
+from database.seed_data import ANALISA, PEMETAAN
 
 
 def test_data_hspk_lengkap():
@@ -17,7 +17,7 @@ def test_data_hspk_lengkap():
 def test_analisa_hspk_sama_dengan_harga_dokumen(kode):
     """sum(koefisien x harga dasar) x 1,10 harus sama dengan harga F di dokumen HSPK."""
     _nama, _kategori, _satuan, kode_hspk = PEMETAAN[kode]
-    _sheet, _uraian, harga_f, komponen = AHSP[kode_hspk]
+    _sheet, _uraian, harga_f, komponen = ANALISA[kode_hspk]
     assert sum(k[3] * k[4] for k in komponen) * 1.10 == pytest.approx(harga_f, abs=1.0)
 
 
@@ -29,7 +29,7 @@ def test_harga_satuan_aplikasi_sama_dengan_hspk(db_sementara):
     seed_pekerjaan()
     beda = []
     for p in daftar_pekerjaan():
-        f = AHSP[PEMETAAN[p["kode_ahsp"]][3]][2]
+        f = ANALISA[PEMETAAN[p["kode_ahsp"]][3]][2]
         if abs(p["harga_satuan"] - f) > 1.0:
             beda.append((p["kode_ahsp"], round(p["harga_satuan"]), round(f)))
     assert beda == []

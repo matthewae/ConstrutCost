@@ -305,9 +305,10 @@ def terapkan_ke_estimasi(proyek_id: int | None = None) -> int:
             (SELECT SUM(kh.koefisien * kh.harga_satuan) FROM komponen_harga kh
               WHERE kh.pekerjaan_id = hasil_estimasi.pekerjaan_id), 0)
     """
+    sql += " WHERE harga_manual IS NULL"  # harga khusus proyek (KF-6) tidak ditimpa
     args = [BUK_RATE]
     if proyek_id is not None:
-        sql += " WHERE proyek_id = ?"
+        sql += " AND proyek_id = ?"
         args.append(proyek_id)
     conn = _connect()
     try:
@@ -335,6 +336,7 @@ def jumlah_estimasi_kedaluwarsa(toleransi: float = 0.5) -> int:
             WHERE ABS(he.subtotal_biaya - he.volume_pekerjaan * (1 + ?) * COALESCE(
                 (SELECT SUM(kh.koefisien * kh.harga_satuan) FROM komponen_harga kh
                   WHERE kh.pekerjaan_id = he.pekerjaan_id), 0)) > ?
+              AND he.harga_manual IS NULL
             """,
             (BUK_RATE, toleransi),
         ).fetchone()[0]

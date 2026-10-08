@@ -41,14 +41,14 @@ def test_kolom_dan_sheet_sesuai_pilihan(data_export, tmp_path):
     lengkap = tmp_path / "lengkap.xlsx"
     export_excel(lengkap, data_export, META, OpsiExport(kolom=("no", "kode", "harga", "bobot", "rumus")))
     wb = load_workbook(lengkap)
-    assert wb.sheetnames == ["RAB", "Rekapitulasi", "RAB Rinci", "Kebutuhan Besi", "Detail Elemen"]
+    assert wb.sheetnames == ["RAB", "Rekapitulasi", "RAB Rinci", "Kebutuhan Besi", "Rekap per Lantai", "Detail Elemen"]
     assert _header(wb["RAB"]) == [
         "No", "Kode Analisa", "Uraian Pekerjaan", "Volume", "Sat", "Harga Satuan (Rp)", "Jumlah Harga (Rp)", "Bobot",
     ]
     assert "Uraian Rumus" in _header(wb["Detail Elemen"])
 
     minimal = tmp_path / "minimal.xlsx"
-    export_excel(minimal, data_export, META, OpsiExport(kolom=(), rekap=False, rinci=False, besi=False, detail=False))
+    export_excel(minimal, data_export, META, OpsiExport(kolom=(), rekap=False, rinci=False, besi=False, detail=False, lantai=False))
     wb = load_workbook(minimal)
     assert wb.sheetnames == ["RAB"]
     # kolom wajib selalu ada

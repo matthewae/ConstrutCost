@@ -45,11 +45,10 @@ def terapkan_rules(elemen: dict, konteks: Konteks = None, parameter=PARAMETER_DE
             continue
         keluaran = rule.hitung(elemen, parameter)
         if isinstance(keluaran, list):  # satu aturan -> beberapa item (pembesian per diameter)
-            hasil.extend(
-                HasilRule(it.kode, it.berat, it.rumus, rule.keterangan, it.uraian, it.diameter)
-                for it in keluaran
-                if it.berat > 0
-            )
+            for it in keluaran:  # ItemBesi (berat) atau ItemHasil (nilai)
+                nilai = it.berat if hasattr(it, "berat") else it.nilai
+                if nilai and nilai > 0:
+                    hasil.append(HasilRule(it.kode, nilai, it.rumus, rule.keterangan, it.uraian, it.diameter))
             continue
         nilai, uraian = keluaran
         if nilai is None or nilai <= 0:

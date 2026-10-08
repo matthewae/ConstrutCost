@@ -19,16 +19,30 @@ Naikkan SEED_VERSI setiap kali isi seed diubah; seed otomatis diperbarui saat ap
 Harga dasar yang diubah pengguna dan komponen tambahan pengguna tidak ditimpa.
 """
 
+from database.ahsp_tambahan import AHSP_TAMBAHAN
 from database.estimasi_repository import _connect
 from database.hspk_bandung_2027 import AHSP, HSD, SUMBER
 from database.init_db import pastikan_skema
 
-SEED_VERSI = "6-hspk-bdg-2027-penulangan-per-diameter"
+SEED_VERSI = "7-hspk-bdg-2027-pekerjaan-tanah"
 
 SUMBER_HSPK = "HSPK Kota Bandung 2027"
 
+# Seluruh analisa yang bisa dipetakan: HSPK + analisa tambahan SNI (database/ahsp_tambahan.py)
+ANALISA = {**AHSP, **AHSP_TAMBAHAN}
+
 # kode aplikasi -> (nama pekerjaan di RAB, kategori, satuan, kode HSPK)
 PEMETAAN = {
+    # ---------------- Pekerjaan tanah (KF-4) ----------------
+    "TNH.GALIAN.1": ("Galian Tanah Biasa Sedalam 0 s.d. 1 m", "Tanah", "m3", "1.2.1.1.1"),
+    "TNH.GALIAN.2": ("Galian Tanah Biasa Sedalam > 1 s.d. 2 m", "Tanah", "m3", "1.2.1.1.4"),
+    "TNH.GALIAN.3": ("Galian Tanah Biasa Sedalam > 2 s.d. 3 m", "Tanah", "m3", "1.2.1.1.6"),
+    "TNH.URUG.KEMBALI": ("Urugan Tanah Kembali Bekas Galian", "Tanah", "m3", "SNI-2835-6.9"),
+    "TNH.PASIR.FONDASI": ("Urugan Pasir Bawah Fondasi", "Tanah", "m3", "SNI-2835-6.11"),
+    "TNH.PASIR.SLOOF": ("Urugan Pasir Bawah Sloof", "Tanah", "m3", "SNI-2835-6.11"),
+    "TNH.PASIR.LANTAI": ("Urugan Pasir Bawah Lantai", "Tanah", "m3", "SNI-2835-6.11"),
+    "LTK.FONDASI": ("Lantai Kerja Beton f'c 7,5 MPa Bawah Fondasi", "Fondasi", "m3", "2.2.1.4.1"),
+    "LTK.LANTAI": ("Rabat Beton f'c 7,5 MPa Bawah Lantai", "Lantai", "m3", "2.2.1.4.1"),
     # ---------------- Fondasi ----------------
     "FDN.BATUKALI": ("Pasangan Fondasi Batu Belah 1SP : 4PP", "Fondasi", "m3", "2.2.2.1.6"),
     "BTN.SUMURAN": ("Fondasi Sumuran Beton Masif", "Fondasi", "m3", "2.2.2.2.6"),
@@ -100,11 +114,15 @@ def _kunci(tipe: str, nama: str, satuan: str):
 
 
 def _seed_sumber_daya(conn) -> dict:
-    """Masukkan / perbarui seluruh harga dasar HSPK. Return {kunci: (id, harga)}.
+    """Masukkan / perbarui seluruh harga dasar HSPK. Return {kunci: (id, harga, harga_dokumen)}.
 
     Kunci = (tipe, nama, satuan) tanpa membedakan huruf besar/kecil, sehingga 'Semen Portland (PC)'
     dan 'Semen portland (PC)' adalah satu bahan. Bila ada nama ganda, harga pertama yang dipakai.
     Harga yang diubah pengguna (diubah_manual = 1) tidak ditimpa; harga_bawaan tetap diperbarui.
+
+    Bila analisa yang dipakai memakai harga lain untuk nama yang sama (mis. sheet Galian Tanah memakai
+    upah Pekerja Rp 219.263,24, sedangkan HSD Rp 206.513,24), dibuat sumber daya varian
+    "Pekerja (Galian Tanah)" agar harga satuan pekerjaan tetap sama dengan harga F dokumen.
     """
     ada = {
         _kunci(r["tipe"], r["nama"], r["satuan"]): r
@@ -122,27 +140,40 @@ def _seed_sumber_daya(conn) -> dict:
                 "INSERT INTO sumber_daya (tipe, nama, satuan, harga, harga_bawaan, sumber) VALUES (?,?,?,?,?,?)",
                 (tipe, " ".join(nama.split()), " ".join(satuan.split()), harga, harga, SUMBER_HSPK),
             ).lastrowid
-            peta[k] = (sid, harga)
+            peta[k] = (sid, harga, harga)
         elif r["diubah_manual"]:
             conn.execute("UPDATE sumber_daya SET harga_bawaan=?, sumber=? WHERE id=?", (harga, SUMBER_HSPK, r["id"]))
-            peta[k] = (r["id"], r["harga"])
+            peta[k] = (r["id"], r["harga"], harga)
         else:
             conn.execute(
                 "UPDATE sumber_daya SET harga=?, harga_bawaan=?, sumber=? WHERE id=?",
                 (harga, harga, SUMBER_HSPK, r["id"]),
             )
-            peta[k] = (r["id"], harga)
+            peta[k] = (r["id"], harga, harga)
 
     for tipe, nama, satuan, harga in HSD:
         simpan(tipe, nama, satuan, harga)
     # Komponen analisa yang tidak tercantum di daftar HSD ikut ditambahkan. Analisa yang dipakai
     # aplikasi diproses lebih dulu: bila nama yang sama punya harga berbeda di analisa lain
     # (mis. 'Pasir beton' per kg), harga milik analisa yang dipakai yang menang.
-    dipakai = [kode for _n, _k, _s, kode in PEMETAAN.values()]
+    dipakai = list(dict.fromkeys(kode for _n, _k, _s, kode in PEMETAAN.values()))
     for kode in dipakai + [k for k in AHSP if k not in set(dipakai)]:
-        for tipe, nama, satuan, _koef, harga in AHSP[kode][3]:
+        for tipe, nama, satuan, _koef, harga in ANALISA[kode][3]:
             simpan(tipe, nama, satuan, harga)
+    for kode in dipakai:
+        sheet = ANALISA[kode][0]
+        for tipe, nama, satuan, _koef, harga in ANALISA[kode][3]:
+            if _beda_harga(peta, tipe, nama, satuan, harga):
+                simpan(tipe, _nama_varian(nama, sheet), satuan, harga)
     return peta
+
+
+def _nama_varian(nama: str, sheet: str) -> str:
+    return f"{' '.join(nama.split())} ({sheet})"
+
+
+def _beda_harga(peta, tipe, nama, satuan, harga) -> bool:
+    return abs(peta[_kunci(tipe, nama, satuan)][2] - harga) > 0.005
 
 
 def _bersihkan_usang(conn, id_dipakai: set, kode_aktif: set) -> None:
@@ -179,8 +210,9 @@ def seed_pekerjaan():
 
         peta = _seed_sumber_daya(conn)
         for kode, (nama, kategori, satuan, kode_hspk) in PEMETAAN.items():
-            _sheet, uraian, harga_f, komponen = AHSP[kode_hspk]
-            catatan = f"{SUMBER} · {kode_hspk} · {uraian} (harga satuan dokumen Rp {harga_f:,.0f})".replace(",", ".")
+            sheet, uraian, harga_f, komponen = ANALISA[kode_hspk]
+            sumber = "SNI 2835:2008 (harga dasar HSPK Kota Bandung 2027)" if kode_hspk in AHSP_TAMBAHAN else SUMBER
+            catatan = f"{sumber} · {kode_hspk} · {uraian} (harga satuan dokumen Rp {harga_f:,.0f})".replace(",", ".")
             ada = conn.execute("SELECT id FROM pekerjaan WHERE kode_ahsp = ?", (kode,)).fetchone()
             if ada:
                 pid = ada["id"]
@@ -197,15 +229,17 @@ def seed_pekerjaan():
                     "INSERT INTO pekerjaan (kode_ahsp, nama_pekerjaan, kategori, satuan, catatan) VALUES (?,?,?,?,?)",
                     (kode, nama, kategori, satuan, catatan),
                 ).lastrowid
-            for tipe, nm, sk, koef, _harga in komponen:
-                sid, harga = peta[_kunci(tipe, nm, sk)]
+            for tipe, nm, sk, koef, harga_dok in komponen:
+                if _beda_harga(peta, tipe, nm, sk, harga_dok):
+                    nm = _nama_varian(nm, sheet)
+                sid, harga, _ = peta[_kunci(tipe, nm, sk)]
                 conn.execute(
                     "INSERT INTO komponen_harga (pekerjaan_id, tipe, nama_komponen, satuan, koefisien, "
                     "harga_satuan, sumber_daya_id) VALUES (?,?,?,?,?,?,?)",
                     (pid, tipe, nm, sk, koef, harga, sid),
                 )
 
-        _bersihkan_usang(conn, {sid for sid, _ in peta.values()}, set(PEMETAAN))
+        _bersihkan_usang(conn, {v[0] for v in peta.values()}, set(PEMETAAN))
         conn.execute(
             "INSERT OR REPLACE INTO preferensi_pengguna (kunci, nilai) VALUES ('seed_versi', ?)",
             (SEED_VERSI,),

@@ -7,6 +7,7 @@ Isi dokumen:
 - Rekapitulasi     : ringkasan biaya (KF-13): A per kategori, rincian B, PPN, total, terbilang.
 - RAB Rinci        : beton, bekisting, dan tulangan per tipe elemen (Kolom K1 20/25: 6 D13, ...).
 - Kebutuhan Besi   : berat, panjang, dan jumlah batang 12 m per diameter.
+- Rekap per Lantai : biaya tiap lantai dirinci per kategori (KF-12).
 - Detail Elemen    : volume tiap elemen dan lantai (KF-12), opsional dengan uraian rumus (KF-18).
 
 KF-17: kolom No, Kode Analisa, Harga Satuan, Bobot (%), dan Rumus dapat dipilih; Uraian, Volume,
@@ -22,7 +23,7 @@ from pathlib import Path
 from database.biaya_repository import ringkasan_biaya
 from database.estimasi_repository import BUK_RATE, PPN_RATE, _connect, get_hasil_estimasi_by_proyek
 from database.penulangan_repository import daftar_tipe, kebutuhan_besi
-from rab_rinci import URUTAN_KATEGORI, susun_rinci, urutan_kategori
+from rab_rinci import URUTAN_KATEGORI, rekap_per_lantai, susun_rinci, urutan_kategori
 
 log = logging.getLogger("coststruct.export")
 
@@ -46,6 +47,7 @@ class OpsiExport:
     rinci: bool = True
     besi: bool = True
     detail: bool = True
+    lantai: bool = True  # KF-12 rekap per lantai
     orientasi_pdf: str = "portrait"  # portrait / landscape
 
     def ada(self, kunci: str) -> bool:
@@ -153,6 +155,7 @@ def baris_detail(baris: list) -> list:
             "jumlah": r["subtotal_biaya"],
             "status": "Manual" if r["diedit_manual"] else ("Dimensi diubah" if r.get("dimensi_manual") else "Otomatis"),
             "rumus": r.get("rumus") or "",
+            "catatan": r.get("catatan") or "",
         })
     return sorted(hasil, key=lambda x: (x["lantai"], x["elemen"], x["kategori"], x["pekerjaan"]))
 
@@ -207,7 +210,7 @@ CATATAN = [
 ]
 
 
-def _kolom_tabel(opsi: OpsiExport, jenis: str = "rab") -> list:
+def _kolom_tabel(opsi: OpsiExport, jenis: str = "rab", ada_catatan: bool = False) -> list:
     """Daftar (kunci, judul, lebar_excel, lebar_pdf_relatif) sesuai pilihan kolom (KF-17)."""
     k = []
     if opsi.ada("no"):
@@ -225,6 +228,8 @@ def _kolom_tabel(opsi: OpsiExport, jenis: str = "rab") -> list:
         k.append(("bobot", "Bobot", 10, 1.0))
     if jenis == "detail":
         k.append(("status", "Status", 12, 1.1))
+        if ada_catatan:
+            k.append(("catatan", "Catatan", 30, 2.4))
         if opsi.ada("rumus"):
             k.append(("rumus", "Uraian Rumus", 70, 5.0))
     return k
@@ -504,10 +509,46 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
             wb_.cell(r, 2, f"{t['label']} — {t['jumlah_elemen']} buah: {t['ringkas']}").font = f_norm
         atur_cetak(wb_, hdr)
 
+    # ---------- Sheet Rekap per Lantai (KF-12) ----------
+    if opsi.lantai:
+        wl = wb.create_sheet("Rekap per Lantai")
+        for kol, lebar in zip("ABCDE", (7, 50, 12, 22, 11)):
+            wl.column_dimensions[kol].width = lebar
+        r = judul_sheet(wl, "REKAPITULASI BIAYA PER LANTAI", 5)
+        hdr = r
+        header(wl, r, ["No", "Lantai / Kategori Pekerjaan", "Elemen", "Jumlah (Rp)", "Bobot"])
+        r += 1
+        baris_lantai = []
+        for i, x in enumerate(rekap_per_lantai(data["baris"]), 1):
+            rl = r
+            gaya_baris(wl, rl, 5, f_bold, fill_kat)
+            wl.cell(rl, 1, i).alignment = Alignment(horizontal="center")
+            elev = "" if x["elevasi"] is None else f" (elevasi {_rp(x['elevasi'])} m)"
+            wl.cell(rl, 2, x["lantai"] + elev)
+            wl.cell(rl, 3, x["jumlah_elemen"])
+            r += 1
+            for k in x["kategori"]:
+                gaya_baris(wl, r, 5)
+                wl.cell(r, 2, "    " + k["kategori"])
+                wl.cell(r, 4, k["total"]).number_format = ANGKA
+                r += 1
+            wl.cell(rl, 4, f"=SUM(D{rl + 1}:D{r - 1})").number_format = ANGKA
+            baris_lantai.append(rl)
+        gaya_baris(wl, r, 5, f_bold)
+        wl.cell(r, 2, "JUMLAH BIAYA LANGSUNG").alignment = Alignment(horizontal="right")
+        wl.cell(r, 4, "=" + "+".join(f"D{x}" for x in baris_lantai)).number_format = ANGKA
+        for x in range(hdr + 1, r + 1):
+            if wl.cell(x, 4).value is not None:
+                wl.cell(x, 5, f"=IF($D${r}=0,0,D{x}/$D${r})").number_format = PERSEN
+        wl.cell(r + 2, 2, "Selisih terhadap sheet RAB (harus 0)").font = f_catatan
+        wl.cell(r + 2, 4, f"=D{r}-RAB!{cj}{baris_A}").number_format = ANGKA
+        wl.cell(r + 2, 4).font = f_catatan
+        atur_cetak(wl, hdr)
+
     # ---------- Sheet Detail Elemen ----------
     if opsi.detail:
         wd = wb.create_sheet("Detail Elemen")
-        kd = _kolom_tabel(opsi, "detail")
+        kd = _kolom_tabel(opsi, "detail", any(r.get("catatan") for r in data["baris"]))
         cd = {k[0]: i + 1 for i, k in enumerate(kd)}
         for i, k in enumerate(kd, 1):
             wd.column_dimensions[L(i)].width = k[2]
@@ -525,7 +566,7 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
                 s = wd.cell(r, idx, nilai[kunci])
                 if kunci in ("volume", "harga"):
                     s.number_format = ANGKA
-                if kunci in ("uraian", "rumus"):
+                if kunci in ("uraian", "rumus", "catatan"):
                     s.alignment = Alignment(wrap_text=True, vertical="top")
             if "harga" in cd:
                 wd.cell(r, cd["jumlah"], f"={L(cd['volume'])}{r}*{L(cd['harga'])}{r}")
@@ -733,9 +774,28 @@ def export_pdf(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -> 
         for tp in data["tipe"]:
             story.append(Paragraph(_esc(f"• {tp['label']} — {tp['jumlah_elemen']} buah: {tp['ringkas']}"), s_info))
 
+    if opsi.lantai:
+        story += [PageBreak()] + kop("REKAPITULASI BIAYA PER LANTAI")
+        lb = [[Paragraph(t, s_head) for t in ("No", "Lantai / Kategori Pekerjaan", "Elemen", "Jumlah (Rp)", "Bobot")]]
+        gaya = list(dasar) + [("ALIGN", (2, 1), (-1, -1), "RIGHT"), ("ALIGN", (0, 1), (0, -1), "CENTER")]
+        for i, x in enumerate(rekap_per_lantai(data["baris"]), 1):
+            elev = "" if x["elevasi"] is None else f" (elevasi {_rp(x['elevasi'])} m)"
+            lb.append([str(i), Paragraph(_esc(x["lantai"] + elev), s_selb), str(x["jumlah_elemen"]),
+                       _rp(x["total"]), _persen(x["total"] / total_A)])
+            gaya += [("BACKGROUND", (0, len(lb) - 1), (-1, len(lb) - 1), biru),
+                     ("FONTNAME", (0, len(lb) - 1), (-1, len(lb) - 1), "Helvetica-Bold")]
+            for k in x["kategori"]:
+                lb.append(["", Paragraph("&nbsp;&nbsp;&nbsp;&nbsp;" + _esc(k["kategori"]), s_sel), "",
+                           _rp(k["total"]), _persen(k["total"] / total_A)])
+        lb.append(["", "JUMLAH BIAYA LANGSUNG", "", _rp(ring["langsung"]), "100,00%"])
+        gaya.append(("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"))
+        t = Table(lb, colWidths=[lebar_isi * x for x in (0.07, 0.5, 0.11, 0.2, 0.12)], repeatRows=1)
+        t.setStyle(TableStyle(gaya))
+        story.append(t)
+
     if opsi.detail:
         story += [PageBreak()] + kop("DETAIL VOLUME PER ELEMEN & LANTAI")
-        kd = _kolom_tabel(opsi, "detail")
+        kd = _kolom_tabel(opsi, "detail", any(r.get("catatan") for r in data["baris"]))
         cd = {k[0]: i for i, k in enumerate(kd)}
         db = [[Paragraph(k[1], s_head) for k in kd]]
         for n, d in enumerate(baris_detail(data["baris"]), 1):
@@ -747,9 +807,9 @@ def export_pdf(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -> 
                     baris[idx] = _rp(v, 3)
                 elif kunci in ("harga", "jumlah"):
                     baris[idx] = _rp(v)
-                elif kunci == "rumus":
+                elif kunci in ("rumus",):
                     baris[idx] = Paragraph(_esc(v), s_mono)
-                elif kunci in ("lantai", "elemen", "uraian", "kode"):
+                elif kunci in ("lantai", "elemen", "uraian", "kode", "catatan"):
                     baris[idx] = Paragraph(_esc(v), s_sel)
                 else:
                     baris[idx] = v

@@ -127,6 +127,8 @@ class ExportDialog(QDialog):
         self.cek_rekap = QCheckBox("Rekapitulasi biaya")
         self.cek_rinci = QCheckBox("RAB rinci per tipe elemen")
         self.cek_besi = QCheckBox("Kebutuhan besi per diameter")
+        self.cek_lantai = QCheckBox("Rekap biaya per lantai")
+        self.cek_lantai.setChecked(pref.isi_lantai)
         self.cek_detail = QCheckBox("Detail volume per elemen && lantai")
         self.cek_rekap.setChecked(pref.isi_rekap)
         self.cek_rinci.setChecked(pref.isi_rinci)
@@ -136,7 +138,7 @@ class ExportDialog(QDialog):
             cek.setCursor(Qt.PointingHandCursor)
             cek.toggled.connect(self._perbarui_tombol)
             cek.toggled.connect(self._perbarui_nama_file)
-        for cek in (self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_detail):
+        for cek in (self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_detail):
             cek.setCursor(Qt.PointingHandCursor)
         self.combo_orientasi = QComboBox()
         self.combo_orientasi.addItem("PDF tegak (portrait)", "portrait")
@@ -167,6 +169,7 @@ class ExportDialog(QDialog):
                 (self.cek_rekap, "A, B, PPN, total, terbilang"),
                 (self.cek_rinci, "Beton, bekisting, tulangan per tipe"),
                 (self.cek_besi, "Berat & batang 12 m per Ø/D"),
+                (self.cek_lantai, "Biaya tiap lantai per kategori"),
                 (self.cek_detail, "Volume tiap elemen dan lantai"),
             ],
         )
@@ -224,6 +227,9 @@ class ExportDialog(QDialog):
         self.btn_export.setCursor(Qt.PointingHandCursor)
         self.btn_export.setDefault(True)
         self.btn_export.clicked.connect(self._export)
+        self.btn_pratinjau = tema.tombol("Pratinjau", "secondary", "file", "Lihat laporan sebelum export (KF-6)")
+        self.btn_pratinjau.clicked.connect(self._pratinjau)
+        baris_tombol.insertWidget(0, self.btn_pratinjau)
         baris_tombol.addWidget(btn_batal)
         baris_tombol.addWidget(self.btn_export)
         root.addLayout(baris_tombol)
@@ -336,12 +342,7 @@ class ExportDialog(QDialog):
     def proses_export(self):
         """Return (daftar_file_berhasil, daftar_pesan_gagal)."""
         data = ambil_data_export(self.proyek_id)
-        meta = {
-            "nama_proyek": self.edit_nama.text().strip() or data["nama_proyek"],
-            "lokasi": self.edit_lokasi.text().strip(),
-            "pemilik": self.edit_pemilik.text().strip(),
-            "tahun": self.spin_tahun.value(),
-        }
+        meta = self._meta(data)
         folder = Path(self.edit_folder.text().strip())
         folder.mkdir(parents=True, exist_ok=True)
         opsi = self.opsi()
@@ -369,6 +370,40 @@ class ExportDialog(QDialog):
             self._ingat_pilihan()
         return berhasil, gagal
 
+    def _meta(self, data) -> dict:
+        return {
+            "nama_proyek": self.edit_nama.text().strip() or data["nama_proyek"],
+            "lokasi": self.edit_lokasi.text().strip(),
+            "pemilik": self.edit_pemilik.text().strip(),
+            "tahun": self.spin_tahun.value(),
+        }
+
+    def buat_pratinjau(self, folder) -> Path:
+        """PDF sementara dengan isi & kolom pilihan saat ini (untuk dialog pratinjau)."""
+        data = ambil_data_export(self.proyek_id)
+        tujuan = Path(folder) / "pratinjau.pdf"
+        export_pdf(tujuan, data, self._meta(data), self.opsi())
+        return tujuan
+
+    def _pratinjau(self):
+        import tempfile
+
+        from gui.pratinjau_dialog import PratinjauDialog
+
+        self._folder_pratinjau = tempfile.TemporaryDirectory(prefix="coststruct_")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            path = self.buat_pratinjau(self._folder_pratinjau.name)
+        except Exception as e:  # KF-14
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "Pratinjau Gagal", str(e))
+            return
+        QApplication.restoreOverrideCursor()
+        dialog = PratinjauDialog(str(path), self.edit_nama.text().strip() or self.nama_proyek, self)
+        dialog.btn_export.setEnabled(self.btn_export.isEnabled())
+        if dialog.exec() == QDialog.Accepted:
+            self._export()
+
     def opsi(self) -> OpsiExport:
         return OpsiExport(
             kolom=tuple(k for k, c in self.cek_kolom.items() if c.isChecked()),
@@ -376,6 +411,7 @@ class ExportDialog(QDialog):
             rinci=self.cek_rinci.isChecked(),
             besi=self.cek_besi.isChecked(),
             detail=self.cek_detail.isChecked(),
+            lantai=self.cek_lantai.isChecked(),
             orientasi_pdf=self.combo_orientasi.currentData(),
         )
 
@@ -386,7 +422,7 @@ class ExportDialog(QDialog):
             simpan_pilihan_export(replace(
                 muat_preferensi(),
                 format_excel=self.cek_excel.isChecked(), format_pdf=self.cek_pdf.isChecked(),
-                isi_rekap=o.rekap, isi_rinci=o.rinci, isi_besi=o.besi, isi_detail=o.detail,
+                isi_rekap=o.rekap, isi_rinci=o.rinci, isi_besi=o.besi, isi_detail=o.detail, isi_lantai=o.lantai,
                 kolom_laporan=",".join(o.kolom), orientasi_pdf=o.orientasi_pdf,
                 direktori_export=self.edit_folder.text().strip(),
             ))

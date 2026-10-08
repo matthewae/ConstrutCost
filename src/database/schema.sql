@@ -94,7 +94,9 @@ CREATE TABLE IF NOT EXISTS hasil_estimasi (
     diedit_manual INTEGER DEFAULT 0,  -- untuk KF-6
     rumus TEXT,                       -- uraian perhitungan rule (dasar KF-18)
     uraian TEXT,                      -- rincian item, mis. 'Tulangan utama 6 D13'
-    diameter REAL                     -- mm, khusus pembesian
+    diameter REAL,                    -- mm, khusus pembesian
+    harga_manual REAL,                -- KF-6: harga satuan khusus baris ini (NULL = harga master)
+    catatan TEXT                      -- KF-6: catatan pengguna
 );
 
 -- tipe_penulangan: konfigurasi tulangan per tipe elemen dalam satu proyek (K1 20/25, P1 t=12, ...)

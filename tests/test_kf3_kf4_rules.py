@@ -71,9 +71,11 @@ def test_batu_kali_dinding_rumus_trapesium():
 
 def test_fondasi_menerus_model_jadi_batu_kali_dan_footplate_jadi_beton():
     h, _ = _hasil(_el("FOOTING", predefined_type="STRIP_FOOTING", volume=4.9, panjang=17, lebar=0.9, tebal=0.3))
-    assert set(h) == {"FDN.BATUKALI"}
+    assert set(h) == {"FDN.BATUKALI", "TNH.GALIAN.1", "TNH.PASIR.FONDASI", "TNH.URUG.KEMBALI"}
     h, _ = _hasil(_el("FOOTING", predefined_type="PAD_FOOTING", volume=0.36, panjang=1.2, lebar=1.2, tebal=0.25, keliling=4.8))
-    assert set(h) == {"BTN.FONDASI", "BSI.FONDASI.U", "BSK.FONDASI"}
+    assert set(h) == {
+        "BTN.FONDASI", "BSI.FONDASI.U", "BSK.FONDASI", "TNH.GALIAN.2", "LTK.FONDASI", "TNH.URUG.KEMBALI",
+    }
     assert h["BSK.FONDASI"].volume == pytest.approx(4.8 * 0.25)
 
 

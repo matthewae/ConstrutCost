@@ -25,7 +25,7 @@ KOLOM_TAMBAHAN = {
         "dimensi_manual": "INTEGER DEFAULT 0",
         "tipe_id": "INTEGER",
     },
-    "hasil_estimasi": {"rumus": "TEXT", "uraian": "TEXT", "diameter": "REAL"},
+    "hasil_estimasi": {"rumus": "TEXT", "uraian": "TEXT", "diameter": "REAL", "harga_manual": "REAL", "catatan": "TEXT"},
     "komponen_harga": {"sumber_daya_id": "INTEGER REFERENCES sumber_daya(id)"},
 }
 

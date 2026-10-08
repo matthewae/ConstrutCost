@@ -26,7 +26,7 @@ from typing import Callable
 
 from klasifikasi import ElementType as T
 
-from . import penulangan
+from . import penulangan, tanah
 from .konteks import Konteks
 from .parameter import ParameterEstimasi
 
@@ -272,6 +272,49 @@ FONDASI_MENERUS = ("STRIP_FOOTING",)
 SLOOF = ("FOOTING_BEAM",)
 
 
+# ---------------------------------------------------------------- pekerjaan tanah (KF-4)
+
+
+def _tanah_batu_kali_dinding(e, p):
+    nilai, _ = _batu_kali_dinding(e, p)
+    return tanah.fondasi_menerus(p.batu_kali_lebar_bawah, p.batu_kali_tinggi, e["panjang"], nilai, p)
+
+
+def _tanah_fondasi_menerus(e, p):
+    return tanah.fondasi_menerus(e["lebar"], e["tebal"], e["panjang"], e["volume"], p)
+
+
+def _tanah_footplate(e, p):
+    return tanah.footplate(e.get("panjang"), e.get("lebar"), e["tebal"], e["volume"], p)
+
+
+def _tanah_sumuran(e, p):
+    return tanah.sumuran(p.sumuran_diameter, p.sumuran_kedalaman, p.sumuran_jumlah_tiang,
+                         p.poer_panjang, p.poer_lebar, p.poer_tebal, p)
+
+
+def _tanah_tiang(e, p):
+    return tanah.tiang(e["volume"], e.get("panjang") or 0.0)
+
+
+def _tanah_sloof(e, p):
+    return tanah.pasir_sloof(e["lebar"], e["panjang"], p)
+
+
+def _tanah_lantai(rabat):
+    return lambda e, p: tanah.lantai_dasar(e["luas"], p, rabat)
+
+
+def _pelat_dasar(e, k, p):
+    # pelat di atas tanah: BASESLAB atau pelat lantai pada lantai dasar
+    return (e.get("predefined_type") or "") == "BASESLAB" or e.get("di_lantai_dasar", False)
+
+
+def _lantai_tanpa_pelat(sumber):
+    # lantai dasar tanpa pelat beton: urugan pasir + rabat beton di bawah keramik
+    return lambda e, k, p: e.get("di_lantai_dasar", False) and not k.ada_pelat_dasar and k.sumber_lantai == sumber
+
+
 # ---------------------------------------------------------------- basis aturan
 
 RULES = [
@@ -324,6 +367,16 @@ RULES = [
     Rule("KRM.LANTAI", T.SLAB, _luas("asumsi: luas keramik = luas pelat"), ("luas",), syarat=_sumber_lantai("pelat")),
     # ===== Keramik dinding ruang basah (Rumus 2.14 - 2.15) =====
     Rule("KRM.DINDING", T.SPACE, _keramik_dinding, ("keliling",), syarat=_ruang_basah),
+    # ===== Pekerjaan tanah (KF-4): diturunkan dari fondasi & lantai dasar =====
+    Rule("TNH.FONDASI", T.WALL, _tanah_batu_kali_dinding, ("panjang",), syarat=_fondasi_turunan, keterangan="Galian & urugan fondasi batu kali"),
+    Rule("TNH.FONDASI", T.FOOTING, _tanah_fondasi_menerus, ("lebar", "tebal", "panjang", "volume"), syarat=_pre(*FONDASI_MENERUS)),
+    Rule("TNH.FONDASI", T.FOOTING, _tanah_footplate, ("tebal", "volume"), syarat=_bukan_pre(*FONDASI_MENERUS, *SLOOF)),
+    Rule("TNH.FONDASI", T.COLUMN, _tanah_sumuran, syarat=_fondasi_turunan, keterangan="Galian sumuran (turunan)"),
+    Rule("TNH.FONDASI", T.PILE, _tanah_tiang, ("volume",)),
+    Rule("TNH.SLOOF", T.FOOTING, _tanah_sloof, ("lebar", "panjang"), syarat=_pre(*SLOOF)),
+    Rule("TNH.LANTAI", T.SLAB, _tanah_lantai(False), ("luas",), syarat=_pelat_dasar),
+    Rule("TNH.LANTAI", T.FLOOR, _tanah_lantai(True), ("luas",), syarat=_lantai_tanpa_pelat("covering")),
+    Rule("TNH.LANTAI", T.SPACE, _tanah_lantai(True), ("luas",), syarat=_lantai_tanpa_pelat("ruang")),
     # ===== Plafon (Rumus 2.16): sumber dipilih preprocessor =====
     *[
         Rule(kode, kelas, _luas(ket), ("luas",), syarat=_sumber_plafon(sumber))

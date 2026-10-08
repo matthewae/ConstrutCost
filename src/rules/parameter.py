@@ -31,6 +31,14 @@ class ParameterEstimasi:
     poer_lebar: float = 0.80  # m
     poer_tebal: float = 0.25  # m
 
+    # --- Pekerjaan tanah (KF-4): galian, urugan pasir, lantai kerja, urugan kembali ---
+    ruang_kerja_galian: float = 0.10  # m, kelonggaran galian tiap sisi fondasi
+    tebal_pasir_fondasi: float = 0.05  # m, urugan pasir bawah fondasi batu kali
+    tebal_pasir_sloof: float = 0.05  # m, urugan pasir bawah sloof
+    tebal_pasir_lantai: float = 0.05  # m, urugan pasir bawah lantai dasar
+    tebal_lantai_kerja: float = 0.05  # m, lantai kerja f'c 7,5 MPa bawah footplate / rabat lantai
+    kedalaman_fondasi_telapak: float = 1.00  # m, muka tanah ke dasar footplate (tanpa lantai kerja)
+
     # --- Dinding ---
     jumlah_sisi_plester: int = 2  # plester dan acian dua sisi
     jumlah_sisi_cat: int = 2  # cat dasar dua sisi (Rumus 2.17 - 2.19)

@@ -39,12 +39,15 @@ def get_hasil_estimasi_by_proyek(proyek_id: int):
                 he.rumus,
                 he.uraian,
                 he.diameter,
+                he.harga_manual,
+                he.catatan,
                 p.kode_ahsp,
                 p.nama_pekerjaan,
                 p.kategori,
                 p.satuan,
                 ep.nama AS nama_elemen,
                 ep.lantai,
+                ep.elevasi_lantai,
                 ep.kelas,
                 ep.ifc_type,
                 ep.global_id,
@@ -78,6 +81,10 @@ def get_hasil_estimasi_by_proyek(proyek_id: int):
         conn.close()
 
 
+class NilaiTidakValid(ValueError):
+    """Isian edit hasil estimasi ditolak (KF-14). Pesannya siap ditampilkan ke pengguna."""
+
+
 def get_harga_satuan_pekerjaan(pekerjaan_id: int) -> float:
     """Harga satuan AHSP/HSPK: total (koefisien x harga_satuan) komponen bahan/upah/alat + BUK."""
     conn = _connect()
@@ -102,7 +109,14 @@ def update_volume_estimasi(hasil_id: int, pekerjaan_id: int, volume_baru: float)
 
     Return subtotal_biaya baru supaya UI bisa langsung update tanpa query ulang.
     """
-    harga_satuan = get_harga_satuan_pekerjaan(pekerjaan_id)
+    if volume_baru < 0:
+        raise NilaiTidakValid("Volume tidak boleh negatif.")
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT harga_manual FROM hasil_estimasi WHERE id = ?", (hasil_id,)).fetchone()
+    finally:
+        conn.close()
+    harga_satuan = row["harga_manual"] if row and row["harga_manual"] else get_harga_satuan_pekerjaan(pekerjaan_id)
     subtotal_baru = volume_baru * harga_satuan
 
     conn = _connect()
@@ -129,5 +143,43 @@ def get_total_rab(proyek_id: int) -> float:
             (proyek_id,),
         ).fetchone()
         return row["total"] if row else 0.0
+    finally:
+        conn.close()
+
+# ---------------------------------------------------------------- KF-6 edit harga & catatan
+
+
+def ubah_harga_baris(hasil_ids, harga: float | None) -> None:
+    """Pakai harga satuan khusus untuk baris hasil tertentu (mis. harga negosiasi proyek ini).
+    harga None = kembali ke harga master (analisa harga satuan). Subtotal dihitung ulang."""
+    if harga is not None and (harga != harga or harga <= 0):
+        raise NilaiTidakValid("Harga satuan harus lebih besar dari nol.")
+    conn = _connect()
+    try:
+        for hid in hasil_ids:
+            r = conn.execute("SELECT pekerjaan_id, volume_pekerjaan FROM hasil_estimasi WHERE id = ?", (hid,)).fetchone()
+            if r is None:
+                continue
+            h = harga if harga is not None else conn.execute(
+                "SELECT COALESCE(SUM(koefisien * harga_satuan), 0) FROM komponen_harga WHERE pekerjaan_id = ?",
+                (r["pekerjaan_id"],),
+            ).fetchone()[0] * (1 + BUK_RATE)
+            conn.execute(
+                "UPDATE hasil_estimasi SET harga_manual = ?, subtotal_biaya = ? WHERE id = ?",
+                (harga, r["volume_pekerjaan"] * h, hid),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def ubah_catatan(hasil_id: int, catatan: str) -> None:
+    teks = " ".join((catatan or "").split())
+    if len(teks) > 500:
+        raise NilaiTidakValid("Catatan maksimal 500 karakter.")
+    conn = _connect()
+    try:
+        conn.execute("UPDATE hasil_estimasi SET catatan = ? WHERE id = ?", (teks or None, hasil_id))
+        conn.commit()
     finally:
         conn.close()

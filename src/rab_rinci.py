@@ -102,3 +102,43 @@ def susun_rinci(baris: list) -> list:
             })
         hasil.append({"kategori": nama, "grup": grup, "total": sum(g["total"] for g in grup)})
     return hasil
+
+
+# ---------------------------------------------------------------- KF-12 rekap per lantai
+
+TANPA_LANTAI = "Tanpa lantai"
+
+
+def daftar_lantai(baris: list) -> list:
+    """Nama lantai urut elevasi (terendah dulu); baris tanpa lantai di akhir."""
+    elev = {}
+    for r in baris:
+        nama = r.get("lantai") or TANPA_LANTAI
+        e = r.get("elevasi_lantai")
+        if nama not in elev or (e is not None and (elev[nama] is None or e < elev[nama])):
+            elev[nama] = e
+    return sorted(elev, key=lambda n: (n == TANPA_LANTAI, elev[n] if elev[n] is not None else float("inf"), n))
+
+
+def rekap_per_lantai(baris: list) -> list:
+    """KF-12: biaya per lantai, dirinci per kategori pekerjaan.
+    Return [{'lantai', 'elevasi', 'jumlah_elemen', 'total', 'kategori': [{'kategori', 'total'}]}]."""
+    data = {}
+    for r in baris:
+        nama = r.get("lantai") or TANPA_LANTAI
+        d = data.setdefault(nama, {"lantai": nama, "elevasi": r.get("elevasi_lantai"), "elemen": set(), "kat": {}})
+        if r.get("elemen_id"):
+            d["elemen"].add(r["elemen_id"])
+        d["kat"][r["kategori"]] = d["kat"].get(r["kategori"], 0.0) + r["subtotal_biaya"]
+    hasil = []
+    for nama in daftar_lantai(baris):
+        d = data[nama]
+        kat = [{"kategori": k, "total": d["kat"][k]} for k in sorted(d["kat"], key=urutan_kategori)]
+        hasil.append({
+            "lantai": nama,
+            "elevasi": d["elevasi"],
+            "jumlah_elemen": len(d["elemen"]),
+            "total": sum(k["total"] for k in kat),
+            "kategori": kat,
+        })
+    return hasil
