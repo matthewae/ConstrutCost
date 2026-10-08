@@ -1,11 +1,6 @@
 """
 KF-13 Ringkasan biaya: biaya langsung (per pekerjaan / kategori), biaya tidak langsung, PPN.
 
-Sesuai BAB II subbab 2.4.2.5, biaya tidak langsung (perencanaan, pengawasan, perizinan,
-operasional, dsb.) tidak dihitung otomatis oleh sistem, tetapi dimasukkan pengguna per proyek,
-baik sebagai persentase dari biaya langsung maupun nilai rupiah tetap. Susunan ringkasan
-mengikuti rekapitulasi RAB yang lazim:
-
     A. Biaya langsung               = Σ (volume x harga satuan)      (BUK 10% sudah di harga satuan)
     B. Biaya tidak langsung         = Σ item (persen x A, atau nilai Rp)
        Jumlah                       = A + B
