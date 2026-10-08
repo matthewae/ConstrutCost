@@ -265,6 +265,8 @@ QFrame#banner[jenis="peringatan"] {{ background-color: {c['peringatan_lembut']};
 QFrame#banner[jenis="info"] {{ background-color: {c['aksen_lembut']}; border: 1px solid {c['aksen_garis']}; }}
 QFrame#banner[jenis="peringatan"] QLabel {{ color: {c['peringatan']}; }}
 QFrame#banner[jenis="info"] QLabel {{ color: {c['info_teks']}; }}
+QLabel#keteranganMode {{ background-color: {c['aksen_lembut']}; border: 1px solid {c['aksen_garis']}; border-radius: 8px;
+    padding: 7px 12px; color: {c['info_teks']}; font-size: 12px; }}
 
 /* ---------- toast ---------- */
 QFrame#toast {{ background-color: {c['permukaan_3']}; border: 1px solid {c['garis_kuat']}; border-radius: 10px; }}
@@ -747,7 +749,7 @@ def siapkan_tabel(tabel: QTableWidget, judul_kolom: list, rata_kanan=(), tinggi_
     tabel.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
 
 
-def atur_lebar(tabel: QTableWidget, stretch: int, isi_konten=(), minimum: int = 220) -> None:
+def atur_lebar(tabel: QTableWidget, stretch: int, isi_konten=(), minimum: int = 170) -> None:
     """Kolom `stretch` mengisi sisa lebar, tetapi tidak pernah lebih sempit dari `minimum` piksel:
     di layar sempit / skala Windows besar tabel bergulir ke samping, judul (mis. nama lantai) tetap terbaca."""
     h = tabel.horizontalHeader()

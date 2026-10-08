@@ -398,23 +398,23 @@ class ExportDialog(QDialog):
             tugas.append(("PDF", "pdf", export_pdf))
 
         berhasil, gagal = [], []
+        self._catatan_nama = []
         for label, ekstensi, fungsi in tugas:
             tujuan = folder / nama_file_default(meta["nama_proyek"], ekstensi)
             try:
-                fungsi(tujuan, data, meta, opsi)
-                berhasil.append(tujuan)
-            except PermissionError as e:
-                catat("galat", f"Export {label} gagal: {tujuan} sedang dibuka / akses ditolak", self.proyek_id,
-                      detail=repr(e), tingkat="GALAT")
-                gagal.append(
-                    f"{label}: file '{tujuan.name}' sedang dibuka di program lain atau folder tidak bisa ditulis. "
-                    "Tutup file tersebut atau pilih folder lain, lalu coba lagi."
-                )
-            except Exception as e:  # KF-14: pesan jelas + saran solusi, rincian di log
+                hasil = Path(fungsi(tujuan, data, meta, opsi))
+                berhasil.append(hasil)
+                if hasil.name != tujuan.name:  # file lama terkunci: disimpan dengan nama baru (tulis_aman)
+                    self._catatan_nama.append(
+                        f"{tujuan.name} sedang dikunci program lain (mis. Excel di latar belakang, panel Preview "
+                        f"File Explorer, atau antivirus/OneDrive), jadi hasil disimpan sebagai {hasil.name}."
+                    )
+            except Exception as e:  # KF-14: pesan jelas + saran solusi, rincian teknis di Riwayat Aktivitas
                 pesan, saran = pesan_galat(e)
                 catat("galat", f"Export {label} gagal: {pesan}", self.proyek_id,
                       detail="".join(traceback.format_exception(e)), tingkat="GALAT")
-                gagal.append(f"{label}: {pesan}" + (f"\n{saran}" if saran else ""))
+                teknis = f"{type(e).__name__}: {e}"
+                gagal.append(f"{label}: {pesan}" + (f"\n{saran}" if saran else "") + f"\n(Rincian: {teknis})")
         if berhasil:
             self._ingat_pilihan()
         return berhasil, gagal
@@ -491,7 +491,7 @@ class ExportDialog(QDialog):
         QApplication.restoreOverrideCursor()
 
         if gagal:
-            QMessageBox.warning(self, "Sebagian Gagal", "\n\n".join(gagal))
+            QMessageBox.warning(self, "Sebagian Gagal" if berhasil else "Export Gagal", "\n\n".join(gagal))
         if berhasil:
             kotak = QMessageBox(self)
             kotak.setIcon(QMessageBox.Information)
@@ -499,7 +499,7 @@ class ExportDialog(QDialog):
             kotak.setText(
                 "File berhasil dibuat:\n" + "\n".join(f"- {p.name}" for p in berhasil)
             )
-            kotak.setInformativeText(str(berhasil[0].parent))
+            kotak.setInformativeText("\n\n".join([str(berhasil[0].parent)] + getattr(self, "_catatan_nama", [])))
             btn_folder = kotak.addButton("Buka Folder", QMessageBox.ActionRole)
             kotak.addButton("Tutup", QMessageBox.RejectRole)
             kotak.exec()

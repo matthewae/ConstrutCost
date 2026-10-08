@@ -86,6 +86,22 @@ from rab_rinci import TANPA_LANTAI, daftar_lantai, susun_rinci, urutan_kategori
 from rules.dimensi import kolom_dimensi
 from rules.penulangan import label_tipe
 
+# Penjelasan tiap mode tampilan, ditampilkan di atas tabel agar beda Rekap RAB dan RAB Rinci jelas.
+KETERANGAN_MODE = (
+    ("REKAP RAB · per item pekerjaan",
+     "Satu baris untuk setiap item pekerjaan (mis. \"Beton Kolom f'c 20 MPa\" = jumlah volume semua kolom), "
+     "dikelompokkan per bagian. Bentuk ringkas untuk dokumen RAB resmi / penawaran (sheet \"RAB\")."),
+    ("RAB RINCI · per tipe elemen",
+     "Setiap item dipecah: struktur per tipe seperti RAP konsultan (Kolom K1 (20/25) — 12 buah → Beton, Bekisting, "
+     "Tulangan utama 6 D13, Sengkang Ø10-150), pekerjaan lain per tipe elemen IFC (Pasangan dinding bata → Exterior "
+     "Brick — 16 buah, Interior 100 mm — 9 buah). Total biayanya sama dengan Rekap RAB (sheet \"RAB Rinci\")."),
+    ("PER LANTAI · biaya & kebutuhan tiap lantai",
+     "Judul lantai dan bagian pekerjaan beserta beton, bekisting, dan besi. Pilih lantai atau bagian untuk "
+     "rincian perhitungan (susunan RAP + backup volume) di panel kanan."),
+    ("DETAIL PER ELEMEN · bisa diedit",
+     "Satu baris untuk setiap elemen IFC dan pekerjaannya. Volume, harga satuan khusus, catatan, dan dimensi "
+     "elemen bisa diubah di sini; Rekap, Rinci, dan Per Lantai ikut menyesuaikan."),
+)
 SEMUA_KATEGORI = "Semua kategori"
 SEMUA_LANTAI = "Semua lantai"
 LABEL_DIMENSI = [
@@ -262,15 +278,23 @@ class EstimasiPage(QWidget):
 
         # --- Toolbar: mode + cari + kategori ---
         self.baris_alat = QWidget()
-        alat = QHBoxLayout(self.baris_alat)
-        alat.setContentsMargins(0, 0, 0, 0)
-        alat.setSpacing(10)
+        # Dua baris agar tidak berdesakan di laptop / skala tampilan Windows 125-150%:
+        # baris 1 = mode tampilan + urungkan/ulangi, baris 2 = cari + filter kategori & lantai.
+        dua_baris = QVBoxLayout(self.baris_alat)
+        dua_baris.setContentsMargins(0, 0, 0, 0)
+        dua_baris.setSpacing(10)
+        alat = QHBoxLayout()
+        alat.setSpacing(0)
+        alat2 = QHBoxLayout()
+        alat2.setSpacing(10)
+        dua_baris.addLayout(alat)
+        dua_baris.addLayout(alat2)
         self.grup_mode = QButtonGroup(self)
         for i, (teks, posisi, tip) in enumerate((
-            ("Rekap RAB", "kiri", "Item pekerjaan digabung per kategori, seperti dokumen RAB"),
-            ("RAB Rinci", "tengah", "Beton, bekisting, dan tulangan per tipe elemen (mis. Kolom K1 20/25: 6 D13)"),
-            ("Per Lantai", "tengah", "Biaya tiap lantai dirinci per kategori pekerjaan (KF-12)"),
-            ("Detail per Elemen", "kanan", "Satu baris per elemen; volume, harga satuan, dan catatan bisa diedit"),
+            ("Rekap RAB", "kiri", KETERANGAN_MODE[0][1]),
+            ("RAB Rinci", "tengah", KETERANGAN_MODE[1][1]),
+            ("Per Lantai", "tengah", KETERANGAN_MODE[2][1]),
+            ("Detail per Elemen", "kanan", KETERANGAN_MODE[3][1]),
         )):
             b = QPushButton(teks)
             b.setObjectName("segmen")
@@ -280,30 +304,25 @@ class EstimasiPage(QWidget):
             b.setToolTip(tip)
             self.grup_mode.addButton(b, i)
             alat.addWidget(b)
-        alat.setSpacing(0)
         self.grup_mode.button(self.MODE_REKAP).setChecked(True)
         self.grup_mode.idClicked.connect(lambda _: self._isi_ulang())
-        alat.addSpacing(14)
+        alat.addStretch()
         self.kolom_cari = QLineEdit()
-        self.kolom_cari.setMinimumWidth(150)
+        self.kolom_cari.setMinimumWidth(220)
         self.kolom_cari.setPlaceholderText("Cari pekerjaan, elemen, atau lantai...   (Ctrl+F)")
         self.kolom_cari.setClearButtonEnabled(True)
         self.kolom_cari.textChanged.connect(self._isi_ulang)
-        alat.addWidget(self.kolom_cari, stretch=1)
-        alat.addSpacing(10)
+        alat2.addWidget(self.kolom_cari, stretch=1)
         self.combo_kategori = QComboBox()
         self.combo_kategori.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.combo_kategori.currentIndexChanged.connect(self._isi_ulang)
-        alat.addWidget(self.combo_kategori)
-        alat.addSpacing(8)
+        alat2.addWidget(self.combo_kategori)
         self.combo_lantai = QComboBox()  # KF-12
         self.combo_lantai.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.combo_lantai.setToolTip("Tampilkan dan hitung pekerjaan satu lantai saja (KF-12)")
         self.combo_lantai.currentIndexChanged.connect(self._isi_ulang)
-        alat.addWidget(self.combo_lantai)
-        alat.addSpacing(10)
+        alat2.addWidget(self.combo_lantai)
         self.label_jumlah = tema.label("", "subjudul")  # ditempatkan di baris bawah tabel
-        alat.addSpacing(12)
         self.btn_urungkan = tema.tombol("↶ Urungkan", "ghost", None, "Batalkan perubahan terakhir (Ctrl+Z)")
         self.btn_ulangi = tema.tombol("↷ Ulangi", "ghost", None, "Ulangi perubahan yang dibatalkan (Ctrl+Y)")
         self.btn_urungkan.clicked.connect(self.riwayat.undo)
@@ -321,6 +340,11 @@ class EstimasiPage(QWidget):
         alat.addWidget(self.btn_urungkan)
         alat.addWidget(self.btn_ulangi)
         root.addWidget(self.baris_alat)
+        self.label_mode = tema.label("")
+        self.label_mode.setObjectName("keteranganMode")
+        self.label_mode.setWordWrap(True)
+        self.label_mode.setTextFormat(Qt.RichText)
+        root.addWidget(self.label_mode)
 
         # --- Konten: tabel + panel rincian ---
         self.stack = QStackedWidget()
@@ -402,7 +426,7 @@ class EstimasiPage(QWidget):
         self.label_sub.setText("  ·  ".join(bagian) + "  ·  Hasil Quantity Take-Off & RAB")
 
         ada = bool(self._data)
-        for w in (self.baris_kartu, self.baris_alat, self.baris_bawah):
+        for w in (self.baris_kartu, self.baris_alat, self.label_mode, self.baris_bawah):
             w.setVisible(ada)
         self.btn_export.setEnabled(ada)
         for b in (self.btn_ulang, self.btn_tulangan, self.btn_biaya):
@@ -511,6 +535,8 @@ class EstimasiPage(QWidget):
         kategori = self.combo_kategori.currentText()
         lantai = self.combo_lantai.currentText()
         baris = [r for r in self._data if self._cocok(r, kata, kategori, lantai)]
+        judul_mode, isi_mode = KETERANGAN_MODE[self.mode]
+        self.label_mode.setText(f"<b>{judul_mode}</b> — {isi_mode}")
         if self.mode == self.MODE_REKAP:
             n = self._isi_rekap(baris)
             satuan = "item pekerjaan"
@@ -522,8 +548,8 @@ class EstimasiPage(QWidget):
             n = self._isi_rinci(baris)
             satuan = "item"
             self.label_petunjuk.setText(
-                "Beton, bekisting, dan tulangan dikelompokkan per tipe elemen. Konfigurasi tulangan bisa "
-                "diubah lewat tombol Tipe Penulangan."
+                "Struktur per tipe penulangan (ubah lewat tombol Penulangan), pekerjaan lain per tipe elemen IFC. "
+                "Pilih baris untuk melihat analisa harga satuannya."
             )
         elif self.mode == self.MODE_LANTAI:
             if lantai and lantai != SEMUA_LANTAI:
@@ -665,7 +691,7 @@ class EstimasiPage(QWidget):
             t, ["NO", "URAIAN PEKERJAAN", "VOLUME", "SAT", "HARGA SATUAN", "JUMLAH HARGA"],
             rata_kanan=(2, 4, 5), tinggi_baris=36,
         )
-        susunan = susun_rinci(baris) if baris else []
+        susunan = susun_rinci(baris, per_tipe_elemen=True) if baris else []
         t.setRowCount(sum(2 + sum(len(g["items"]) + (1 if g["judul"] else 0) for g in k["grup"]) for k in susunan))
         r = n_item = 0
         for i, k in enumerate(susunan, 1):
@@ -781,7 +807,7 @@ class EstimasiPage(QWidget):
                 t.setItem(r, c, tema.sel(angka(sum(x["ringkas"][kunci] for x in rekap)), "kanan", tebal=True))
             t.setItem(r, 6, tema.sel(tema.format_rupiah(sum(x["total"] for x in rekap)), "kanan", tebal=True))
             t.setItem(r, 7, tema.sel("100,0%", "kanan", tebal=True))
-        tema.atur_lebar(t, 1, isi_konten=(0, 2, 3, 4, 5, 6, 7), minimum=320)  # judul bagian RAP tetap terbaca
+        tema.atur_lebar(t, 1, isi_konten=(0, 2, 3, 4, 5, 6, 7), minimum=300)  # judul bagian RAP tetap terbaca
         return len(rekap)
 
     def _isi_lantai_rinci(self, baris) -> int:

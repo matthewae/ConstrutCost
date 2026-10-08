@@ -16,6 +16,8 @@ Baris beton, bekisting, dan pembesian elemen yang punya tipe penulangan dikelomp
 Pekerjaan lain digabung per pekerjaan seperti rekap biasa. Dipakai halaman Hasil Estimasi dan export.
 """
 
+import re
+
 from rules.penulangan import URUTAN, label_tipe
 
 URUTAN_KATEGORI = [
@@ -34,15 +36,30 @@ def _per_tipe(r) -> bool:
     return bool(r.get("tipe_id")) and kode.startswith(_AWALAN_STRUKTUR) and kode != "BTN.SUMURAN"
 
 
+def nama_tipe_elemen(nama) -> str:
+    """'Basic Wall:Exterior - Brick on Block:347125' -> 'Basic Wall:Exterior - Brick on Block'
+    (nomor id unik Revit dibuang agar elemen bertipe sama terkumpul)."""
+    nama = re.sub(r":\d+$", "", (nama or "").strip())
+    if not nama:
+        return "(tanpa nama elemen)"
+    return nama if len(nama) <= 60 else nama[:59] + "…"
+
+
 def _label_item(r) -> str:
     # pembesian rinci memakai uraian tulangan; pekerjaan lain memakai nama pekerjaan
     return r["uraian"] if r.get("uraian") and r.get("diameter") else r["nama_pekerjaan"]
 
 
-def susun_rinci(baris: list) -> list:
+def susun_rinci(baris: list, per_tipe_elemen: bool = False) -> list:
     """Return [{'kategori', 'total', 'grup': [{'judul', 'tipe_id', 'jumlah_elemen', 'items', 'total'}]}].
     Grup tanpa judul (judul None) berisi pekerjaan yang tidak dikelompokkan per tipe.
-    Item: {'label', 'kode', 'pekerjaan_id', 'satuan', 'volume', 'jumlah', 'harga'}."""
+    Item: {'label', 'kode', 'pekerjaan_id', 'satuan', 'volume', 'jumlah', 'harga'}.
+
+    per_tipe_elemen=True (mode/sheet RAB Rinci): pekerjaan non-struktur juga dirinci, satu grup per
+    pekerjaan berisi baris per tipe elemen IFC, mis. "Pasangan Dinding Bata" -> "Basic Wall:Exterior -
+    Brick on Block — 16 buah", "Basic Wall:Interior 100mm — 9 buah"."""
+    if per_tipe_elemen:
+        return _susun_rinci_per_tipe_elemen(baris)
     kategori = {}
     for r in baris:
         kat = kategori.setdefault(r["kategori"], {})
@@ -102,6 +119,37 @@ def susun_rinci(baris: list) -> list:
             })
         hasil.append({"kategori": nama, "grup": grup, "total": sum(g["total"] for g in grup)})
     return hasil
+
+
+def _susun_rinci_per_tipe_elemen(baris: list) -> list:
+    """Seperti susun_rinci, tetapi pekerjaan non-struktur dipecah per tipe elemen IFC (lihat docstring)."""
+    struktur = [r for r in baris if _per_tipe(r)]
+    hasil = {k["kategori"]: k for k in susun_rinci(struktur)}
+    lain = {}
+    for r in baris:
+        if _per_tipe(r):
+            continue
+        g = lain.setdefault(r["kategori"], {}).setdefault(r["pekerjaan_id"], {
+            "judul": r["nama_pekerjaan"], "kode": r["kode_ahsp"] or "", "satuan": r["satuan"], "items": {}})
+        it = g["items"].setdefault(nama_tipe_elemen(r.get("nama_elemen")), {"n": 0, "volume": 0.0, "jumlah": 0.0})
+        it["n"] += 1
+        it["volume"] += r["volume_pekerjaan"]
+        it["jumlah"] += r["subtotal_biaya"]
+    for kat, per_pek in lain.items():
+        k = hasil.setdefault(kat, {"kategori": kat, "grup": [], "total": 0.0})
+        for pid, g in sorted(per_pek.items(), key=lambda x: x[1]["judul"]):
+            items = []
+            for nama, it in sorted(g["items"].items(), key=lambda x: (-x[1]["volume"], x[0])):
+                items.append({
+                    "label": f"{nama} — {it['n']} buah", "kode": g["kode"], "pekerjaan_id": pid,
+                    "satuan": g["satuan"], "volume": it["volume"], "jumlah": it["jumlah"],
+                    "harga": it["jumlah"] / it["volume"] if it["volume"] else 0.0, "diameter": None,
+                })
+            total = sum(i["jumlah"] for i in items)
+            k["grup"].append({"judul": g["judul"], "tipe_id": None, "jumlah_elemen": sum(v["n"] for v in g["items"].values()),
+                              "items": items, "total": total})
+            k["total"] += total
+    return [hasil[k] for k in sorted(hasil, key=urutan_kategori)]
 
 
 # ---------------------------------------------------------------- KF-12 rekap per lantai

@@ -143,3 +143,56 @@ def test_pilihan_export_diingat(db_sementara, tmp_path):
                                   orientasi_pdf="landscape", direktori_export=str(tmp_path)))
     p = muat_preferensi()
     assert p.kolom == ("no", "bobot") and p.isi_besi is False and p.orientasi_pdf == "landscape"
+
+
+def test_export_file_terkunci_disimpan_dengan_nama_baru(data_export, tmp_path, monkeypatch):
+    """Windows: file hasil export lama masih dikunci (Excel latar belakang / Preview Explorer / antivirus)."""
+    import os
+
+    import export_service as es
+
+    asli = os.replace
+    terkunci = tmp_path / "RAB.xlsx"
+
+    def replace(src, dst):
+        if str(dst) == str(terkunci):
+            raise PermissionError(13, "The process cannot access the file", str(dst))
+        return asli(src, dst)
+
+    monkeypatch.setattr(es.os, "replace", replace)
+    hasil = es.export_excel(terkunci, data_export, META, es.OpsiExport(detail=False))
+    assert hasil.endswith("RAB (2).xlsx") and os.path.getsize(hasil) > 0
+    pdf = es.export_pdf(tmp_path / "RAB.pdf", data_export, META, es.OpsiExport(detail=False))
+    assert pdf.endswith("RAB.pdf")
+    assert not [f for f in os.listdir(tmp_path) if f.startswith("~coststruct_")]  # file sementara dibersihkan
+
+
+def test_export_folder_diblokir_pesan_khusus(data_export, tmp_path, monkeypatch):
+    import export_service as es
+    from gui.galat import pesan_galat
+
+    def mkstemp(**_):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(es.tempfile, "mkstemp", mkstemp)
+    with pytest.raises(es.FolderTidakBisaDitulis) as info:
+        es.export_excel(tmp_path / "RAB.xlsx", data_export, META, es.OpsiExport(detail=False))
+    pesan, saran = pesan_galat(info.value)
+    assert "Folder tujuan tidak mengizinkan" in pesan and "Akses folder terkontrol" in saran
+
+
+def test_rab_rinci_beda_dengan_rekap(data_export):
+    """RAB Rinci memecah SEMUA item: struktur per tipe penulangan, pekerjaan lain per tipe elemen IFC;
+    Rekap RAB satu baris per item. Totalnya sama."""
+    from export_service import _entri_rab, _entri_rinci
+    from rab_rinci import susun_rinci
+
+    baris = data_export["baris"]
+    rinci = susun_rinci(baris, per_tipe_elemen=True)
+    assert sum(k["total"] for k in rinci) == pytest.approx(sum(r["subtotal_biaya"] for r in baris))
+    dinding = next(k for k in rinci if k["kategori"] == "Dinding")
+    assert all(g["judul"] for g in dinding["grup"])  # tiap pekerjaan dinding jadi grup ...
+    assert all(it["label"].endswith("buah") for g in dinding["grup"] for it in g["items"])  # ... berisi tipe elemen
+    jml = lambda e: [x for x in e if x["jenis"] == "item"]  # noqa: E731
+    assert len(jml(_entri_rinci(baris))) > len(jml(_entri_rab(baris)))
+    assert sum(x["jumlah"] for x in jml(_entri_rinci(baris))) == pytest.approx(sum(x["jumlah"] for x in jml(_entri_rab(baris))))

@@ -31,6 +31,15 @@ def pesan_galat(e: BaseException) -> tuple:
 
     if isinstance(e, (FileIFCTidakValid, BerkasTidakValid)):
         return str(e), ""
+    from export_service import FolderTidakBisaDitulis
+
+    if isinstance(e, FolderTidakBisaDitulis):
+        return (
+            f"Folder tujuan tidak mengizinkan CostStruct membuat file{_nama(e)}.",
+            "Pilih folder lain (mis. Dokumen atau Desktop). Bila folder sudah benar, kemungkinan diblokir "
+            "Windows Security: buka Perlindungan virus & ancaman → Kelola perlindungan ransomware → "
+            "Akses folder terkontrol → Izinkan aplikasi, lalu tambahkan CostStruct.exe / python.exe.",
+        )
     if isinstance(e, PermissionError):
         return (
             f"Akses ke file atau folder ditolak{_nama(e)}.",

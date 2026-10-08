@@ -22,7 +22,9 @@ Satuan, dan Jumlah Harga selalu ada. Excel memakai rumus aktif (jumlah = volume 
 """
 
 import logging
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -57,6 +59,13 @@ KOLOM_OPSIONAL = {
     "rumus": "Uraian Rumus (detail elemen)",
 }
 KOLOM_BAWAAN = ("no", "kode", "harga")
+
+# Beda kedua bentuk RAB, dicetak di bawah judul sheet / halaman agar pembaca laporan tidak bingung.
+KET_RAB = ("Rekap RAB: satu baris untuk setiap item pekerjaan; volume = jumlah dari semua elemen di model "
+           "(bentuk ringkas untuk dokumen RAB / penawaran). Rincian per tipe elemen ada di sheet RAB Rinci.")
+KET_RAB_RINCI = ("RAB Rinci: setiap item pekerjaan dipecah. Struktur per tipe elemen seperti RAP konsultan (mis. Kolom K1 "
+                 "(20/25) — 12 buah: beton, bekisting, tulangan utama, sengkang); pekerjaan lain per tipe elemen IFC (mis. "
+                 "Pasangan dinding bata: Exterior Brick — 16 buah, Interior 100 mm — 9 buah). Total biayanya sama dengan sheet RAB.")
 
 
 @dataclass
@@ -134,10 +143,10 @@ def _entri_rab(baris: list) -> list:
     return out
 
 
-def _entri_rinci(baris: list) -> list:
-    """Baris tabel RAB rinci per tipe elemen."""
+def _entri_rinci(baris: list, per_tipe_elemen: bool = True) -> list:
+    """Baris tabel RAB rinci: struktur per tipe penulangan, pekerjaan lain per tipe elemen IFC."""
     out = []
-    for i, k in enumerate(susun_rinci(baris), 1):
+    for i, k in enumerate(susun_rinci(baris, per_tipe_elemen), 1):
         out.append({"jenis": "kategori", "no": f"{_romawi(i)}.", "uraian": k["kategori"].upper()})
         nomor = 0
         for g in k["grup"]:
@@ -202,6 +211,46 @@ def nama_sheet_lantai(i: int, lantai: str, terpakai: set) -> str:
         n += 1
     terpakai.add(nama.lower())
     return nama
+
+
+class FolderTidakBisaDitulis(PermissionError):
+    """Folder tujuan menolak file baru (izin folder, Controlled Folder Access Windows, drive read-only)."""
+
+
+def tulis_aman(path, tulis) -> Path:
+    """Tulis file export lewat file sementara di folder tujuan, lalu ganti file lama sekaligus.
+
+    - Folder tidak bisa ditulis -> FolderTidakBisaDitulis (pesan & saran khusus, KF-14).
+    - File tujuan sedang dikunci program lain (Excel, panel Preview File Explorer, antivirus / OneDrive
+      yang sedang memindai) -> hasil disimpan dengan nama baru "nama (2).xlsx" dan path itu dikembalikan,
+      sehingga export tidak gagal hanya karena file lama masih terbuka.
+    - Gagal di tengah jalan -> file lama tidak rusak, file sementara dihapus."""
+    path = Path(path)
+    try:
+        fd, tmp = tempfile.mkstemp(prefix="~coststruct_", suffix=path.suffix, dir=path.parent)
+    except PermissionError as e:
+        raise FolderTidakBisaDitulis(
+            e.errno, f"Folder tujuan tidak mengizinkan file baru dibuat: {path.parent}", str(path.parent)
+        ) from e
+    os.close(fd)
+    try:
+        tulis(tmp)
+        for n in range(1, 50):
+            tujuan = path if n == 1 else path.with_name(f"{path.stem} ({n}){path.suffix}")
+            try:
+                os.replace(tmp, tujuan)
+                if n > 1:
+                    log.warning("%s sedang dikunci program lain; hasil disimpan sebagai %s", path.name, tujuan.name)
+                return tujuan
+            except PermissionError:
+                continue  # file dengan nama itu sedang terbuka / terkunci: coba nama berikutnya
+        raise PermissionError(13, "Semua nama file alternatif sedang dikunci", str(path))
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def nama_file_default(nama_proyek: str, ekstensi: str) -> str:
@@ -396,6 +445,7 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
     for i, k in enumerate(kolom, 1):
         ws.column_dimensions[L(i)].width = k[2]
     r = judul_sheet(ws, "RENCANA ANGGARAN BIAYA (RAB)", len(kolom))
+    ws.cell(r - 1, 1, KET_RAB).font = f_catatan
     hdr = r
     header(ws, r, [k[1] for k in kolom])
     r, sub_rab, item_rab = tulis_tabel(ws, r + 1, kolom, _entri_rab(data["baris"]))
@@ -507,6 +557,7 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
         for i, k in enumerate(kolom, 1):
             wi.column_dimensions[L(i)].width = k[2]
         r = judul_sheet(wi, "RAB RINCI PER TIPE ELEMEN", len(kolom))
+        wi.cell(r - 1, 1, KET_RAB_RINCI).font = f_catatan
         hdr = r
         header(wi, r, [k[1] for k in kolom])
         r, sub, items = tulis_tabel(wi, r + 1, kolom, _entri_rinci(data["baris"]))
@@ -819,7 +870,7 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
         wd.cell(r, cd["jumlah"]).font = f_catatan
         atur_cetak(wd, hdr, "landscape")
 
-    wb.save(str(path))
+    path = tulis_aman(path, lambda tmp: wb.save(tmp))
     catat("export", f"Export Excel: {path} (isi: {_isi(opsi)}; kolom: {', '.join(opsi.kolom) or '-'})", data.get("proyek_id"))
     return str(path)
 
@@ -1166,7 +1217,7 @@ def export_pdf(path, data: dict, meta: dict, opsi: OpsiExport | None = None, cat
         return t
 
     kolom = _kolom_tabel(opsi)
-    story = kop("RENCANA ANGGARAN BIAYA (RAB)")
+    story = kop("RENCANA ANGGARAN BIAYA (RAB)") + [Paragraph(_esc(KET_RAB), s_cat), Spacer(1, 4)]
     story.append(tabel_rab(_entri_rab(data["baris"]), kolom))
     story.append(Spacer(1, 8))
     story.append(tabel_ringkas([
@@ -1219,7 +1270,7 @@ def export_pdf(path, data: dict, meta: dict, opsi: OpsiExport | None = None, cat
                             f"(± Rp {_rp(ring['buk'], 0)} dari biaya langsung).", s_cat)]
 
     if opsi.rinci:
-        story += [PageBreak()] + kop("RAB RINCI PER TIPE ELEMEN")
+        story += [PageBreak()] + kop("RAB RINCI PER TIPE ELEMEN") + [Paragraph(_esc(KET_RAB_RINCI), s_cat), Spacer(1, 4)]
         story.append(tabel_rab(_entri_rinci(data["baris"]), kolom))
 
     if opsi.besi and data["besi"]:
@@ -1452,11 +1503,14 @@ def export_pdf(path, data: dict, meta: dict, opsi: OpsiExport | None = None, cat
         t.setStyle(TableStyle(gaya))
         story.append(t)
 
-    doc = SimpleDocTemplate(
-        str(path), pagesize=ukuran, leftMargin=1.4 * cm, rightMargin=1.4 * cm, topMargin=1.4 * cm,
-        bottomMargin=1.6 * cm, title=f"RAB {nama}", author="CostStruct",
-    )
-    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    def tulis(tmp):
+        doc = SimpleDocTemplate(
+            tmp, pagesize=ukuran, leftMargin=1.4 * cm, rightMargin=1.4 * cm, topMargin=1.4 * cm,
+            bottomMargin=1.6 * cm, title=f"RAB {nama}", author="CostStruct",
+        )
+        doc.build(story, onFirstPage=footer, onLaterPages=footer)
+
+    path = tulis_aman(path, tulis)
     if catat_log:  # pratinjau (KF-6) tidak dicatat sebagai export
         catat("export", f"Export PDF {opsi.orientasi_pdf}: {path} (isi: {_isi(opsi)})", data.get("proyek_id"))
     return str(path)

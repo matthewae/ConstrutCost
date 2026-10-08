@@ -418,7 +418,7 @@ def test_tabel_per_lantai_judul_bagian_dan_panel_kategori(proyek_bertingkat):
     hal._isi_ulang()
     QApplication.processEvents()
     t = hal.tabel
-    assert t.columnWidth(1) >= 320
+    assert t.columnWidth(1) >= 300
     judul = [t.item(r, 1).text().strip() for r in range(t.rowCount()) if t.item(r, 1)]
     assert "I.  PEKERJAAN BETON" in judul or any(j.endswith("PEKERJAAN BETON") for j in judul)
     baris_beton = next(r for r in range(t.rowCount()) if t.item(r, 0) and (t.item(r, 0).data(Qt.UserRole) or ("",))[0]
