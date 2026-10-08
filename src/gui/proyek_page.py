@@ -24,9 +24,10 @@ from PySide6.QtWidgets import (
 
 from database.harga_repository import jumlah_estimasi_kedaluwarsa, terapkan_ke_estimasi
 from database.preferensi_repository import folder_ifc, muat_preferensi
-from database.proyek_repository import create_proyek, delete_proyek, get_all_proyek
+from database.proyek_repository import create_proyek, delete_proyek, get_all_proyek, get_proyek
 from estimasi_service import jalankan_estimasi
 from gui import tema
+from gui.aksi_proyek import InfoProyekDialog, buka_file_proyek, duplikat, simpan_file_proyek
 from gui.import_dialog import RingkasanImportDialog, tampilkan_hasil_proses
 from gui.proses_latar import jalankan_di_latar
 from ifc_reader import FileIFCTidakValid, buka_dan_validasi
@@ -60,6 +61,11 @@ class ProyekPage(QWidget):
             "Buat proyek baru dari file IFC (Ctrl+N). File .ifc juga bisa diseret ke jendela ini.",
         )
         self.btn_import.clicked.connect(lambda: self.import_ifc())
+        self.btn_buka_file = tema.tombol(
+            "Buka File Proyek", "secondary", "file", "Buka proyek dari file .coststruct (Ctrl+O)",
+        )
+        self.btn_buka_file.clicked.connect(self.buka_file)
+        kepala.addWidget(self.btn_buka_file, alignment=Qt.AlignTop)
         kepala.addWidget(self.btn_import, alignment=Qt.AlignTop)
         root.addLayout(kepala)
 
@@ -137,6 +143,7 @@ class ProyekPage(QWidget):
         root.addLayout(bawah)
 
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self._fokus_cari)
+        QShortcut(QKeySequence.Open, self, activated=self.buka_file)
         QShortcut(QKeySequence(Qt.Key_Delete), self.tabel, activated=self.hapus_terpilih)
         QShortcut(QKeySequence(Qt.Key_Return), self.tabel, activated=self.buka_terpilih)
 
@@ -236,6 +243,9 @@ class ProyekPage(QWidget):
             return
         menu = QMenu(self)
         menu.addAction("Buka proyek", self.buka_terpilih)
+        menu.addAction("Info proyek...", self.ubah_info_terpilih)
+        menu.addAction("Duplikat proyek...", self.duplikat_terpilih)
+        menu.addAction("Simpan sebagai file...", self.simpan_file_terpilih)
         menu.addSeparator()
         menu.addAction("Hapus proyek", self.hapus_terpilih)
         menu.exec(self.tabel.viewport().mapToGlobal(pos))
@@ -246,6 +256,52 @@ class ProyekPage(QWidget):
         p = self._terpilih()
         if p:
             self.minta_buka.emit(p["id"], p["nama_proyek"])
+
+    # ---------------------------------------------------------------- KF-7 / KF-9
+
+    def buka_file(self):
+        hasil = buka_file_proyek(self)
+        if hasil:
+            self.muat()
+            tema.toast(self, f'Proyek "{hasil[1]}" dibuka')
+            self.minta_buka.emit(*hasil)
+
+    def simpan_file_terpilih(self):
+        p = self._terpilih()
+        if p:
+            simpan_file_proyek(self, p["id"])
+
+    def duplikat_terpilih(self):
+        p = self._terpilih()
+        if p is None:
+            return
+        hasil = duplikat(self, p["id"])
+        if hasil:
+            self.muat()
+            tema.toast(self, f'Proyek "{hasil[1]}" dibuat')
+
+    def ubah_info_terpilih(self):
+        p = self._terpilih()
+        if p is None:
+            return
+        dialog = InfoProyekDialog(p["id"], self)
+        if dialog.exec() != InfoProyekDialog.Accepted:
+            return
+        self.muat()
+        if dialog.ifc_berubah:  # file IFC diganti: hitung ulang dari model baru
+            baru = get_proyek(p["id"])
+            try:
+                r = jalankan_di_latar(
+                    self, "Membaca elemen & menghitung kuantitas...", jalankan_estimasi, p["id"], pakai_progress=True,
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "Parsing Gagal", str(e))
+                return
+            self.muat()
+            tampilkan_hasil_proses(self, f"Proyek '{baru['nama_proyek']}'", r)
+            self.minta_buka.emit(p["id"], baru["nama_proyek"])
+        else:
+            tema.toast(self, "Info proyek disimpan")
 
     def hapus_terpilih(self):
         p = self._terpilih()

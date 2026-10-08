@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 from dataclasses import replace
 
 from database.estimasi_repository import PPN_RATE
+from database.proyek_repository import get_proyek
 from database.preferensi_repository import folder_export, muat_preferensi, simpan_pilihan_export
 from gui import tema
 from export_service import (
@@ -106,6 +107,12 @@ class ExportDialog(QDialog):
         self.spin_tahun = QSpinBox()
         self.spin_tahun.setRange(2000, 2100)
         self.spin_tahun.setValue(datetime.now().year)
+        # KF-9: kop laporan dari info proyek
+        info = get_proyek(proyek_id) or {}
+        self.edit_lokasi.setText(info.get("lokasi") or "")
+        self.edit_pemilik.setText(info.get("pemilik") or "")
+        if info.get("tahun_anggaran"):
+            self.spin_tahun.setValue(info["tahun_anggaran"])
         self.spin_tahun.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.spin_tahun.setMaximumWidth(120)
         for i, (teks, w) in enumerate((

@@ -54,7 +54,11 @@ CREATE TABLE IF NOT EXISTS proyek (
     nama_proyek TEXT NOT NULL,
     path_file_ifc TEXT,
     tanggal_dibuat TEXT DEFAULT CURRENT_TIMESTAMP,
-    tanggal_diubah TEXT DEFAULT CURRENT_TIMESTAMP
+    tanggal_diubah TEXT DEFAULT CURRENT_TIMESTAMP,
+    lokasi TEXT,                   -- KF-9 info proyek
+    pemilik TEXT,
+    tahun_anggaran INTEGER,
+    parameter TEXT                 -- KF-7: JSON parameter aturan yang berbeda dari bawaan
 );
 
 -- elemen_proyek: hasil ekstraksi IFC per proyek (output dari ifc_reader.py)

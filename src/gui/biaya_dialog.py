@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
-    QMessageBox,
     QTableWidget,
     QVBoxLayout,
 )
@@ -253,7 +252,7 @@ class BiayaDialog(QDialog):
         b = self._terpilih()
         if b is None:
             return
-        if QMessageBox.question(self, "Hapus Item", f"Hapus '{b['uraian']}' dari biaya tidak langsung?") != QMessageBox.Yes:
+        if not tema.tanya(self, "Hapus Item", f"Hapus '{b['uraian']}' dari biaya tidak langsung?", ya="Hapus"):
             return
         hapus_biaya(b["id"])
         self.diubah = True

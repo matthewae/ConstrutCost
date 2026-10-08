@@ -278,6 +278,16 @@ QPushButton#btnPrimary:disabled {{ background-color: {c['permukaan_3']}; color: 
 QPushButton#btnSecondary {{ background-color: {c['permukaan_3']}; color: {c['teks']}; border: 1px solid {c['garis_kuat']}; }}
 QPushButton#btnSecondary:hover {{ background-color: {c['sekunder_hover']}; }}
 QPushButton#btnSecondary:disabled {{ color: {c['teks_samar']}; background-color: {c['permukaan']}; border: 1px solid {c['garis']}; }}
+QToolButton#btnSecondary {{
+    background-color: {c['permukaan_3']}; color: {c['teks']}; border: 1px solid {c['garis_kuat']};
+    border-radius: 8px; padding: 9px 16px; font-weight: 600;
+}}
+QToolButton#btnSecondary:hover {{ background-color: {c['sekunder_hover']}; }}
+QToolButton#btnSecondary::menu-indicator {{ image: none; width: 0; }}
+QMenu {{ background-color: {c['permukaan_2']}; color: {c['teks']}; border: 1px solid {c['garis_kuat']}; padding: 6px; }}
+QMenu::item {{ padding: 7px 26px 7px 14px; border-radius: 6px; }}
+QMenu::item:selected {{ background-color: {c['aksen_lembut']}; color: {c['teks_kuat']}; }}
+QMenu::separator {{ height: 1px; background: {c['garis']}; margin: 5px 8px; }}
 QPushButton#btnGhost {{ background: transparent; color: {c['teks_redup']}; padding: 8px 12px; }}
 QPushButton#btnGhost:hover {{ background-color: {c['permukaan']}; color: {c['teks']}; }}
 QPushButton#btnGhost:disabled {{ color: {c['teks_samar']}; }}
@@ -726,8 +736,35 @@ def atur_lebar(tabel: QTableWidget, stretch: int, isi_konten=()) -> None:
             h.setSectionResizeMode(kol, QHeaderView.Interactive)
 
 
-def sel(teks, rata=None, warna=None, tebal=False, tooltip=None, data=None) -> QTableWidgetItem:
-    it = QTableWidgetItem("" if teks is None else str(teks))
+KUNCI_URUT = Qt.UserRole + 7
+
+
+class SelUrut(QTableWidgetItem):
+    """Sel tabel yang diurutkan menurut kunci (angka) bila ada, selain itu teks tanpa membedakan
+    huruf besar/kecil (KF-16). Rp 1.250.000 diurutkan sebagai angka, bukan sebagai teks."""
+
+    def __lt__(self, lain):
+        a, b = self.data(KUNCI_URUT), lain.data(KUNCI_URUT)
+        if a is not None and b is not None and type(a) is type(b):
+            return a < b
+        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            return a < b
+        return self.text().lower() < lain.text().lower()
+
+
+def siapkan_urut(tabel: QTableWidget) -> None:
+    """Klik judul kolom untuk mengurutkan (KF-16); urutan awal tetap urutan data."""
+    h = tabel.horizontalHeader()
+    h.setSortIndicatorShown(True)
+    h.setSortIndicator(-1, Qt.AscendingOrder)
+    h.setSectionsClickable(True)
+    tabel.setSortingEnabled(True)
+
+
+def sel(teks, rata=None, warna=None, tebal=False, tooltip=None, data=None, urut=None) -> QTableWidgetItem:
+    it = SelUrut("" if teks is None else str(teks))
+    if urut is not None:
+        it.setData(KUNCI_URUT, urut)
     if rata == "kanan":
         it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
     elif rata == "tengah":
@@ -743,3 +780,20 @@ def sel(teks, rata=None, warna=None, tebal=False, tooltip=None, data=None) -> QT
     if data is not None:
         it.setData(Qt.UserRole, data)
     return it
+
+
+def tanya(parent, judul: str, teks: str, ya: str = "Ya, Lanjutkan", tidak: str = "Batal", info: str = "") -> bool:
+    """Konfirmasi dengan tombol berbahasa Indonesia (KNF-6). True bila pengguna memilih `ya`."""
+    from PySide6.QtWidgets import QMessageBox
+
+    kotak = QMessageBox(parent)
+    kotak.setIcon(QMessageBox.Question)
+    kotak.setWindowTitle(judul)
+    kotak.setText(teks)
+    if info:
+        kotak.setInformativeText(info)
+    btn_ya = kotak.addButton(ya, QMessageBox.AcceptRole)
+    btn_tidak = kotak.addButton(tidak, QMessageBox.RejectRole)
+    kotak.setDefaultButton(btn_tidak)
+    kotak.exec()
+    return kotak.clickedButton() is btn_ya

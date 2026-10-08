@@ -239,6 +239,7 @@ class TabHargaDasar(QWidget):
             rata_kanan=(4, 6), tinggi_baris=40,
         )
         tema.atur_lebar(self.tabel, 1, isi_konten=(0, 2, 3, 4, 5, 6))
+        tema.siapkan_urut(self.tabel)  # KF-16: klik judul kolom untuk mengurutkan
         self.tabel.itemSelectionChanged.connect(self._pilih_berubah)
         split.addWidget(self.tabel)
         self.editor = PanelEditorHarga(self)
@@ -279,6 +280,7 @@ class TabHargaDasar(QWidget):
         pilih = self._id_terpilih()
         self.tabel.blockSignals(True)
         self.tabel.setUpdatesEnabled(False)
+        self.tabel.setSortingEnabled(False)  # KF-16: isi dulu, lalu urutkan sesuai kolom pilihan
         self.tabel.setRowCount(len(baris))
         for i, sd in enumerate(baris):
             status, jenis_chip = _status(sd)
@@ -289,10 +291,11 @@ class TabHargaDasar(QWidget):
             self.tabel.setItem(i, 1, tema.sel(_nama_tampil(sd["nama"]), tooltip=sd["nama"]))
             self.tabel.setItem(i, 2, tema.sel(sd["merk"] or "-", warna=tema.W["teks_redup"] if not sd["merk"] else None))
             self.tabel.setItem(i, 3, tema.sel(sd["satuan"], "tengah", tema.W["teks_redup"]))
-            self.tabel.setItem(i, 4, tema.sel(tema.format_rupiah(sd["harga"], 2 if sd["harga"] < 100 else 0), "kanan", tebal=True))
+            self.tabel.setItem(i, 4, tema.sel(tema.format_rupiah(sd["harga"], 2 if sd["harga"] < 100 else 0), "kanan", tebal=True, urut=sd["harga"]))
             self.tabel.setItem(i, 5, tema.sel(f"●  {status}", warna=warna_status))
             n = sd["jumlah_pekerjaan"]
-            self.tabel.setItem(i, 6, tema.sel(f"{n} pekerjaan" if n else "-", "kanan", tema.W["teks_redup"]))
+            self.tabel.setItem(i, 6, tema.sel(f"{n} pekerjaan" if n else "-", "kanan", tema.W["teks_redup"], urut=n))
+        self.tabel.setSortingEnabled(True)
         self.tabel.setUpdatesEnabled(True)
         self.tabel.blockSignals(False)
         self.label_jumlah.setText(f"{len(baris):,} dari {len(self._semua):,}".replace(",", "."))
@@ -562,6 +565,7 @@ class TabAnalisa(QWidget):
             rata_kanan=(3,), tinggi_baris=40,
         )
         tema.atur_lebar(self.tabel, 1, isi_konten=(0, 2, 3))
+        tema.siapkan_urut(self.tabel)  # KF-16: klik judul kolom untuk mengurutkan
         self.tabel.itemSelectionChanged.connect(self._tampilkan_analisa)
         split.addWidget(self.tabel)
 
@@ -642,12 +646,14 @@ class TabAnalisa(QWidget):
             and (not kata or kata in f"{p['kode_ahsp']} {p['nama_pekerjaan']}".lower())
         ]
         self.tabel.blockSignals(True)
+        self.tabel.setSortingEnabled(False)  # KF-16
         self.tabel.setRowCount(len(baris))
         for i, p in enumerate(baris):
             self.tabel.setItem(i, 0, tema.sel(p["kode_ahsp"], warna=tema.W["teks_redup"], data=p["id"]))
             self.tabel.setItem(i, 1, tema.sel(p["nama_pekerjaan"], tooltip=f"{p['kategori']} — {p['nama_pekerjaan']}"))
             self.tabel.setItem(i, 2, tema.sel(p["satuan"], "tengah", tema.W["teks_redup"]))
-            self.tabel.setItem(i, 3, tema.sel(tema.format_rupiah(p["harga_satuan"]), "kanan", tebal=True))
+            self.tabel.setItem(i, 3, tema.sel(tema.format_rupiah(p["harga_satuan"]), "kanan", tebal=True, urut=p["harga_satuan"]))
+        self.tabel.setSortingEnabled(True)
         self.tabel.blockSignals(False)
         self.label_jumlah.setText(f"{len(baris)} pekerjaan")
         if self._pekerjaan:

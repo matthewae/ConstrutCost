@@ -9,11 +9,12 @@ import json
 
 from database.estimasi_repository import BUK_RATE, _connect
 from database.init_db import pastikan_skema
+from database.parameter_repository import muat_parameter
 from database.penulangan_repository import pasang_tipe, rapikan_tipe
 from database.seed_data import seed_pekerjaan
 from ifc_reader import buka_dan_validasi, ekstrak_elemen
 from klasifikasi import ElementType
-from rules import PARAMETER_DEFAULT, proses_semua, siapkan_konteks, terapkan_rules
+from rules import proses_semua, siapkan_konteks, terapkan_rules
 from rules.definitions import RULES
 from rules.dimensi import DimensiTidakValid, kolom_dimensi, turunkan_dari, validasi
 
@@ -72,12 +73,14 @@ def _simpan_hasil(conn, proyek_id, elemen_id, hasil, harga, kode_ke_id, peringat
     return n
 
 
-def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=PARAMETER_DEFAULT) -> dict:
+def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=None) -> dict:
     """Parse IFC proyek lalu isi elemen_proyek + hasil_estimasi.
 
     `model`    : ifcopenshell.file yang sudah dibuka saat validasi (KF-1), supaya file tidak dibaca dua kali.
                  Bila None, file dibuka dan divalidasi ulang dari path proyek.
     `progress` : callable(i, n, teks) untuk indikator proses.
+
+    `parameter`: asumsi rule engine; None = parameter tersimpan di proyek (KF-7).
 
     PERHATIAN: menimpa hasil sebelumnya, termasuk edit volume (KF-6) dan dimensi (KF-19) manual.
     """
@@ -87,6 +90,7 @@ def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=PARAM
     finally:
         conn.close()
     seed_pekerjaan()  # idempotent: memastikan master pekerjaan/harga ada
+    parameter = parameter or muat_parameter(proyek_id)
 
     conn = _connect()
     try:
@@ -156,7 +160,7 @@ def ambil_elemen(elemen_id: int) -> dict | None:
         conn.close()
 
 
-def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=PARAMETER_DEFAULT) -> dict:
+def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=None) -> dict:
     """KF-19 / UC-03: simpan dimensi baru satu elemen lalu hitung ulang QTO & biayanya.
 
     `dimensi` berisi dimensi primer dan/atau turunan (lihat rules/dimensi.py). Dimensi turunan
@@ -174,6 +178,7 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=PARAMETER_DEFAU
         if row is None:
             raise DimensiTidakValid("Elemen tidak ditemukan. Muat ulang hasil estimasi.")
         el = _baris_ke_elemen(row)
+        parameter = parameter or muat_parameter(el["proyek_id"])
         try:
             kelas = ElementType(el["kelas"])
         except ValueError:
@@ -228,11 +233,12 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=PARAMETER_DEFAU
         conn.close()
 
 
-def hitung_ulang_penulangan(proyek_id: int, parameter=PARAMETER_DEFAULT) -> dict:
+def hitung_ulang_penulangan(proyek_id: int, parameter=None) -> dict:
     """Hitung ulang seluruh pembesian proyek dari elemen tersimpan setelah tipe penulangan diubah.
     Pekerjaan lain (beton, bekisting, dinding, ...) dan edit volumenya tidak tersentuh; baris
     pembesian yang volumenya diedit manual diganti hasil perhitungan baru.
     Return {"baris": jumlah baris pembesian, "berat": total kg}."""
+    parameter = parameter or muat_parameter(proyek_id)
     conn = _connect()
     try:
         semua = [_baris_ke_elemen(r) for r in conn.execute(
@@ -256,5 +262,50 @@ def hitung_ulang_penulangan(proyek_id: int, parameter=PARAMETER_DEFAULT) -> dict
         conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (proyek_id,))
         conn.commit()
         return {"baris": n, "berat": berat}
+    finally:
+        conn.close()
+
+
+def hitung_ulang_dari_elemen(proyek_id: int, parameter=None) -> dict:
+    """KF-7: jalankan ulang seluruh rule engine dari elemen tersimpan (tanpa membaca file IFC),
+    mis. setelah parameter aturan proyek diubah. Dimensi yang diubah pengguna (KF-19) tetap dipakai.
+    Harga satuan khusus dan catatan (KF-6) dipertahankan untuk item yang sama; volume yang diedit
+    manual diganti hasil perhitungan baru. Return {"baris", "peringatan", "manual_diganti"}."""
+    parameter = parameter or muat_parameter(proyek_id)
+    conn = _connect()
+    try:
+        semua = [_baris_ke_elemen(r) for r in conn.execute(
+            "SELECT * FROM elemen_proyek WHERE proyek_id = ? ORDER BY id", (proyek_id,)
+        )]
+        simpan = {
+            (r["elemen_id"], r["pekerjaan_id"], r["uraian"]): (r["harga_manual"], r["catatan"])
+            for r in conn.execute(
+                "SELECT elemen_id, pekerjaan_id, uraian, harga_manual, catatan FROM hasil_estimasi "
+                "WHERE proyek_id = ? AND (harga_manual IS NOT NULL OR catatan IS NOT NULL)",
+                (proyek_id,),
+            )
+        }
+        manual = conn.execute(
+            "SELECT COUNT(*) FROM hasil_estimasi WHERE proyek_id = ? AND diedit_manual = 1", (proyek_id,)
+        ).fetchone()[0]
+        pasang_tipe(conn, proyek_id, semua, parameter.batas_kemiringan_dak)
+        konteks, keluaran, peringatan = proses_semua(semua, parameter)
+        harga, kode_ke_id = _harga_dan_kode(conn)
+        conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ?", (proyek_id,))
+        n = 0
+        for el, hasil in keluaran:
+            conn.execute("UPDATE elemen_proyek SET tipe_id = ? WHERE id = ?", (el["tipe_id"], el["id"]))
+            n += _simpan_hasil(conn, proyek_id, el["id"], hasil, harga, kode_ke_id, peringatan)
+        for (eid, pid, uraian), (hm, catatan) in simpan.items():
+            conn.execute(
+                """UPDATE hasil_estimasi SET harga_manual = ?, catatan = ?,
+                       subtotal_biaya = CASE WHEN ? IS NULL THEN subtotal_biaya ELSE volume_pekerjaan * ? END
+                   WHERE elemen_id = ? AND pekerjaan_id = ? AND uraian IS ?""",
+                (hm, catatan, hm, hm, eid, pid, uraian),
+            )
+        rapikan_tipe(conn, proyek_id)
+        conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (proyek_id,))
+        conn.commit()
+        return {"baris": n, "peringatan": peringatan, "manual_diganti": manual}
     finally:
         conn.close()

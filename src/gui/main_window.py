@@ -142,6 +142,7 @@ class MainWindow(QMainWindow):
         self._estimasi = EstimasiPage(proyek_id, nama)
         self._estimasi.minta_kembali.connect(self._tutup_estimasi)
         self._estimasi.minta_harga.connect(self.tampilkan_harga)
+        self._estimasi.minta_buka_proyek.connect(self.buka_estimasi)
         self.stack.addWidget(self._estimasi)
         self.grup_nav.button(NAV_PROYEK).setChecked(True)
         self.stack.setCurrentWidget(self._estimasi)

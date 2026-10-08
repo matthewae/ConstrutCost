@@ -12,6 +12,7 @@ SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 # Kolom yang ditambahkan setelah versi awal skema. Database lama dilengkapi lewat
 # ALTER TABLE supaya data proyek yang sudah ada tidak hilang.
 KOLOM_TAMBAHAN = {
+    "proyek": {"lokasi": "TEXT", "pemilik": "TEXT", "tahun_anggaran": "INTEGER", "parameter": "TEXT"},
     "elemen_proyek": {
         "kelas": "TEXT",
         "lebar": "REAL",

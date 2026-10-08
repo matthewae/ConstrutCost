@@ -31,7 +31,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QMenu,
     QSizePolicy,
+    QToolButton,
     QSplitter,
     QStackedWidget,
     QTableWidget,
@@ -56,10 +58,12 @@ from database.proyek_repository import get_proyek
 from estimasi_service import ambil_elemen, jalankan_estimasi
 from export_service import kelompokkan
 from gui import tema
+from gui.aksi_proyek import InfoProyekDialog, duplikat, simpan_file_proyek
 from gui.biaya_dialog import BiayaDialog
 from gui.dimensi_dialog import DimensiDialog
 from gui.export_dialog import ExportDialog
 from gui.import_dialog import tampilkan_hasil_proses
+from gui.parameter_dialog import ParameterDialog
 from gui.penulangan_dialog import PenulanganDialog
 from gui.proses_latar import jalankan_di_latar
 from klasifikasi import LABEL, ElementType
@@ -149,6 +153,7 @@ class _PerintahPotret(QUndoCommand):
 class EstimasiPage(QWidget):
     minta_kembali = Signal()
     minta_harga = Signal(object)  # pekerjaan_id atau None
+    minta_buka_proyek = Signal(int, str)  # proyek lain (mis. hasil duplikat)
 
     MODE_REKAP, MODE_RINCI, MODE_LANTAI, MODE_DETAIL = 0, 1, 2, 3
     HAL_TABEL, HAL_KOSONG, HAL_TIDAK_ADA = range(3)
@@ -181,12 +186,12 @@ class EstimasiPage(QWidget):
         kepala.addLayout(kol)
         kepala.addStretch()
         self.btn_ulang = tema.tombol(
-            "Hitung Ulang dari IFC", "secondary", "ulang",
+            "Hitung Ulang", "secondary", "ulang",
             "Baca ulang file IFC lalu jalankan rule engine. Volume yang diedit manual akan diganti.",
         )
         self.btn_ulang.clicked.connect(self._hitung_ulang)
         self.btn_tulangan = tema.tombol(
-            "Tipe Penulangan", "secondary", None,
+            "Penulangan", "secondary", None,
             "Konfigurasi tulangan per tipe elemen dan kebutuhan besi per diameter",
         )
         self.btn_tulangan.clicked.connect(self._buka_penulangan)
@@ -197,6 +202,21 @@ class EstimasiPage(QWidget):
         self.btn_biaya.clicked.connect(self._buka_biaya)
         self.btn_export = tema.tombol("Export RAB", "primary", "unduh", "Export ke Excel / PDF (Ctrl+E)")
         self.btn_export.clicked.connect(self._buka_export)
+        # KF-7 / KF-9: menu proyek
+        self.btn_proyek = QToolButton()
+        self.btn_proyek.setText("Proyek  ▾")
+        self.btn_proyek.setObjectName("btnSecondary")
+        self.btn_proyek.setCursor(Qt.PointingHandCursor)
+        self.btn_proyek.setPopupMode(QToolButton.InstantPopup)
+        self.btn_proyek.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        menu = QMenu(self.btn_proyek)
+        menu.addAction("Info Proyek...", self._ubah_info)
+        menu.addAction("Parameter Aturan...", self._buka_parameter)
+        menu.addSeparator()
+        menu.addAction("Simpan File Proyek...\tCtrl+S", self._simpan_file)
+        menu.addAction("Duplikat Proyek...", self._duplikat)
+        self.btn_proyek.setMenu(menu)
+        kepala.addWidget(self.btn_proyek, alignment=Qt.AlignTop)
         kepala.addWidget(self.btn_ulang, alignment=Qt.AlignTop)
         kepala.addWidget(self.btn_tulangan, alignment=Qt.AlignTop)
         kepala.addWidget(self.btn_biaya, alignment=Qt.AlignTop)
@@ -246,24 +266,24 @@ class EstimasiPage(QWidget):
         self.grup_mode.idClicked.connect(lambda _: self._isi_ulang())
         alat.addSpacing(14)
         self.kolom_cari = QLineEdit()
+        self.kolom_cari.setMinimumWidth(150)
         self.kolom_cari.setPlaceholderText("Cari pekerjaan, elemen, atau lantai...   (Ctrl+F)")
         self.kolom_cari.setClearButtonEnabled(True)
         self.kolom_cari.textChanged.connect(self._isi_ulang)
         alat.addWidget(self.kolom_cari, stretch=1)
         alat.addSpacing(10)
         self.combo_kategori = QComboBox()
-        self.combo_kategori.setMinimumWidth(170)
+        self.combo_kategori.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.combo_kategori.currentIndexChanged.connect(self._isi_ulang)
         alat.addWidget(self.combo_kategori)
         alat.addSpacing(8)
         self.combo_lantai = QComboBox()  # KF-12
-        self.combo_lantai.setMinimumWidth(150)
+        self.combo_lantai.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.combo_lantai.setToolTip("Tampilkan dan hitung pekerjaan satu lantai saja (KF-12)")
         self.combo_lantai.currentIndexChanged.connect(self._isi_ulang)
         alat.addWidget(self.combo_lantai)
         alat.addSpacing(10)
-        self.label_jumlah = tema.label("", "subjudul")
-        alat.addWidget(self.label_jumlah)
+        self.label_jumlah = tema.label("", "subjudul")  # ditempatkan di baris bawah tabel
         alat.addSpacing(12)
         self.btn_urungkan = tema.tombol("↶ Urungkan", "ghost", None, "Batalkan perubahan terakhir (Ctrl+Z)")
         self.btn_ulangi = tema.tombol("↷ Ulangi", "ghost", None, "Ulangi perubahan yang dibatalkan (Ctrl+Y)")
@@ -291,6 +311,9 @@ class EstimasiPage(QWidget):
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(14)
         self.tabel = QTableWidget()
+        self._urut = {}  # KF-16: mode -> (kolom, Qt.SortOrder)
+        self.tabel.horizontalHeader().setSectionsClickable(True)
+        self.tabel.horizontalHeader().sectionClicked.connect(self._klik_judul)
         self.tabel.itemSelectionChanged.connect(self._tampilkan_rincian)
         self.tabel.cellDoubleClicked.connect(self._klik_ganda)
         self.splitter.addWidget(self.tabel)
@@ -321,11 +344,17 @@ class EstimasiPage(QWidget):
         self.stack.addWidget(self.kosong_cari)
 
         self.label_petunjuk = tema.label("", "petunjuk")
-        root.addWidget(self.label_petunjuk)
+        self.baris_bawah = QWidget()
+        bawah = QHBoxLayout(self.baris_bawah)
+        bawah.setContentsMargins(0, 0, 0, 0)
+        bawah.addWidget(self.label_petunjuk, stretch=1)
+        bawah.addWidget(self.label_jumlah)
+        root.addWidget(self.baris_bawah)
 
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self._fokus_cari)
         QShortcut(QKeySequence("Ctrl+E"), self, activated=self._pintasan_export)
         QShortcut(QKeySequence.Undo, self, activated=self.riwayat.undo)
+        QShortcut(QKeySequence.Save, self, activated=self._simpan_file)
         QShortcut(QKeySequence("Ctrl+Y"), self, activated=self.riwayat.redo)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self.riwayat.redo)
         QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.minta_kembali.emit)
@@ -353,7 +382,7 @@ class EstimasiPage(QWidget):
         self.label_sub.setText("  ·  ".join(bagian) + "  ·  Hasil Quantity Take-Off & RAB")
 
         ada = bool(self._data)
-        for w in (self.baris_kartu, self.baris_alat, self.label_petunjuk):
+        for w in (self.baris_kartu, self.baris_alat, self.baris_bawah):
             w.setVisible(ada)
         self.btn_export.setEnabled(ada)
         for b in (self.btn_ulang, self.btn_tulangan, self.btn_biaya):
@@ -494,8 +523,38 @@ class EstimasiPage(QWidget):
         if lantai and lantai != SEMUA_LANTAI:
             teks += f"  ·  {lantai}: {tema.format_rupiah(sum(r['subtotal_biaya'] for r in baris))}"
         self.label_jumlah.setText(teks)
+        self._tampilkan_indikator()
         self.stack.setCurrentIndex(self.HAL_TABEL if baris else self.HAL_TIDAK_ADA)
         self.panel.kosongkan()
+
+    # ---------------------------------------------------------------- KF-16 pengurutan
+
+    def _klik_judul(self, kolom: int):
+        """Klik judul kolom: urutkan naik, klik lagi turun, klik ketiga kembali ke urutan asal."""
+        if self.mode == self.MODE_RINCI:  # RAB rinci mengikuti susunan tipe elemen
+            self._tampilkan_indikator()
+            return
+        lama = self._urut.get(self.mode)
+        if lama is None or lama[0] != kolom:
+            self._urut[self.mode] = (kolom, Qt.AscendingOrder)
+        elif lama[1] == Qt.AscendingOrder:
+            self._urut[self.mode] = (kolom, Qt.DescendingOrder)
+        else:
+            self._urut.pop(self.mode)
+        self._isi_ulang()
+
+    def _terurut(self, data: list, kunci: dict) -> list:
+        urut = self._urut.get(self.mode)
+        if not urut or urut[0] not in kunci:
+            return list(data)
+        return sorted(data, key=kunci[urut[0]], reverse=urut[1] == Qt.DescendingOrder)
+
+    def _tampilkan_indikator(self):
+        h = self.tabel.horizontalHeader()
+        urut = self._urut.get(self.mode)
+        h.setSortIndicatorShown(urut is not None)
+        if urut:
+            h.setSortIndicator(*urut)
 
     # ---------------------------------------------------------------- mode rekap
 
@@ -508,6 +567,10 @@ class EstimasiPage(QWidget):
             rata_kanan=(2, 4, 5, 6), tinggi_baris=38,
         )
         kelompok = kelompokkan(baris) if baris else []
+        kunci = {1: lambda it: it["nama"].lower(), 2: lambda it: it["volume"], 3: lambda it: it["satuan"],
+                 4: lambda it: it["harga"], 5: lambda it: it["jumlah"], 6: lambda it: it["jumlah"]}
+        for k in kelompok:  # KF-16: urutkan item di dalam tiap kategori
+            k["items"] = self._terurut(k["items"], kunci)
         total = sum(k["total"] for k in kelompok) or 1.0
         id_pekerjaan = {r["kode_ahsp"]: r["pekerjaan_id"] for r in baris}
         jumlah_baris = sum(len(k["items"]) + 2 for k in kelompok)
@@ -595,6 +658,10 @@ class EstimasiPage(QWidget):
         tema.siapkan_tabel(t, ["NO", "LANTAI / KATEGORI PEKERJAAN", "ELEMEN", "JUMLAH HARGA", "%"],
                            rata_kanan=(2, 3, 4), tinggi_baris=36)
         rekap = rekap_per_lantai(baris) if baris else []
+        rekap = self._terurut(rekap, {1: lambda x: x["lantai"].lower(), 2: lambda x: x["jumlah_elemen"],
+                                      3: lambda x: x["total"], 4: lambda x: x["total"]})
+        for x in rekap:
+            x["kategori"] = self._terurut(x["kategori"], {1: lambda k: k["kategori"].lower(), 3: lambda k: k["total"], 4: lambda k: k["total"]})
         total = sum(x["total"] for x in rekap) or 1.0
         t.setRowCount(sum(1 + len(x["kategori"]) for x in rekap))
         r = 0
@@ -635,6 +702,11 @@ class EstimasiPage(QWidget):
             t, ["PEKERJAAN", "ELEMEN / LANTAI", "VOLUME (EDIT)", "HARGA SATUAN (EDIT)", "SUBTOTAL", "STATUS"],
             rata_kanan=(2, 3, 4), tinggi_baris=46,
         )
+        baris = self._terurut(baris, {
+            0: lambda r: _nama_baris(r).lower(), 1: lambda r: ((r["lantai"] or ""), (r["nama_elemen"] or "").lower()),
+            2: lambda r: r["volume_pekerjaan"], 3: lambda r: r["harga_satuan"], 4: lambda r: r["subtotal_biaya"],
+            5: lambda r: (bool(r["diedit_manual"] or r.get("harga_manual")), bool(r.get("dimensi_manual"))),
+        })
         t.setRowCount(len(baris))
         self._volume_terakhir = {}
         self._harga_terakhir = {}
@@ -663,7 +735,7 @@ class EstimasiPage(QWidget):
         h.setSectionResizeMode(1, QHeaderView.Interactive)
         t.setColumnWidth(1, 180)
         h.setSectionResizeMode(2, QHeaderView.Fixed)
-        t.setColumnWidth(2, 130)
+        t.setColumnWidth(2, 140)
         h.setSectionResizeMode(3, QHeaderView.Fixed)
         t.setColumnWidth(3, 150)
         return len(baris)
@@ -896,6 +968,42 @@ class EstimasiPage(QWidget):
             self._catat("Ubah biaya tidak langsung", sebelum)
             self._perbarui_ringkasan()
             tema.toast(self, "Biaya tidak langsung diperbarui")
+
+    # ---------------------------------------------------------------- KF-7 / KF-9 proyek
+
+    def _simpan_file(self):
+        simpan_file_proyek(self, self.proyek_id)
+
+    def _duplikat(self):
+        hasil = duplikat(self, self.proyek_id)
+        if hasil:
+            tema.toast(self, f'Proyek "{hasil[1]}" dibuat')
+            self.minta_buka_proyek.emit(*hasil)
+
+    def _ubah_info(self):
+        sebelum = potret_proyek(self.proyek_id)
+        dialog = InfoProyekDialog(self.proyek_id, self)
+        if dialog.exec() != InfoProyekDialog.Accepted:
+            return
+        self._catat("Ubah info proyek", sebelum)
+        p = get_proyek(self.proyek_id) or {}
+        self.nama_proyek = p.get("nama_proyek") or self.nama_proyek
+        self.label_judul.setText(self.nama_proyek)
+        if dialog.ifc_berubah:
+            self._jalankan_estimasi()
+        else:
+            self.muat()
+            tema.toast(self, "Info proyek disimpan")
+
+    def _buka_parameter(self):
+        manual = sum(1 for r in self._data if r["diedit_manual"])
+        sebelum = potret_proyek(self.proyek_id)
+        dialog = ParameterDialog(self.proyek_id, manual, self)
+        if dialog.exec() != ParameterDialog.Accepted or not dialog.diubah:
+            return
+        self._catat("Ubah parameter aturan", sebelum)
+        self.muat()
+        tema.toast(self, "Parameter disimpan, kuantitas dihitung ulang")
 
     def _buka_export(self):
         ExportDialog(self.proyek_id, self.nama_proyek, self).exec()
