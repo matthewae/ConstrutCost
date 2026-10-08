@@ -133,6 +133,7 @@ class InfoProyekDialog(QDialog):
         lay.addWidget(tema.label("Info Proyek", "judulHalaman"))
         lay.addWidget(tema.label("Lokasi, pemilik, dan tahun anggaran dipakai sebagai kop laporan RAB.", "subjudul", wrap=True))
         f = QFormLayout()
+        f.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         f.setVerticalSpacing(10)
         f.setHorizontalSpacing(14)
         self.edit_nama = QLineEdit(p.get("nama_proyek") or "")

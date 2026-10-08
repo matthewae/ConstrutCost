@@ -246,7 +246,7 @@ class TabHargaDasar(QWidget):
         self.editor.tersimpan.connect(self._setelah_simpan)
         split.addWidget(self.editor)
         split.setStretchFactor(0, 1)
-        split.setSizes([800, 360])
+        split.setSizes([900, 300])
         lay.addWidget(split, stretch=1)
 
         QShortcut(QKeySequence("Ctrl+F"), self, activated=lambda: (self.kolom_cari.setFocus(), self.kolom_cari.selectAll()))
@@ -349,7 +349,7 @@ class PanelEditorHarga(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("panel")
-        self.setMinimumWidth(320)
+        self.setMinimumWidth(290)
         self.setMaximumWidth(440)
         self._sd = None
         luar = QVBoxLayout(self)

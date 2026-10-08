@@ -514,6 +514,7 @@ QScrollBar::handle:horizontal:hover {{ background: {c['gulir_hover']}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 QScrollArea {{ background: transparent; border: none; }}
+QScrollArea > QWidget#qt_scrollarea_viewport, QScrollArea > QWidget > QWidget {{ background: transparent; }}
 QSplitter::handle {{ background: transparent; }}
 QWidget#isiPanel {{ background: transparent; }}
 

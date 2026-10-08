@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
+    QLabel,
     QSpinBox,
     QTableWidget,
     QTabWidget,
@@ -116,7 +117,7 @@ class PenulanganDialog(QDialog):
     def _editor(self) -> QFrame:
         kartu = QFrame()
         kartu.setObjectName("kartu")
-        kartu.setFixedWidth(330)
+        kartu.setFixedWidth(380)
         v = QVBoxLayout(kartu)
         v.setContentsMargins(18, 16, 18, 16)
         v.setSpacing(10)
@@ -128,6 +129,7 @@ class PenulanganDialog(QDialog):
 
         self.form_linier = QWidget()
         f = QFormLayout(self.form_linier)
+        f.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         f.setContentsMargins(0, 0, 0, 0)
         f.setVerticalSpacing(10)
         self.spin_n = QSpinBox()
@@ -146,6 +148,7 @@ class PenulanganDialog(QDialog):
 
         self.form_bidang = QWidget()
         f = QFormLayout(self.form_bidang)
+        f.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         f.setContentsMargins(0, 0, 0, 0)
         f.setVerticalSpacing(10)
         self.combo_dp = _combo_diameter()
@@ -159,10 +162,21 @@ class PenulanganDialog(QDialog):
         v.addWidget(self.form_bidang)
 
         f = QFormLayout()
+        f.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         f.setVerticalSpacing(10)
         self.spin_c = _spin_mm(15, 100)
         f.addRow(tema.label("Selimut beton", "formLabel"), self.spin_c)
         v.addLayout(f)
+        # Tiga form terpisah: samakan lebar kolom label agar isian sejajar.
+        for w in kartu.findChildren(QLabel, "formLabel"):
+            w.setFixedWidth(150)
+            w.setMinimumHeight(36)
+            w.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        for w in (self.spin_n, self.combo_d, self.combo_ds, self.spin_s,
+                  self.combo_dp, self.spin_jp, self.combo_lapis, self.spin_c):
+            w.setFixedWidth(170)
+        for f in kartu.findChildren(QFormLayout):
+            f.setHorizontalSpacing(12)
         v.addWidget(tema.label(
             "Ø = baja polos BjTP (< 12 mm), D = baja ulir BjTS (≥ 12 mm). Kait 12d, sengkang 135°, "
             "lewatan 40d tiap 12 m (SNI 2847:2019).", "infoKecil", wrap=True,

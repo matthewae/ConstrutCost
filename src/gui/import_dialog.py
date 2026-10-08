@@ -64,6 +64,7 @@ class RingkasanImportDialog(QDialog):
         kartu = QFrame()
         kartu.setObjectName("kartu")
         form = QFormLayout(kartu)
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         form.setContentsMargins(18, 14, 18, 14)
         form.setHorizontalSpacing(18)
         form.setVerticalSpacing(8)
@@ -103,6 +104,8 @@ class RingkasanImportDialog(QDialog):
         tabel.setAlternatingRowColors(True)
         tabel.setShowGrid(False)
         header = tabel.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        tabel.horizontalHeaderItem(2).setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -127,6 +130,7 @@ class RingkasanImportDialog(QDialog):
             root.addWidget(peringatan)
 
         # --- Nama proyek ---
+        root.addSpacing(6)
         label_nama = QLabel("Nama proyek")
         label_nama.setObjectName("formLabel")
         self.edit_nama = QLineEdit(info.nama_file.rsplit(".", 1)[0])

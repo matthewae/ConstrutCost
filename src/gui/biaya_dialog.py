@@ -83,6 +83,7 @@ class BiayaDialog(QDialog):
         kartu = QFrame()
         kartu.setObjectName("kartu")
         self.form_ringkas = QFormLayout(kartu)
+        self.form_ringkas.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form_ringkas.setContentsMargins(18, 12, 18, 12)
         self.form_ringkas.setVerticalSpacing(4)
         self.nilai = {}
@@ -111,6 +112,7 @@ class BiayaDialog(QDialog):
         self.label_mode = tema.label("Tambah biaya", "judulPanel")
         v.addWidget(self.label_mode)
         f = QFormLayout()
+        f.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         f.setVerticalSpacing(10)
         self.combo_uraian = QComboBox()
         self.combo_uraian.setEditable(True)
