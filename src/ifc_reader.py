@@ -173,11 +173,12 @@ def _validasi_anak(path: str) -> bool:
     return True
 
 
-def _validasi_di_proses_anak(p: Path) -> None:
+def _validasi_di_proses_anak(p: Path, fungsi=None) -> None:
+    """`fungsi` hanya untuk pengujian (pengganti _validasi_anak, harus fungsi tingkat modul)."""
     konteks = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(max_workers=1, mp_context=konteks) as ex:
         try:
-            ex.submit(_validasi_anak, str(p)).result()
+            ex.submit(fungsi or _validasi_anak, str(p)).result()
         except BrokenProcessPool as e:
             raise _tidak_valid(
                 "Pembaca IFC berhenti tidak normal saat membuka file ini. "

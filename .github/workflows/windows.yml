@@ -41,9 +41,11 @@ jobs:
         run: python -m pytest -q -p no:cacheprovider
 
       - name: Ukur kinerja KNF-1 / KNF-2
+        if: success() || failure()  # tetap dijalankan walau ada tes gagal: semua masalah terlihat dalam satu run
         run: python tools/ukur_kinerja.py data/AC20-FZK-Haus.ifc data/Duplex_A_20110907.ifc data/SampleStructuralModel.ifc
 
       - name: Build CostStruct.exe + uji mandiri hasil build
+        if: success() || failure()  # tetap dijalankan walau ada tes gagal: semua masalah terlihat dalam satu run
         run: python tools/build_exe.py
 
       - name: Unggah aplikasi Windows

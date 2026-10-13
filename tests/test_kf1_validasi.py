@@ -1,5 +1,7 @@
 """KF-1: import & validasi file IFC (UC-01 skenario normal dan alternatif)."""
 
+import os
+
 import pytest
 
 from ifc_reader import PESAN_TIDAK_VALID, FileIFCTidakValid, buka_dan_validasi
@@ -83,14 +85,27 @@ def test_file_terpotong_tanpa_penutup(tmp_path):
         buka_dan_validasi(f)
 
 
-def test_crash_pembaca_ifc_tidak_menghentikan_aplikasi(tmp_path):
-    """KNF-4: potongan file ini membuat IfcOpenShell segfault walau penutupnya ada.
-    Dengan validasi terisolasi, yang berhenti hanya proses anak."""
+def test_file_korup_ditolak_tanpa_menghentikan_aplikasi(tmp_path):
+    """KNF-4: potongan file ini membuat IfcOpenShell segfault di Linux, sedangkan di Windows menjadi
+    galat sintaks. Keduanya harus berakhir sebagai pesan "file tidak valid", aplikasi tetap berjalan."""
     isi = AC20.read_bytes()
     f = tmp_path / "korup.ifc"
     f.write_bytes(isi[: len(isi) // 3] + b"\nENDSEC;\nEND-ISO-10303-21;\n")
-    with pytest.raises(FileIFCTidakValid, match="berhenti tidak normal"):
+    with pytest.raises(FileIFCTidakValid, match="berhenti tidak normal|tidak dapat dibaca"):
         buka_dan_validasi(f, terisolasi=True)
+
+
+def _anak_mati_mendadak(path: str) -> bool:
+    os._exit(3)  # meniru pembaca IFC yang crash (segfault / access violation) di proses anak
+
+
+def test_crash_proses_anak_tidak_menghentikan_aplikasi():
+    """KNF-4, semua OS: bila proses anak pembaca IFC berhenti mendadak, yang berhenti hanya proses anak;
+    aplikasi menerima pesan galat yang jelas."""
+    from ifc_reader import _validasi_di_proses_anak
+
+    with pytest.raises(FileIFCTidakValid, match="berhenti tidak normal"):
+        _validasi_di_proses_anak(AC20, fungsi=_anak_mati_mendadak)
 
 
 def test_validasi_terisolasi_file_valid():
