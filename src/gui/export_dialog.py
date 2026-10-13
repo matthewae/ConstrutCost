@@ -446,7 +446,7 @@ class ExportDialog(QDialog):
                 berhasil.append(hasil)
                 if hasil.name != tujuan.name:  # file lama terkunci: disimpan dengan nama baru (tulis_aman)
                     self._catatan_nama.append(
-                        f"{tujuan.name} sedang dikunci program lain (mis. Excel di latar belakang, panel Preview "
+                        f"{tujuan.name} sedang dikunci program lain (mis. Excel di latar belakang, panel pratinjau "
                         f"File Explorer, atau antivirus/OneDrive), jadi hasil disimpan sebagai {hasil.name}."
                     )
             except Exception as e:  # KF-14: pesan jelas + saran solusi, rincian teknis di Riwayat Aktivitas

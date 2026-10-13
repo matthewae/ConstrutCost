@@ -18,7 +18,10 @@ def test_pipeline_ac20(db_sementara):
     assert r["elemen"] == 44
     assert r["baris_hasil"] > 0
     assert r["peringatan"] == []
-    assert progres[-1] == (44, 44)
+    # KNF-5: indikator selesai di 100% dan tidak pernah mundur (termasuk tahap geometri paralel)
+    assert progres[-1][0] == progres[-1][1] >= 44
+    persen = [i / n for i, n in progres if n]
+    assert persen == sorted(persen)
 
     conn = sqlite3.connect(db_sementara)
     kelas = dict(conn.execute("SELECT kelas, COUNT(*) FROM elemen_proyek GROUP BY kelas"))

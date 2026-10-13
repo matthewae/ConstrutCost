@@ -23,6 +23,9 @@ def _connect():
     conn = sqlite3.connect(DB_PATH, timeout=10)  # tunggu bila database sedang ditulis proses lain
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # KNF-9: setiap commit ditulis penuh ke disk sebelum selesai (rollback journal), sehingga aplikasi yang
+    # ditutup paksa / listrik padam meninggalkan database pada keadaan transaksi terakhir yang utuh.
+    conn.execute("PRAGMA synchronous = FULL")
     return conn
 
 

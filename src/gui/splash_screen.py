@@ -291,6 +291,9 @@ class SplashScreen(QWidget):
         # Tahap pertama sekalian jadi pengecekan nyata: siapkan & pastikan DB bisa diakses.
         if self._tahap_index == 0:
             try:
+                from database.init_db import periksa_integritas
+
+                periksa_integritas()  # KNF-9: database rusak dikenali sebelum dipakai
                 siapkan_database()  # idempotent: skema + data master harga
                 get_all_proyek()
                 from aktivitas import catat, pangkas

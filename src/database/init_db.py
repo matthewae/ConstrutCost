@@ -52,6 +52,20 @@ def init_db():
         conn.close()
 
 
+def periksa_integritas() -> None:
+    """KNF-9: pemeriksaan cepat keutuhan database saat aplikasi dibuka. Bila rusak, DatabaseError
+    ("malformed") diteruskan ke pesan galat yang menyarankan pemulihan dari folder cadangan."""
+    if not DB_PATH.is_file():
+        return
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    try:
+        hasil = conn.execute("PRAGMA quick_check").fetchone()[0]
+    finally:
+        conn.close()
+    if hasil != "ok":
+        raise sqlite3.DatabaseError(f"database disk image is malformed ({hasil})")
+
+
 def cadangkan_database(simpan: int = 7, folder: Path | None = None) -> Path | None:
     """Salinan cadangan harian database (KF-14 / KNF-8) di folder `cadangan`, disimpan `simpan` hari
     terakhir. Memakai API backup SQLite agar salinan konsisten. Return path cadangan bila dibuat."""

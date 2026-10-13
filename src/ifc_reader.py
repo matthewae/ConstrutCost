@@ -19,6 +19,7 @@ Asal setiap nilai dicatat di 'sumber_dimensi' supaya bisa ditelusuri (KF-18).
 
 import math
 import multiprocessing
+import os
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
@@ -229,6 +230,10 @@ class _Geometri:
     luas_miring: float | None = None  # luas bidang atas dengan kemiringan dominan (khusus atap)
 
 
+class _PerluGeometri(Exception):
+    """Mode cek siapkan_geometri: elemen ini membutuhkan perhitungan geometri."""
+
+
 class _Pengukur:
     def __init__(self, model):
         self.model = model
@@ -237,6 +242,8 @@ class _Pengukur:
         self.s_volume = unit_util.calculate_unit_scale(model, "VOLUMEUNIT")
         self.set_lokal = self._settings()
         self._cache_lantai = {}
+        self._bentuk = {}  # entity id -> _Geometri hasil siapkan_geometri (paralel)
+        self._mode_cek = False
 
     @staticmethod
     def _settings():
@@ -280,8 +287,57 @@ class _Pengukur:
 
     # ---------- geometri ----------
 
+    def siapkan_geometri(self, kandidat, progress=None) -> int:
+        """KNF-1: hitung geometri elemen yang membutuhkannya sekaligus, paralel di semua inti CPU.
+
+        Tahap 1 (cepat): `_ukur` dijalankan dalam mode cek untuk mendata elemen yang Qto-nya tidak lengkap
+        (hanya elemen ini yang nanti memanggil `geometri`). Tahap 2: geometri elemen tersebut dihitung oleh
+        iterator IfcOpenShell multi-thread. Hasilnya sama dengan `create_shape` per elemen; bila iterator
+        gagal, `geometri` kembali menghitung satu per satu. Return jumlah elemen yang dihitung geometrinya."""
+        self._mode_cek = True
+        perlu, atap = [], set()
+        try:
+            for entity, _tipe, kelas in kandidat:
+                try:
+                    _ukur(self, entity, kelas)
+                except _PerluGeometri:
+                    perlu.append(entity)
+                    if kelas == ElementType.ROOF:
+                        atap.add(entity.id())
+                except Exception:
+                    pass  # galat sebenarnya dilaporkan saat pengukuran
+        finally:
+            self._mode_cek = False
+        if len(perlu) < 4:
+            return 0
+        total = len(perlu) + len(kandidat)  # sama dengan total di ekstrak_elemen: indikator tidak mundur
+        try:
+            it = geom.iterator(self.set_lokal, self.model, max(1, min(os.cpu_count() or 1, 8)), include=perlu)
+            ids = {e.id() for e in perlu}
+            if it.initialize():
+                while True:
+                    # Bentuk dari iterator hanya sah sampai it.next(): langsung diukur, yang disimpan angkanya.
+                    shape = it.get()
+                    if shape.id in ids:
+                        self._bentuk[shape.id] = self._ukur_bentuk(shape, shape.id in atap)
+                    if progress:
+                        progress(len(self._bentuk), total, f"Menghitung geometri elemen ({len(self._bentuk)}/{len(perlu)})")
+                    if not it.next():
+                        break
+        except Exception:
+            pass  # elemen tanpa bentuk siap dihitung satu per satu oleh geometri()
+        return len(perlu)
+
     def geometri(self, entity, atap=False) -> _Geometri:
-        shape = geom.create_shape(self.set_lokal, entity)
+        siap = self._bentuk.pop(entity.id(), None)
+        if siap is not None:
+            return siap
+        if self._mode_cek:
+            raise _PerluGeometri
+        return self._ukur_bentuk(geom.create_shape(self.set_lokal, entity), atap)
+
+    @staticmethod
+    def _ukur_bentuk(shape, atap=False) -> _Geometri:
         g = shape.geometry  # `shape` tetap dipegang selama g dipakai
         mn, mx = shape_util.get_bbox(shape_util.get_vertices(g))
         ext = tuple(float(v) for v in (mx - mn))
@@ -574,11 +630,16 @@ def ekstrak_elemen(model, progress=None):
     kandidat = list(kumpulkan_elemen(model))
     n = len(kandidat)
     elemen, peringatan = [], []
+    # Indikator proses (KNF-5): langkah geometri paralel lalu langkah pengukuran tiap elemen.
+    if progress:
+        progress(0, n, "Memeriksa data kuantitas elemen...")
+    awal = p.siapkan_geometri(kandidat, progress)
+    total = awal + n
 
     for i, (entity, _tipe, kelas) in enumerate(kandidat):
         nama = _nama(entity, kelas)
         if progress:
-            progress(i, n, f"{LABEL[kelas]}: {nama or entity.GlobalId}")
+            progress(awal + i, total, f"{LABEL[kelas]}: {nama or entity.GlobalId}")
         try:
             d = _ukur(p, entity, kelas)
         except Exception as e:  # geometri rusak / representasi tidak didukung
@@ -624,5 +685,5 @@ def ekstrak_elemen(model, progress=None):
         )
 
     if progress:
-        progress(n, n, "Ekstraksi selesai")
+        progress(total, total, "Ekstraksi selesai")
     return elemen, peringatan
