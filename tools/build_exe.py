@@ -9,7 +9,8 @@ Langkah:
 1. Buat ikon assets/coststruct.ico dari logo aplikasi (bila belum ada).
 2. Jalankan PyInstaller dengan CostStruct.spec.
 3. Jalankan `CostStruct.exe --uji-mandiri` di folder data sementara: database & harga HSPK,
-   validasi IFC di proses anak, parsing & rule engine, export Excel/PDF, simpan & buka file proyek.
+   validasi IFC di proses anak, parsing & rule engine, export Excel/PDF, simpan & buka file proyek,
+   dan membuka jendela utama (antarmuka Qt).
    Laporan: build/uji_mandiri/uji_mandiri.txt.
 """
 

@@ -338,6 +338,9 @@ def main():
     from gui.galat import pasang_penangkap_galat, pasang_terjemahan
 
     siapkan_log()  # KF-15: file log harian di folder data
+    from gui.windows import atur_id_aplikasi
+
+    atur_id_aplikasi()  # Windows: ikon CostStruct di taskbar (bukan ikon Python); harus sebelum jendela dibuat
     app = QApplication(sys.argv)
     app.setApplicationName("CostStruct")
     app.setWindowIcon(tema.ikon_aplikasi())

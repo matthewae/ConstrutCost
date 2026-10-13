@@ -6,6 +6,7 @@ Stylesheet dipasang sekali di QApplication lewat `terapkan(app)`, sehingga setia
 dialog cukup memberi `objectName` / properti pada widget-nya.
 """
 
+import sys
 import tempfile
 from pathlib import Path
 
@@ -315,14 +316,16 @@ def format_angka(nilai: float, desimal: int = 2) -> str:
 
 def _simpan_pixmap(nama: str, gambar) -> str:
     try:
-        path = Path(tempfile.gettempdir()) / f"coststruct_{nama}.png"
+        # nama memuat tema: Qt menyimpan gambar per URL, jadi file tema lain tidak boleh memakai URL yang sama
+        path = Path(tempfile.gettempdir()) / f"coststruct_{TEMA_AKTIF}_{nama}.png"
         pix = QPixmap(24, 24)
         pix.fill(Qt.transparent)
         p = QPainter(pix)
         p.setRenderHint(QPainter.Antialiasing)
         gambar(p)
         p.end()
-        return f"url({path.as_posix()})" if pix.save(str(path), "PNG") else "none"
+        # tanda kutip: folder Temp Windows bisa memuat spasi (C:/Users/Nama Pengguna/AppData/Local/Temp)
+        return f'url("{path.as_posix()}")' if pix.save(str(path), "PNG") else "none"
     except Exception:
         return "none"
 
@@ -572,12 +575,22 @@ QProgressBar::chunk {{ background-color: {c['tombol_utama']}; border-radius: 5px
 """
 
 
+def tema_gelap() -> bool:
+    return QColor(W["latar"]).lightness() < 128
+
+
 class _HiasKotakPesan(QObject):
-    """Ganti ikon bawaan QMessageBox (gaya Windows lama) dengan lencana ikon tema, untuk semua kotak pesan."""
+    """Dipasang di QApplication: (1) ikon bawaan QMessageBox diganti lencana ikon tema, (2) di Windows,
+    title bar setiap jendela/dialog ikut gelap pada tema gelap."""
 
     def eventFilter(self, obj, event):
         if event.type() == QEvent.Show:
             from PySide6.QtWidgets import QMessageBox
+
+            if sys.platform == "win32" and obj.isWidgetType() and obj.isWindow():
+                from gui.windows import atur_title_bar
+
+                atur_title_bar(obj, tema_gelap())
 
             if isinstance(obj, QMessageBox) and not obj.property("_dihias"):
                 peta = {
@@ -605,10 +618,20 @@ def terapkan(app, nama_tema: str | None = None) -> None:
         pilih_tema(nama_tema)
     # angka di kotak input mengikuti format Indonesia: 1.234,56
     QLocale.setDefault(QLocale(QLocale.Indonesian, QLocale.Indonesia))
+    # Fusion: tampilan sama di Windows 10/11 dan sistem lain. Gaya bawaan "windows11" (Qt >= 6.7) mengabaikan
+    # sebagian stylesheet (kotak centang, combo box, scroll bar), sehingga tema tampil tidak konsisten.
+    if app.style().name().lower() != "fusion":
+        app.setStyle("Fusion")
     app.setStyleSheet(stylesheet())
     if getattr(app, "_hias_pesan", None) is None:
         app._hias_pesan = _HiasKotakPesan(app)
         app.installEventFilter(app._hias_pesan)
+    if sys.platform == "win32":  # jendela yang sudah terbuka saat tema diganti
+        from gui.windows import atur_title_bar
+
+        for w in app.topLevelWidgets():
+            if w.isVisible():
+                atur_title_bar(w, tema_gelap())
 
 
 # ---------------------------------------------------------------- ikon vektor

@@ -1,7 +1,6 @@
 """KNF-1 kinerja parsing, KNF-2 kinerja rule engine, KNF-3 konsistensi hasil, KNF-9 integritas database."""
 
 import os
-import signal
 import sqlite3
 import subprocess
 import sys
@@ -104,10 +103,10 @@ while True:  # hapus & tulis ulang seluruh hasil estimasi terus-menerus sampai d
 """
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="SIGKILL khusus POSIX; di Windows dipakai TerminateProcess")
 def test_knf9_database_utuh_setelah_aplikasi_dimatikan_paksa(tmp_path):
     """Proses yang sedang menulis hasil estimasi dimatikan paksa (kill -9) berulang kali. Database harus tetap
-    utuh (integrity_check = ok) dan hasil estimasi proyek lengkap: tidak pernah setengah terhapus."""
+    utuh (integrity_check = ok) dan hasil estimasi proyek lengkap: tidak pernah setengah terhapus.
+    Berlaku juga di Windows (Task Manager → End task / listrik padam)."""
     env = dict(os.environ, COSTSTRUCT_DATA=str(tmp_path), PYTHONPATH=str(AKAR / "src"))
     siapkan = (
         f"import sys; sys.path.insert(0, {str(AKAR / 'src')!r})\n"
@@ -127,7 +126,7 @@ def test_knf9_database_utuh_setelah_aplikasi_dimatikan_paksa(tmp_path):
         p = subprocess.Popen([sys.executable, str(skrip), str(pid)], env=env, stdout=subprocess.PIPE, text=True)
         assert p.stdout.readline().strip() == "siap"
         time.sleep(jeda)
-        p.send_signal(signal.SIGKILL)
+        p.kill()  # SIGKILL di Linux/macOS, TerminateProcess di Windows: proses berhenti seketika
         p.wait()
         conn = sqlite3.connect(db)
         try:

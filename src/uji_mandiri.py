@@ -3,9 +3,10 @@ Uji mandiri hasil build .exe (KNF-8):
 
     CostStruct.exe --uji-mandiri [file.ifc] [--keluar FOLDER]
 
-Menjalankan seluruh alur utama tanpa antarmuka di folder data SEMENTARA (database pengguna tidak
-tersentuh): siapkan database + harga HSPK -> validasi IFC di proses anak (KNF-4) -> parsing & rule
-engine -> export Excel & PDF -> simpan & buka file .coststruct. Laporan ditulis ke
+Menjalankan seluruh alur utama di folder data SEMENTARA (database pengguna tidak tersentuh):
+siapkan database + harga HSPK -> validasi IFC di proses anak (KNF-4) -> parsing & rule engine ->
+export Excel & PDF -> simpan & buka file .coststruct -> buka jendela utama & halaman estimasi
+(memastikan plugin Qt ikut terbundel; tangkapan layar `uji_mandiri_layar.png`). Laporan ditulis ke
 `uji_mandiri.txt` di folder keluaran; kode keluar 0 bila semua tahap berhasil.
 Tanpa file IFC, dipakai model kecil buatan (dinding, pelat, kolom, pintu) yang dibuat di tempat.
 """
@@ -113,13 +114,36 @@ def jalankan(path_ifc: str | None = None, folder_keluar: str | None = None) -> d
         baru = buka_berkas(path, folder_ifc=data / "buka")
         return f"{path.name} disimpan & dibuka kembali sebagai proyek #{baru}"
 
-    for nama, fungsi in (("Database & harga HSPK", db), ("Validasi IFC (proses anak)", ifc),
-                         ("Parsing & rule engine", estimasi), ("Export Excel & PDF", export),
-                         ("Simpan & buka file proyek", berkas)):
+    def antarmuka():
+        """Plugin Qt (platform, gaya, gambar) ikut terbundel: jendela utama & halaman estimasi bisa dibuka."""
+        from PySide6.QtWidgets import QApplication
+
+        from gui import tema
+        from gui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication(["CostStruct"])
+        tema.terapkan(app, "hitam_kuning")
+        w = MainWindow()
+        w.resize(1280, 800)
+        w.show()
+        app.processEvents()
+        w.buka_estimasi(konteks["pid"], "Uji Mandiri")
+        app.processEvents()
+        layar = keluar / "uji_mandiri_layar.png"
+        if not w.grab().save(str(layar)):
+            raise RuntimeError("tangkapan layar gagal disimpan")
+        w.close()
+        return f"platform {app.platformName()}, gaya {app.style().name()}, {layar.name}"
+
+    urutan = (("Database & harga HSPK", db), ("Validasi IFC (proses anak)", ifc),
+              ("Parsing & rule engine", estimasi), ("Export Excel & PDF", export),
+              ("Simpan & buka file proyek", berkas), ("Antarmuka (Qt)", antarmuka))
+    for nama, fungsi in urutan:
         if not langkah(nama, fungsi):
             break
 
-    hasil = {"berhasil": all(ok for _, ok, _, _ in tahap) and len(tahap) == 5, "tahap": tahap, "folder_data": str(data)}
+    hasil = {"berhasil": all(ok for _, ok, _, _ in tahap) and len(tahap) == len(urutan), "tahap": tahap,
+             "folder_data": str(data)}
     baris = ["UJI MANDIRI COSTSTRUCT", ""]
     for nama, ok, ket, detik in tahap:
         baris.append(f"[{'OK' if ok else 'GAGAL'}] {nama} ({detik} s) - {ket}")

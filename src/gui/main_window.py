@@ -265,6 +265,9 @@ def main():
     from database.preferensi_repository import muat_preferensi
 
     multiprocessing.freeze_support()
+    from gui.windows import atur_id_aplikasi
+
+    atur_id_aplikasi()
     app = QApplication(sys.argv)
     siapkan_database()
     tema.terapkan(app, muat_preferensi().tema)
