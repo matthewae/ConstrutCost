@@ -329,3 +329,23 @@ def test_penangkap_galat_dari_thread_lain_hanya_dicatat(db_sementara, qapp, monk
     th.join()
     assert tampil == []
     assert "galat di thread latar" in daftar_aktivitas(jenis="galat")[0]["pesan"]
+
+
+def test_build_exe_memeriksa_lingkungan_sebelum_build(monkeypatch):
+    """Build dari terminal (mis. Trae/VS Code): paket yang kurang dilaporkan jelas, PyInstaller tidak dijalankan."""
+    import importlib.util
+
+    sys.path.insert(0, str(AKAR / "tools"))
+    try:
+        import build_exe
+    finally:
+        sys.path.pop(0)
+    assert build_exe.periksa_lingkungan() == []  # lingkungan uji lengkap
+
+    asli = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda nama, *a: None if nama == "PySide6" else asli(nama, *a))
+    masalah = build_exe.periksa_lingkungan()
+    assert len(masalah) == 1 and "PySide6" in masalah[0] and "requirements.txt" in masalah[0]
+    dipanggil = []
+    monkeypatch.setattr(build_exe.subprocess, "run", lambda *a, **k: dipanggil.append(a))
+    assert build_exe.main([]) == 2 and dipanggil == []
