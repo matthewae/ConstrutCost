@@ -133,7 +133,10 @@ def jalankan(path_ifc: str | None = None, folder_keluar: str | None = None) -> d
         if not w.grab().save(str(layar)):
             raise RuntimeError("tangkapan layar gagal disimpan")
         w.close()
-        return f"platform {app.platformName()}, gaya {app.style().name()}, {layar.name}"
+        gaya = app.property("gaya_dasar")
+        if str(gaya).lower() != "fusion":
+            raise RuntimeError(f"gaya Qt Fusion tidak terpasang (gaya dasar: {gaya!r})")
+        return f"platform {app.platformName()}, gaya {gaya}, {layar.name}"
 
     urutan = (("Database & harga HSPK", db), ("Validasi IFC (proses anak)", ifc),
               ("Parsing & rule engine", estimasi), ("Export Excel & PDF", export),

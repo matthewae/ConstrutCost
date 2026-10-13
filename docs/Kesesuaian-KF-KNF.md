@@ -1,7 +1,7 @@
 # Kesesuaian dengan Kebutuhan Fungsional (KF) dan Non-Fungsional (KNF)
 
 Acuan: Tabel 3.1 (KF-1 s.d. KF-19) dan Tabel 3.2 (KNF-1 s.d. KNF-9) naskah skripsi.
-Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 284 tes lulus).
+Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 286 tes lulus di Linux dan Windows).
 
 ## Kebutuhan fungsional
 
@@ -37,8 +37,8 @@ Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 284 tes lulus).
 | KNF-4 | Tidak crash saat ada galat | File rusak atau bukan .ifc dibaca di proses terpisah; `sys.excepthook` menampilkan peringatan tanpa menutup aplikasi | `test_kf1_validasi.py`, `test_knf8_kf14_kf15.py` | Sesuai |
 | KNF-5 | Indikator proses | Dialog progres "Memproses file IFC" dengan i/n elemen (termasuk tahap geometri paralel); splash dengan progress bar dan tahap pemuatan | `test_ui_modern.py` (splash) | Sesuai |
 | KNF-6 | Bahasa Indonesia baku | Seluruh teks UI, pesan galat, dan tombol bawaan Qt (OK/Batal/Ya/Tidak, menu klik kanan) berbahasa Indonesia | `test_knf8_kf14_kf15.py` | Sesuai (lihat catatan 1) |
-| KNF-7 | Windows 11 64-bit, luring | Tidak ada akses jaringan di kode; data disimpan di `%APPDATA%\CostStruct` | `test_knf8_kf14_kf15.py` (lokasi data) | Sesuai di kode; perlu uji di Windows 11 (catatan 2) |
-| KNF-8 | Paket .exe mandiri | `CostStruct.spec` + `tools/build_exe.py`, uji mandiri hasil build (`--uji-mandiri`) | `test_knf8_kf14_kf15.py` | Diverifikasi di Linux; build Windows perlu dijalankan (catatan 2) |
+| KNF-7 | Windows 11 64-bit, luring | Tidak ada akses jaringan di kode; data disimpan di `%APPDATA%\CostStruct`; gaya Qt Fusion, ikon taskbar, dan title bar gelap Windows. Seluruh tes lulus di Windows (CI `windows-latest`) | `.github/workflows/windows.yml`, `test_knf8_kf14_kf15.py` | Sesuai di Windows Server 2025 (CI); uji akhir di Windows 11 penelitian (catatan 2) |
+| KNF-8 | Paket .exe mandiri | `CostStruct.spec` + `tools/build_exe.py`. Uji mandiri `CostStruct.exe` 6 tahap: database, validasi IFC di proses anak, parsing & rule engine, export Excel/PDF, file proyek, dan jendela utama Qt (gaya Fusion) | `.github/workflows/windows.yml`, `test_knf8_kf14_kf15.py` | Sesuai: `CostStruct.exe` dibuild & lulus uji mandiri di Windows (CI) |
 | KNF-9 | Integritas database SQLite | Setiap proses tulis dalam satu transaksi; `PRAGMA synchronous=FULL`; `quick_check` saat aplikasi dibuka; cadangan harian. Diuji dengan `kill -9` saat menulis, 5 kali: database tetap `ok` dan hasil estimasi lengkap | `test_knf_kinerja_integritas.py`, `test_knf8_kf14_kf15.py` | Sesuai |
 
 ### Hasil ukur KNF-1 / KNF-2
@@ -63,8 +63,17 @@ hasilnya ke `hasil_kinerja.csv`.
 1. **Istilah Import/Export dan Quantity Take-Off** dipertahankan karena dipakai di naskah (nama KF-1, KF-8, dan
    judul penelitian) dan lazim di praktik estimasi. Bila penguji meminta bentuk baku KBBI, istilahnya cukup diganti
    menjadi "Impor/Ekspor" di teks antarmuka.
-2. **KNF-7 dan KNF-8** perlu dibuktikan di Windows 11 64-bit:
-   - jalankan `build_exe.bat`, lalu `dist\CostStruct\CostStruct.exe --uji-mandiri`;
+2. **KNF-7 dan KNF-8.** Setiap perubahan pada PR otomatis diuji di Windows lewat GitHub Actions (`windows-latest`,
+   Windows Server 2025, 64-bit). Langkahnya:
+   1. seluruh tes;
+   2. ukur kinerja;
+   3. build `CostStruct.exe`;
+   4. uji mandiri `.exe`.
+
+   Folder aplikasi siap pakai bisa diunduh dari tab **Actions → run terbaru → Artifacts → CostStruct-windows**.
+   Ekstrak lalu jalankan `CostStruct.exe`; tidak perlu memasang Python. Untuk bukti BAB IV di Windows 11 64-bit
+   penelitian:
+   - jalankan `CostStruct.exe --uji-mandiri`;
    - buka aplikasi dengan Wi-Fi dimatikan;
    - lakukan import, estimasi, dan export.
 3. **Pemetaan UC ke KF di naskah tampak bergeser satu nomor** dibandingkan Tabel 3.1, mis. UC-05 Export Laporan

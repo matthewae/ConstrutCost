@@ -620,8 +620,11 @@ def terapkan(app, nama_tema: str | None = None) -> None:
     QLocale.setDefault(QLocale(QLocale.Indonesian, QLocale.Indonesia))
     # Fusion: tampilan sama di Windows 10/11 dan sistem lain. Gaya bawaan "windows11" (Qt >= 6.7) mengabaikan
     # sebagian stylesheet (kotak centang, combo box, scroll bar), sehingga tema tampil tidak konsisten.
-    if app.style().name().lower() != "fusion":
-        app.setStyle("Fusion")
+    # Setelah stylesheet dipasang, app.style() menjadi pembungkus QStyleSheetStyle tanpa nama, jadi gaya
+    # dasar dicatat di properti aplikasi (dibaca juga oleh uji mandiri .exe).
+    if not app.property("gaya_dasar"):
+        gaya = app.setStyle("Fusion")
+        app.setProperty("gaya_dasar", gaya.name() if gaya is not None else app.style().name())
     app.setStyleSheet(stylesheet())
     if getattr(app, "_hias_pesan", None) is None:
         app._hias_pesan = _HiasKotakPesan(app)

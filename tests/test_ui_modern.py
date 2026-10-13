@@ -117,3 +117,15 @@ def test_splash_indikator_tahap(app):
     s._perbarui_langkah(3)  # "Siap.": semua tahap selesai
     assert all("✓" in l.text() for l in s.langkah)
     s.deleteLater()
+
+
+def test_gaya_fusion_terpasang_sekali(app):
+    """Windows: gaya bawaan windows11 mengabaikan sebagian stylesheet, jadi aplikasi selalu memakai Fusion."""
+    from gui import tema
+
+    assert str(app.property("gaya_dasar")).lower() == "fusion"
+    gaya = app.style()
+    tema.terapkan(app, "terang_emas")  # ganti tema: stylesheet baru, gaya dasar tidak dibuat ulang
+    tema.terapkan(app, "hitam_kuning")
+    assert str(app.property("gaya_dasar")).lower() == "fusion"
+    assert app.style() is not None and gaya is not None
