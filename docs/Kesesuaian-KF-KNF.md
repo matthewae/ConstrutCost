@@ -52,6 +52,16 @@ Diukur dengan `python tools/ukur_kinerja.py <file.ifc>` (4 inti CPU, Linux):
 | SampleStructuralModel.ifc | 6,0 MB | 348 | 1.189 | 4,4 s | 0,03 s |
 | rumah_50mb.ifc (sintetis, `tools/buat_ifc_uji.py`) | 53,4 MB | 447 | 1.966 | 13,4 s | 0,04 s |
 
+Hasil ukur yang sama di **Windows** (CI GitHub Actions, Windows Server 2025, 4 inti CPU, Python 3.13):
+
+| File | Ukuran | Parsing (KNF-1) | Rule + RAB (KNF-2) |
+|---|---|---|---|
+| AC20-FZK-Haus.ifc | 2,6 MB | 1,0 s | 0,05 s |
+| Duplex_A_20110907.ifc | 2,4 MB | 1,6 s | 0,06 s |
+| SampleStructuralModel.ifc | 6,1 MB | 6,0 s | 0,08 s |
+
+Di runner yang sama, `CostStruct.exe` dibuild dalam 99 s (folder 246 MB) dan uji mandirinya lulus keenam tahap.
+
 Sebelum geometri dihitung paralel, parsing SampleStructuralModel memakan 12,4 s. Sekarang 4,4 s, dengan hasil
 dimensi yang identik.
 
