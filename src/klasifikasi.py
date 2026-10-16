@@ -84,6 +84,20 @@ TIPE_TIDAK_DIHITUNG = {
 _CATATAN_TIDAK_DIHITUNG = {
     "IfcMember": "rangka atap baja ringan sudah dihitung per m² luas atap",
 }
+# Catatan menurut nama elemen: pekerjaan yang sebenarnya sudah dihitung dari elemen lain (jangan ditambah lagi).
+_CATATAN_NAMA = [
+    (re.compile(r"lantai\s*kerja|lean\s*concrete|blinding", re.IGNORECASE),
+     "lantai kerja bawah fondasi sudah dihitung dari ukuran fondasi telapak"),
+    (re.compile(r"keramik\s*dinding|backsplash|wall\s*til", re.IGNORECASE),
+     "keramik dinding ruang basah dihitung dari ruang (IfcSpace) bila ada, selain itu tambah manual"),
+]
+
+
+def _catatan(tipe: str, entitas) -> str | None:
+    nama = [getattr(e, "Name", None) or "" for e in entitas]
+    isi = [_CATATAN_TIDAK_DIHITUNG[tipe]] if tipe in _CATATAN_TIDAK_DIHITUNG else []
+    isi += [teks for pola, teks in _CATATAN_NAMA if any(pola.search(n) for n in nama)]
+    return "; ".join(isi) or None
 
 
 def _nama_tipe(nama) -> str:
@@ -107,7 +121,7 @@ def hitung_tidak_dihitung(model) -> dict:
     def tambah(label, tipe, entitas):
         if entitas:
             hasil[f"{label} ({tipe})"] = {
-                "jumlah": len(entitas), "contoh": _contoh(entitas), "catatan": _CATATAN_TIDAK_DIHITUNG.get(tipe),
+                "jumlah": len(entitas), "contoh": _contoh(entitas), "catatan": _catatan(tipe, entitas),
             }
 
     for tipe, label in TIPE_TIDAK_DIHITUNG.items():

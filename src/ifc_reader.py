@@ -517,8 +517,15 @@ TINGGI_RAILING = 0.90
 def _isi_penampang_profil(p: _Pengukur, entity, d: _Dimensi, k_lebar: str, k_tinggi: str, k_panjang: str,
                           urutkan: bool = False):
     """Penampang balok/kolom dari profil persegi yang diekstrusi bila quantity set tidak memuatnya
-    (mis. ring balok miring pada gevel). Konvensi IFC balok: XDim = lebar, YDim = tinggi penampang.
-    Kolom (urutkan=True): sisi kecil = lebar, sisi besar = tebal."""
+    (mis. ring balok miring pada gevel).
+
+    Arah ekstrusi tidak selalu searah bentang. Konvensi IFC (dan Revit untuk balok miring): profil =
+    penampang b × h, Depth = panjang. Tetapi banyak model menggambar balok sebagai *denah* L × b yang
+    diekstrusi setinggi h (Depth = tinggi balok). Maka sisi yang mewakili panjang ditentukan dulu:
+    panjang dari quantity set bila ada, selain itu sisi terpanjang dari ketiganya. Dua sisi sisanya
+    adalah penampang. Bila sisi panjang = Depth, konvensi XDim = lebar, YDim = tinggi dipakai; selain
+    itu sisi kecil = lebar, sisi besar = tinggi. Kolom (urutkan=True): sisi kecil = lebar, sisi besar =
+    tebal."""
     if not d.kurang(k_lebar, k_tinggi):
         return
     try:
@@ -527,12 +534,20 @@ def _isi_penampang_profil(p: _Pengukur, entity, d: _Dimensi, k_lebar: str, k_tin
         prof = None
     if prof is None:
         return
-    x, y, panjang = prof
-    if urutkan:
-        x, y = min(x, y), max(x, y)
-    d.isi(k_lebar, x, "profil")
-    d.isi(k_tinggi, y, "profil")
-    d.isi(k_panjang, panjang, "profil")
+    x, y, depth = prof
+    sisi = [x, y, depth]
+    acuan = d.nilai.get(k_panjang, max(sisi))
+    # sisi yang paling dekat dengan panjang elemen; bila seri, utamakan Depth (konvensi IFC)
+    i_panjang = min((2, 0, 1), key=lambda i: abs(sisi[i] - acuan))
+    if i_panjang == 2:
+        b, h = x, y
+    else:
+        b, h = sisi[1 - i_panjang], depth
+    if urutkan or i_panjang != 2:
+        b, h = min(b, h), max(b, h)
+    d.isi(k_lebar, b, "profil")
+    d.isi(k_tinggi, h, "profil")
+    d.isi(k_panjang, sisi[i_panjang], "profil")
 
 
 # Penampang di nama elemen, konvensi gambar kerja Indonesia: "Ring Balok 13/15", "Kolom K1 20/25" (cm).
@@ -550,6 +565,30 @@ def _isi_penampang_nama(entity, d: _Dimensi, k_lebar: str, k_tinggi: str):
     if 0.05 <= b <= 1.5 and 0.05 <= h <= 1.5:
         d.isi(k_lebar, min(b, h), "nama")
         d.isi(k_tinggi, max(b, h), "nama")
+
+
+def _cocokkan_penampang_nama(entity, d: _Dimensi, k_lebar: str, k_tinggi: str, k_panjang: str):
+    """Pengaman: penampang dari profil/geometri yang tidak cocok dengan volume (V jauh < b × h × L)
+    diganti ukuran di nama elemen bila ukuran nama itu cocok dengan volume. Mencegah balok beton
+    "Sloof S1 25/40" salah dianggap profil baja berongga karena sumbu ekstrusinya terbaca keliru."""
+    if d.kurang(k_lebar, k_tinggi, k_panjang, "volume"):
+        return
+    if d.sumber[k_lebar] in ("qto", "nama") and d.sumber[k_tinggi] in ("qto", "nama"):
+        return
+    m = _PENAMPANG_NAMA.search(entity.Name or "")
+    if not m:
+        return
+    bn, hn = sorted(int(x) / 100 for x in m.groups())
+    if not (0.05 <= bn <= 1.5 and 0.05 <= hn <= 1.5):
+        return
+    n = d.nilai
+    v, L = n["volume"], n[k_panjang]
+    if v / (n[k_lebar] * n[k_tinggi] * L) >= 0.5 or not 0.7 <= v / (bn * hn * L) <= 1.3:
+        return
+    d.buang(k_lebar)
+    d.buang(k_tinggi)
+    d.isi(k_lebar, bn, "nama")
+    d.isi(k_tinggi, hn, "nama")
 
 
 def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
@@ -589,6 +628,7 @@ def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
                 d.isi("tebal", sedang, "geometri")
             d.isi("volume", g.volume, "geometri")
         _isi_penampang_nama(entity, d, "lebar", "tebal")
+        _cocokkan_penampang_nama(entity, d, "lebar", "tebal", "tinggi")
 
     elif kelas == ElementType.BEAM:
         d.isi("panjang", p.panjang(q, "Length"), "qto")
@@ -605,6 +645,7 @@ def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
                 d.isi("tinggi", sedang, "geometri")
             d.isi("volume", g.volume, "geometri")
         _isi_penampang_nama(entity, d, "lebar", "tinggi")
+        _cocokkan_penampang_nama(entity, d, "lebar", "tinggi", "panjang")
 
     elif kelas == ElementType.SLAB:
         d.isi("luas", p.luas(q, "NetArea", "GrossArea", "Area"), "qto")

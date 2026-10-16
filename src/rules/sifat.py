@@ -36,9 +36,9 @@ _KAYU = re.compile(
 
 KELAS_LINIER = ("COLUMN", "BEAM")
 KELAS_BIDANG = ("SLAB", "ROOF")
-# Tangga beton pejal: volume >= ± separuh kotak L x B x H (pelat miring + anak tangga). Tangga baja/kayu jauh
-# lebih kecil (hanya ibu tangga + pijakan).
-ISI_MIN_TANGGA = 0.25
+# Tangga beton (pelat miring 10-15 cm + anak tangga) mengisi ± 11-20% kotak L x B x H. Tangga kayu (pijakan
+# papan) dan baja (ibu tangga kanal + pelat bordes) hanya ± 0,5-3%.
+ISI_MIN_TANGGA = 0.06
 
 
 def _cm(x: float) -> str:

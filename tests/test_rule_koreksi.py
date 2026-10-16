@@ -420,3 +420,99 @@ def test_aturan_tangga_dan_railing():
     assert kode(_el("RAILING", nama="Hand rail", panjang=4, tinggi=0.9)) == {"RLG.TANGGA"}
     assert kode(_el("RAILING", nama="Railing balkon", panjang=4, tinggi=1.1)) == {"RLG.PENGAMAN"}
     assert kode(_el("RAILING", nama="Railing", panjang=4, tinggi=3.0)) == {"RLG.TANGGA"}  # miring
+
+
+def _model_balok_denah(tmp_path):
+    """Balok beton yang digambar sebagai *denah* L × b lalu diekstrusi setinggi h (Depth = tinggi balok),
+    seperti model rumah tinggal yang memicu peringatan "penampang berongga" pada Sloof S1 25/40."""
+    import ifcopenshell.api as api
+    import numpy as np
+
+    f = api.run("project.create_file", version="IFC4")
+    proj = api.run("root.create_entity", f, ifc_class="IfcProject", name="Uji balok denah")
+    api.run("unit.assign_unit", f, length={"is_metric": True, "raw": "METERS"})
+    model = api.run("context.add_context", f, context_type="Model")
+    body = api.run("context.add_context", f, context_type="Model", context_identifier="Body",
+                   target_view="MODEL_VIEW", parent=model)
+    site = api.run("root.create_entity", f, ifc_class="IfcSite")
+    gedung = api.run("root.create_entity", f, ifc_class="IfcBuilding")
+    lt = api.run("root.create_entity", f, ifc_class="IfcBuildingStorey", name="01 LANTAI 1")
+    lt.Elevation = 0.0
+    api.run("aggregate.assign_object", f, products=[site], relating_object=proj)
+    api.run("aggregate.assign_object", f, products=[gedung], relating_object=site)
+    api.run("aggregate.assign_object", f, products=[lt], relating_object=gedung)
+
+    def balok(nama, L, b, h, qto):
+        prof = f.createIfcRectangleProfileDef("AREA", None, None, L, b)  # denah: XDim = panjang, YDim = lebar
+        rep = api.run("geometry.add_profile_representation", f, context=body, profile=prof, depth=h)
+        el = api.run("root.create_entity", f, ifc_class="IfcBeam", name=nama)
+        api.run("geometry.assign_representation", f, product=el, representation=rep)
+        api.run("geometry.edit_object_placement", f, product=el, matrix=np.eye(4))
+        api.run("spatial.assign_container", f, products=[el], relating_structure=lt)
+        if qto:  # Revit: Length + volume, tanpa Width/Depth
+            q = api.run("pset.add_qto", f, product=el, name="Qto_BeamBaseQuantities")
+            api.run("pset.edit_qto", f, qto=q, properties={"Length": L, "NetVolume": L * b * h})
+
+    balok("Sloof S1 25/40 As 1 (A-B)", 2.67, 0.25, 0.40, qto=True)
+    balok("Balok Latei BL 15/15 Lt.1 Y1-AB #1", 0.60, 0.15, 0.15, qto=False)
+    path = tmp_path / "balok_denah.ifc"
+    f.write(str(path))
+    return path
+
+
+def test_balok_profil_denah_tetap_beton(tmp_path):
+    from ifc_reader import buka_dan_validasi, ekstrak_elemen
+
+    info = buka_dan_validasi(_model_balok_denah(tmp_path))
+    elemen, peringatan = ekstrak_elemen(info.model)
+    b = {e["nama"].split(" ")[1]: e for e in elemen if e["kelas"] == "BEAM"}
+    sloof, latei = b["S1"], b["Latei"]
+    assert (sloof["lebar"], sloof["tinggi"], sloof["panjang"]) == pytest.approx((0.25, 0.40, 2.67))
+    assert (latei["lebar"], latei["tinggi"], latei["panjang"]) == pytest.approx((0.15, 0.15, 0.60))
+    assert sloof["sumber_dimensi"]["lebar"] == "profil"
+    for e in (sloof, latei):
+        assert bukan_beton(e) is None
+    total, _ = _total(elemen)
+    assert total["BTN.SLOOF"] == pytest.approx(0.25 * 0.40 * 2.67, rel=1e-3)
+
+
+def test_penampang_nama_mengoreksi_bacaan_yang_tidak_cocok_volume():
+    from ifc_reader import _cocokkan_penampang_nama, _Dimensi
+
+    class E:
+        Name = "Sloof S1 25/40 As 1 (A-B)"
+
+    d = _Dimensi()
+    d.isi("panjang", 2.67, "qto")
+    d.isi("volume", 0.25 * 0.40 * 2.67, "qto")
+    d.isi("lebar", 2.67, "profil")  # sumbu ekstrusi terbaca keliru
+    d.isi("tinggi", 0.25, "profil")
+    _cocokkan_penampang_nama(E, d, "lebar", "tinggi", "panjang")
+    assert (d.nilai["lebar"], d.nilai["tinggi"]) == pytest.approx((0.25, 0.40))
+    assert d.sumber["lebar"] == "nama"
+    # profil baja sungguhan (volume kecil, nama tanpa ukuran b/h) tidak disentuh
+    E.Name = "WF 300.150"
+    d2 = _Dimensi()
+    for k, v in (("panjang", 6.0), ("volume", 0.03), ("lebar", 0.15), ("tinggi", 0.30)):
+        d2.isi(k, v, "geometri")
+    _cocokkan_penampang_nama(E, d2, "lebar", "tinggi", "panjang")
+    assert d2.nilai["lebar"] == 0.15
+
+
+def test_tangga_beton_isi_rendah_tetap_dihitung():
+    # tangga beton nyata: pelat miring 12 cm + 10 anak tangga ≈ 14-16 % kotak L × B × H
+    beton_ = _el("STAIR", nama="Anak Tangga 1A (1-10)", panjang=2.7, lebar=1.0, tinggi=1.6, volume=0.65)
+    assert bukan_beton(beton_) is None and terapkan_rules(beton_)[0]
+
+
+def test_catatan_nama_untuk_pekerjaan_yang_sudah_dihitung():
+    from klasifikasi import _catatan
+
+    class E:
+        def __init__(self, n):
+            self.Name = n
+
+    assert "fondasi telapak" in _catatan("IfcBuildingElementProxy", [E("Lantai Kerja FP2 A1")])
+    c = _catatan("IfcCovering", [E("Keramik Dinding 30x60 (H=1,50) - WC Lt.1"), E("Cladding Bata Tempel")])
+    assert "IfcSpace" in c
+    assert _catatan("IfcPlate", [E("Listplank WPC")]) is None

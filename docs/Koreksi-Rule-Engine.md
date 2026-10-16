@@ -35,9 +35,12 @@ Perbaikan pendukung:
 | Masalah | Koreksi | Kode |
 |---|---|---|
 | "BSK.BALOK: lebar, tinggi kosong" pada *Ring Balok Miring Gevel 13/15*. Balok miring tanpa quantity set: bounding box elemen miring tidak mewakili penampang | Penampang dibaca dari **profil persegi yang diekstrusi** (IfcRectangleProfileDef XDim × YDim, panjang = Depth). Cadangan terakhir: ukuran di **nama elemen** ("13/15" = 13 × 15 cm). Asal nilai tercatat `profil` / `nama` | `ifc_reader.py` |
-| Tangga dan railing hanya dilaporkan "tidak dihitung" | **Tangga beton** (IfcStairFlight, atau IfcStair yang tidak dipecah) dihitung: beton f'c 20 MPa, bekisting tangga B × √(L² + H²) + B × H (HSPK 2.2.1.3.7), dan besi dengan rasio 100 kg/m³ (parameter). Tangga kayu/baja dikenali dari nama, atau dari volume < 25% L × B × H. **Railing**: railing tangga/hand rail (HSPK 3.13.5) bila HANDRAIL, namanya menyebut tangga, atau miring; selain itu railing pengaman 1,2 m (HSPK 3.13.4) | `klasifikasi.py`, `rules/definitions.py`, `rules/sifat.py` |
+| Tangga dan railing hanya dilaporkan "tidak dihitung" | **Tangga beton** (IfcStairFlight, atau IfcStair yang tidak dipecah) dihitung: beton f'c 20 MPa, bekisting tangga B × √(L² + H²) + B × H (HSPK 2.2.1.3.7), dan besi dengan rasio 100 kg/m³ (parameter). Tangga kayu/baja dikenali dari nama, atau dari volume < 6% L × B × H. **Railing**: railing tangga/hand rail (HSPK 3.13.5) bila HANDRAIL, namanya menyebut tangga, atau miring; selain itu railing pengaman 1,2 m (HSPK 3.13.4) | `klasifikasi.py`, `rules/definitions.py`, `rules/sifat.py` |
 | Enam baris "tidak dihitung" terpisah | Diringkas menjadi **satu catatan** berisi jumlah dan **contoh nama** tiap jenis (IfcMember, IfcPlate, proxy, penutup lain), plus keterangan bahwa rangka atap baja ringan sudah dihitung per m² luas atap | `klasifikasi.py` |
 | Dialog Konfirmasi Import lebih tinggi dari layar, sehingga tombol Import tidak terjangkau | Ringkasan dapat digulir; kolom nama proyek dan tombol Batal/Import selalu terlihat di bawah; tinggi dialog maksimal 88% tinggi layar | `gui/import_dialog.py` |
+| **Regresi:** hampir semua sloof, balok, ring balok, balok latei, dan balok praktis beton ditolak sebagai "penampang berongga (kemungkinan profil baja)" | Model menggambar balok sebagai **denah** L × b yang diekstrusi setinggi h (Depth = tinggi), bukan penampang b × h yang diekstrusi sepanjang L. Pembaca profil dulu selalu menganggap XDim = lebar, sehingga lebar = panjang bentang (Sloof 25/40 bentang 2,67 m → isi 0,40 / 2,67 = 15%). Sekarang sisi yang mewakili panjang dipilih dulu (panjang dari quantity set, atau sisi terpanjang), dan dua sisi lainnya menjadi penampang. **Pengaman:** bila b × h × L tidak cocok dengan volume tetapi ukuran di nama ("25/40") cocok, ukuran nama yang dipakai | `ifc_reader.py` |
+| Tangga beton "Anak Tangga 1A (1-10)" ditolak (isi 15%) | Batas isi tangga diturunkan dari 25% menjadi **6%**. Tangga beton (pelat miring 10–15 cm + anak tangga) mengisi ± 11–20% kotak L × B × H. Tangga kayu/baja hanya ± 0,5–3% | `rules/sifat.py` |
+| Catatan "tidak dihitung" untuk proxy *Lantai Kerja FP…* dan penutup *Keramik Dinding* | Catatan menurut nama: lantai kerja sudah dihitung dari ukuran fondasi telapak, sehingga tidak perlu ditambah lagi. Keramik dinding ruang basah dihitung dari ruang (IfcSpace) bila ada | `klasifikasi.py` |
 
 ## Analisa tambahan pekerjaan persiapan
 
@@ -78,6 +81,6 @@ memakai model rumah tinggal dari PT Mandajaya.
 
 ## Pengujian
 
-`tests/test_rule_koreksi.py` (31 tes) menguji setiap koreksi di atas, termasuk dialog Parameter Aturan
+`tests/test_rule_koreksi.py` (35 tes) menguji setiap koreksi di atas, termasuk dialog Parameter Aturan
 (pilihan dan nilai "otomatis") dan dialog Tipe Penulangan. `tests/test_penulangan.py` menambah tes susunan
 "atas tumpuan", tipe Pelat Lantai Dasar, dan pembaruan tipe bawaan.
