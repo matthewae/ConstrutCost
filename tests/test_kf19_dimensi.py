@@ -144,12 +144,12 @@ def test_ubah_dimensi_pelat_menghitung_ulang_qto(proyek_ac20):
 
     h = _hasil(conn, el["id"])
     assert h["BTN.PELAT"]["volume_pekerjaan"] == pytest.approx(12.0)
-    # pelat 10 x 8 m t = 15 cm -> tipe bawaan Ø10-150 dua arah 2 lapis, selimut 2 cm
+    # pelat 10 x 8 m t = 15 cm -> tipe bawaan Ø10-150 dua arah, bawah penuh + atas tumpuan (× 1,5), selimut 2 cm
     nx, ny = math.floor(7.96 / 0.15) + 1, math.floor(9.96 / 0.15) + 1
-    panjang = (nx * (9.96 + 0.24) + ny * (7.96 + 0.24)) * 2
+    panjang = (nx * (9.96 + 0.24) + ny * (7.96 + 0.24)) * 1.5
     besi = h["BSI.PELAT.P"]
     assert besi["volume_pekerjaan"] == pytest.approx(panjang * math.pi * 10**2 / 4 * 7850e-6 * 1.05)
-    assert besi["uraian"] == "Tulangan Ø10-150 dua arah, atas & bawah"
+    assert besi["uraian"] == "Tulangan Ø10-150 dua arah, bawah penuh + atas tumpuan"
     assert besi["diameter"] == 10
     assert h["BSK.PELAT"]["volume_pekerjaan"] == pytest.approx(80.0)
     assert "12" in h["BTN.PELAT"]["rumus"]
@@ -210,12 +210,12 @@ def test_edit_volume_manual_diganti_hasil_hitung_ulang(proyek_ac20):
     from estimasi_service import hitung_ulang_elemen
 
     _, conn = proyek_ac20
-    el = _elemen(conn, "First")
+    el = _elemen(conn, "Unterzug-1")  # balok beton 20/24 (gording kayu 8/16 tidak dihitung sebagai beton)
     h = _hasil(conn, el["id"])["BTN.BALOK"]
     update_volume_estimasi(h["id"], h["pekerjaan_id"], 99.0)
-    hitung_ulang_elemen(el["id"], {"panjang": 10.0, "lebar": 0.1, "tinggi": 0.2})
+    hitung_ulang_elemen(el["id"], {"panjang": 10.0, "lebar": 0.2, "tinggi": 0.3})
     baru = _hasil(conn, el["id"])["BTN.BALOK"]
-    assert baru["volume_pekerjaan"] == pytest.approx(0.2)
+    assert baru["volume_pekerjaan"] == pytest.approx(0.6)
     assert baru["diedit_manual"] == 0
 
 

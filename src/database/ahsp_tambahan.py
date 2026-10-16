@@ -12,6 +12,7 @@ from database.hspk_bandung_2027 import HSD
 
 BUK = 0.10
 SHEET = "Pekerjaan Tanah (SNI 2835:2008)"
+SHEET_PERSIAPAN = "Pekerjaan Persiapan (SNI 2835:2008)"
 
 
 def _harga(tipe: str, nama: str, satuan: str) -> float:
@@ -21,9 +22,9 @@ def _harga(tipe: str, nama: str, satuan: str) -> float:
     raise KeyError(f"Harga dasar '{nama}' tidak ada di HSD")
 
 
-def _analisa(uraian: str, komponen: list) -> tuple:
+def _analisa(uraian: str, komponen: list, sheet: str = SHEET) -> tuple:
     komp = [(t, n, s, k, _harga(t, n, s)) for t, n, s, k in komponen]
-    return SHEET, uraian, sum(k * h for *_, k, h in komp) * (1 + BUK), komp
+    return sheet, uraian, sum(k * h for *_, k, h in komp) * (1 + BUK), komp
 
 
 AHSP_TAMBAHAN = {
@@ -38,4 +39,19 @@ AHSP_TAMBAHAN = {
         ("upah", "Mandor", "OH", 0.010),
         ("bahan", "Pasir urug (quarry - lokasi pekerjaan)", "m3", 1.200),
     ]),
+    # Pekerjaan persiapan (tidak ada di workbook HSPK). Koefisien acuan analisa pekerjaan persiapan
+    # SNI 2835:2008 / AHSP bidang Cipta Karya; dapat disesuaikan di Harga Satuan -> Analisa Pekerjaan.
+    "SNI-2835-BERSIH": _analisa("Pembersihan 1 m2 lapangan dan perataan", [
+        ("upah", "Pekerja", "OH", 0.100),
+        ("upah", "Mandor", "OH", 0.050),
+    ], SHEET_PERSIAPAN),
+    "SNI-2835-BOWPLANK": _analisa("Pengukuran dan pemasangan 1 m' bouwplank", [
+        ("bahan", "Kayu kaso 5/7 kelas III", "m3", 0.012),
+        ("bahan", "Paku 5 dan 7 cm", "kg", 0.020),
+        ("bahan", "Kayu papan kelas III", "m3", 0.007),
+        ("upah", "Pekerja", "OH", 0.100),
+        ("upah", "Tukang kayu", "OH", 0.100),
+        ("upah", "Kepala tukang", "OH", 0.010),
+        ("upah", "Mandor", "OH", 0.005),
+    ], SHEET_PERSIAPAN),
 }

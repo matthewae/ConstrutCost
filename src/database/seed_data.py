@@ -22,7 +22,7 @@ from database.estimasi_repository import _connect
 from database.hspk_bandung_2027 import AHSP, HSD, SUMBER
 from database.init_db import pastikan_skema
 
-SEED_VERSI = "7-hspk-bdg-2027-pekerjaan-tanah"
+SEED_VERSI = "8-hspk-bdg-2027-persiapan-cat-eksterior"
 
 SUMBER_HSPK = "HSPK Kota Bandung 2027"
 
@@ -31,6 +31,9 @@ ANALISA = {**AHSP, **AHSP_TAMBAHAN}
 
 # kode aplikasi -> (nama pekerjaan di RAB, kategori, satuan, kode HSPK)
 PEMETAAN = {
+    # ---------------- Pekerjaan persiapan ----------------
+    "PSP.BERSIH": ("Pembersihan Lahan dan Perataan", "Persiapan", "m2", "SNI-2835-BERSIH"),
+    "PSP.BOWPLANK": ("Pengukuran dan Pemasangan Bowplank", "Persiapan", "m'", "SNI-2835-BOWPLANK"),
     # ---------------- Pekerjaan tanah (KF-4) ----------------
     "TNH.GALIAN.1": ("Galian Tanah Biasa Sedalam 0 s.d. 1 m", "Tanah", "m3", "1.2.1.1.1"),
     "TNH.GALIAN.2": ("Galian Tanah Biasa Sedalam > 1 s.d. 2 m", "Tanah", "m3", "1.2.1.1.4"),
@@ -44,9 +47,9 @@ PEMETAAN = {
     # ---------------- Fondasi ----------------
     "FDN.BATUKALI": ("Pasangan Fondasi Batu Belah 1SP : 4PP", "Fondasi", "m3", "2.2.2.1.6"),
     "BTN.SUMURAN": ("Fondasi Sumuran Beton Masif", "Fondasi", "m3", "2.2.2.2.6"),
-    "BTN.FONDASI": ("Beton Fondasi Telapak f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
-    "BSI.FONDASI": ("Pembesian Fondasi Telapak (Asumsi Rasio kg/m³)", "Fondasi", "kg", "2.2.1.1.1a"),
-    "BSK.FONDASI": ("Bekisting Fondasi Telapak", "Fondasi", "m2", "2.2.1.3.1"),
+    "BTN.FONDASI": ("Beton Fondasi Telapak / Menerus f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
+    "BSI.FONDASI": ("Pembesian Fondasi Beton (Asumsi Rasio kg/m³)", "Fondasi", "kg", "2.2.1.1.1a"),
+    "BSK.FONDASI": ("Bekisting Fondasi Telapak / Menerus", "Fondasi", "m2", "2.2.1.3.1"),
     "BTN.SLOOF": ("Beton Sloof f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
     "BSI.SLOOF": ("Pembesian Sloof (Asumsi Rasio kg/m³)", "Fondasi", "kg", "2.2.1.1.3a"),
     "BSK.SLOOF": ("Bekisting Sloof", "Fondasi", "m2", "2.2.1.3.2"),
@@ -83,7 +86,22 @@ PEMETAAN = {
     "PLF.RANGKA": ("Rangka Plafon Besi Hollow 40.40 Modul 60x60 cm", "Plafon", "m2", "3.5.3.1"),
     "PLF.GYPSUM": ("Plafon Papan Gypsum Tebal 9 mm", "Plafon", "m2", "3.5.2.1"),
     # ---------------- Cat ----------------
-    "CAT.DINDING": ("Pengecatan Tembok Baru (1 Lapis Cat Dasar, 2 Lapis Cat Penutup)", "Cat", "m2", "3.8.10.1"),
+    "CAT.DINDING": ("Pengecatan Tembok Baru Interior (1 Lapis Cat Dasar, 2 Lapis Cat Penutup)", "Cat", "m2",
+                    "3.8.10.1"),
+    # Sisi luar dinding luar dipisah sebagai item sendiri. Harganya sementara memakai analisa 3.8.10.1:
+    # analisa eksterior HSPK 3.8.10.2 memakai harga dasar "Cat penutup (cat tembok eksterior)"
+    # Rp 1.624.000/kg (kemungkinan harga per pail), sehingga harga satuannya Rp 509.761/m² (6x interior).
+    "CAT.EKSTERIOR": ("Pengecatan Tembok Baru Eksterior (1 Lapis Cat Dasar, 2 Lapis Cat Penutup)", "Cat", "m2",
+                      "3.8.10.1"),
+}
+
+# Catatan tambahan pada pekerjaan (ditampilkan di Harga Satuan) bila pemetaan menyimpang dari item HSPK aslinya.
+CATATAN_PEMETAAN = {
+    "CAT.EKSTERIOR": (
+        "Sementara memakai analisa cat interior 3.8.10.1: harga dasar cat penutup eksterior di HSPK 2027 "
+        "(Rp 1.624.000/kg, item 3.8.10.2) tidak wajar. Ganti komponen di Analisa Pekerjaan bila harga cat "
+        "eksterior sudah diverifikasi."
+    ),
 }
 
 # Pembesian rinci per jenis baja (rules/penulangan.py): Ø < 12 mm = baja polos BjTP, D >= 12 mm =
@@ -95,7 +113,7 @@ for _grup, _nama, _kategori, _hspk_p, _hspk_u in (
     ("SLOOF", "Sloof", "Fondasi", "2.2.1.1.3", "2.2.1.1.4a"),
     ("PELAT", "Pelat Lantai", "Beton", "2.2.1.1.1", "2.2.1.1.2a"),
     ("DAK", "Pelat Atap (Dak)", "Beton", "2.2.1.1.1", "2.2.1.1.2a"),
-    ("FONDASI", "Fondasi Telapak", "Fondasi", "2.2.1.1.1", "2.2.1.1.2a"),
+    ("FONDASI", "Fondasi Beton", "Fondasi", "2.2.1.1.1", "2.2.1.1.2a"),
 ):
     PEMETAAN[f"BSI.{_grup}.P"] = (f"Pembesian {_nama} Besi Polos (BjTP) Ø < 12 mm", _kategori, "kg", _hspk_p)
     PEMETAAN[f"BSI.{_grup}.U"] = (f"Pembesian {_nama} Besi Ulir (BjTS) D ≥ 12 mm", _kategori, "kg", _hspk_u)
@@ -211,6 +229,8 @@ def seed_pekerjaan():
             sheet, uraian, harga_f, komponen = ANALISA[kode_hspk]
             sumber = "SNI 2835:2008 (harga dasar HSPK Kota Bandung 2027)" if kode_hspk in AHSP_TAMBAHAN else SUMBER
             catatan = f"{sumber} · {kode_hspk} · {uraian} (harga satuan dokumen Rp {harga_f:,.0f})".replace(",", ".")
+            if kode in CATATAN_PEMETAAN:
+                catatan += f" · {CATATAN_PEMETAAN[kode]}"
             ada = conn.execute("SELECT id FROM pekerjaan WHERE kode_ahsp = ?", (kode,)).fetchone()
             if ada:
                 pid = ada["id"]

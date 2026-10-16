@@ -61,6 +61,37 @@ TIPE_IFC_DIBACA = [
     "IfcSpace",
 ]
 
+# Entitas bangunan yang tidak dihitung rule engine: dilaporkan ke pengguna (ringkasan import & peringatan)
+# supaya pekerjaannya bisa ditambahkan manual. IfcStairFlight/IfcRampFlight tidak dihitung terpisah karena
+# bagian dari IfcStair/IfcRamp.
+TIPE_TIDAK_DIHITUNG = {
+    "IfcStair": "Tangga",
+    "IfcRamp": "Ramp",
+    "IfcRailing": "Railing / pagar",
+    "IfcMember": "Batang rangka",
+    "IfcPlate": "Plat / panel",
+    "IfcCurtainWall": "Dinding tirai",
+    "IfcBuildingElementProxy": "Elemen generik",
+}
+
+
+def hitung_tidak_dihitung(model) -> dict:
+    """{'Tangga (IfcStair)': 2, ...} untuk entitas bangunan yang tidak dihitung rule engine, termasuk
+    IfcCovering selain plafon/penutup lantai (mis. CLADDING, ROOFING)."""
+    hasil = {}
+    for tipe, label in TIPE_TIDAK_DIHITUNG.items():
+        try:
+            n = len(model.by_type(tipe))
+        except Exception:  # tipe tidak ada di skema file
+            n = 0
+        if n:
+            hasil[f"{label} ({tipe})"] = n
+    lain = [c for c in model.by_type("IfcCovering") if predefined_type(c) not in _COVERING]
+    if lain:
+        hasil["Penutup lain (IfcCovering)"] = len(lain)
+    return hasil
+
+
 _LANGSUNG = {
     "IfcFooting": ElementType.FOOTING,
     "IfcPile": ElementType.PILE,

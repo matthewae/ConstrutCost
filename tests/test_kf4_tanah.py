@@ -117,7 +117,12 @@ def test_ac20_punya_bab_pekerjaan_tanah(db_sementara):
 
     pid = create_proyek("AC20", str(AC20))
     r = jalankan_estimasi(pid)
-    assert r["peringatan"] == []
+    # hanya peringatan informatif: entitas yang tidak dihitung (tangga, railing, gording kayu, ...)
+    # dan model tanpa penanda dinding luar; tidak ada dimensi/volume yang gagal dibaca
+    assert r["peringatan"]
+    assert all(
+        "tidak dihitung" in x or "IsExternal" in x for x in r["peringatan"]
+    ), r["peringatan"]
     rows = get_hasil_estimasi_by_proyek(pid)
     tanah = {x["kode_ahsp"] for x in rows if x["kategori"] == "Tanah"}
     assert {"TNH.GALIAN.1", "TNH.PASIR.FONDASI", "TNH.URUG.KEMBALI", "TNH.PASIR.LANTAI"} <= tanah

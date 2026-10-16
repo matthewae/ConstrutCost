@@ -66,14 +66,42 @@ def test_pelat_persegi_dan_tidak_reguler():
 
     bebas = hitung(_el("SLAB", tebal=0.12, luas=12.0, volume=1.44), p)[0]
     assert bebas.berat == pytest.approx(2 * 12.0 / 0.15 * 2 * berat_per_m(10) * 1.05)
-    assert bebas.uraian == "Tulangan Ø10-150 dua arah, atas & bawah"
+    assert bebas.uraian == "Tulangan Ø10-150 dua arah, 2 lapis penuh (atas & bawah)"
+
+
+def test_pelat_atas_hanya_di_tumpuan():
+    """Pelat dua arah: tulangan bawah penuh, tulangan atas 1/4 bentang dari tiap tepi = 1/2 lapis penuh."""
+    el = _el("SLAB", tebal=0.12, luas=12.0, volume=1.44)
+    satu = hitung(el, Penulangan("PELAT", d_utama=10, jarak_utama=0.15, lapis=1, selimut=0.02))[0]
+    penuh = hitung(el, Penulangan("PELAT", d_utama=10, jarak_utama=0.15, lapis=2, selimut=0.02))[0]
+    tumpuan = hitung(el, Penulangan("PELAT", d_utama=10, jarak_utama=0.15, lapis=3, selimut=0.02))[0]
+    assert penuh.berat == pytest.approx(2 * satu.berat)
+    assert tumpuan.berat == pytest.approx(1.5 * satu.berat)
+    assert tumpuan.uraian == "Tulangan Ø10-150 dua arah, bawah penuh + atas tumpuan"
+    assert "bawah + ½ atas di tumpuan" in tumpuan.rumus
+
+
+def test_pelat_lantai_dasar_tipe_tersendiri():
+    """Pelat di atas tanah (BASESLAB / lantai dasar) bukan pelat struktural dua lapis:
+    bawaan Ø8-150 satu lapis (setara wiremesh M8-150 ≈ 5,3 kg/m²)."""
+    dasar = _el("SLAB", predefined_type="BASESLAB", tebal=0.12, luas=100.0, volume=12.0)
+    assert kunci_tipe(dasar) == ("PELAT_DASAR", 0, 12)
+    assert kunci_tipe(_el("SLAB", tebal=0.12, di_lantai_dasar=True)) == ("PELAT_DASAR", 0, 12)
+    assert kunci_tipe(_el("SLAB", tebal=0.12)) == ("PELAT", 0, 12)
+    besi = hitung(dasar)[0]
+    assert besi.kode == "BSI.PELAT.P" and besi.diameter == 8
+    assert besi.berat / 100.0 == pytest.approx(2 / 0.15 * berat_per_m(8) * 1.05)  # ±5,5 kg/m²
+    assert 5.0 < besi.berat / 100.0 < 6.0
+    assert label_tipe("PELAT_DASAR", "L1", None, 0.12) == "Pelat Lantai Dasar L1 (t = 12 cm)"
 
 
 def test_tipe_bawaan_mengikuti_penampang():
     assert bawaan("KOLOM", 0.12, 0.15).ringkas() == "4 Ø10, sengkang Ø6-150"  # kolom praktis
     assert bawaan("KOLOM", 0.20, 0.25).ringkas() == "6 D13, sengkang Ø10-150"
     assert bawaan("BALOK", 0.15, 0.20).ringkas() == "4 Ø10, sengkang Ø8-150"  # ring balok
-    assert bawaan("PELAT", None, 0.12).ringkas() == "Ø10-150 dua arah, 2 lapis (atas & bawah)"
+    assert bawaan("PELAT", None, 0.12).ringkas() == "Ø10-150 dua arah, bawah penuh + atas tumpuan"
+    assert bawaan("DAK", None, 0.12).ringkas() == "Ø10-150 dua arah, bawah penuh + atas tumpuan"
+    assert bawaan("PELAT_DASAR", None, 0.12).ringkas() == "Ø8-150 dua arah, 1 lapis (bawah)"
     assert kunci_tipe(_el("COLUMN", lebar=0.2, tebal=0.25, tinggi=3)) == ("KOLOM", 20, 25)
     assert kunci_tipe(_el("ROOF", tebal=0.12, kemiringan=30)) is None  # atap miring: tanpa tulangan
     assert kunci_tipe(_el("BEAM", tinggi=0.3)) is None
@@ -100,8 +128,9 @@ def test_validasi_konfigurasi():
         validasi(Penulangan("BALOK", 4, 10, d_sengkang=4, jarak_sengkang=0.15, selimut=0.04))
     with pytest.raises(PenulanganTidakValid, match="Jarak tulangan"):
         validasi(Penulangan("PELAT", d_utama=10, jarak_utama=0.6, lapis=2, selimut=0.02))
-    with pytest.raises(PenulanganTidakValid, match="lapis"):
-        validasi(Penulangan("PELAT", d_utama=10, jarak_utama=0.15, lapis=3, selimut=0.02))
+    validasi(Penulangan("PELAT", d_utama=10, jarak_utama=0.15, lapis=3, selimut=0.02))  # atas tumpuan
+    with pytest.raises(PenulanganTidakValid, match="Susunan"):
+        validasi(Penulangan("PELAT", d_utama=10, jarak_utama=0.15, lapis=4, selimut=0.02))
 
 
 # ---------------------------------------------------------------- database
@@ -126,16 +155,19 @@ def test_tipe_dibuat_per_penampang(proyek_ac20):
     pid, conn = proyek_ac20
     tipe = daftar_tipe(pid)
     label = {t["label"]: t for t in tipe}
-    # AC20: balok 20/24 dan pelat t = 20 cm (2 buah); gording kayu 8/16 bukan beton bertulang
-    assert set(label) == {"Balok B1 (20/24)", "Pelat Lantai P1 (t = 20 cm)"}
-    assert label["Pelat Lantai P1 (t = 20 cm)"]["jumlah_elemen"] == 2
-    assert label["Pelat Lantai P1 (t = 20 cm)"]["ringkas"].startswith("D13-150")
+    # AC20: balok 20/24, pelat lantai dasar (Bodenplatte), pelat lantai atas t = 20 cm, dan sloof turunan
+    # 20/30 di bawah dinding lantai dasar (bangunan 2 lantai); gording kayu 8/16 bukan beton bertulang
+    assert set(label) == {"Balok B1 (20/24)", "Pelat Lantai Dasar L1 (t = 20 cm)", "Pelat Lantai P1 (t = 20 cm)",
+                          "Sloof S1 (20/30)"}
+    assert label["Pelat Lantai P1 (t = 20 cm)"]["jumlah_elemen"] == 1
+    assert label["Pelat Lantai P1 (t = 20 cm)"]["ringkas"] == "D13-150 dua arah, bawah penuh + atas tumpuan"
+    assert label["Pelat Lantai Dasar L1 (t = 20 cm)"]["ringkas"] == "Ø8-150 dua arah, 1 lapis (bawah)"
     assert all(t["berat_besi"] > 0 for t in tipe)
-    # pembesian rinci per diameter kecuali 3 gording (asumsi rasio)
+    # seluruh pembesian rinci per diameter; gording kayu tidak dihitung sebagai beton sama sekali
     assert conn.execute(
         "SELECT COUNT(*) FROM hasil_estimasi h JOIN pekerjaan p ON p.id = h.pekerjaan_id "
         "WHERE p.kode_ahsp LIKE 'BSI.%' AND h.diameter IS NULL"
-    ).fetchone()[0] == 3
+    ).fetchone()[0] == 0
 
 
 def test_ubah_tipe_menghitung_ulang_pembesian(proyek_ac20):
@@ -168,6 +200,24 @@ def test_ubah_tipe_menghitung_ulang_pembesian(proyek_ac20):
     jalankan_estimasi(pid)
     b1 = next(t for t in daftar_tipe(pid) if t["kode"] == "B1")
     assert b1["diubah"] == 1 and b1["ringkas"] == "4 D16, sengkang Ø8-100"
+
+
+def test_tipe_bawaan_lama_diperbarui_kecuali_yang_diubah(proyek_ac20):
+    """Tipe yang belum diubah pengguna mengikuti asumsi bawaan terbaru (mis. proyek lama dengan pelat
+    2 lapis penuh); tipe yang diubah pengguna tidak disentuh."""
+    from database.penulangan_repository import daftar_tipe
+    from estimasi_service import hitung_ulang_dari_elemen
+
+    pid, conn = proyek_ac20
+    p1 = next(t for t in daftar_tipe(pid) if t["kode"] == "P1")
+    b1 = next(t for t in daftar_tipe(pid) if t["kode"] == "B1")
+    conn.execute("UPDATE tipe_penulangan SET lapis = 2 WHERE id = ?", (p1["id"],))  # konfigurasi bawaan versi lama
+    conn.execute("UPDATE tipe_penulangan SET n_utama = 8, diubah = 1 WHERE id = ?", (b1["id"],))
+    conn.commit()
+    hitung_ulang_dari_elemen(pid)
+    tipe = {t["kode"]: t for t in daftar_tipe(pid)}
+    assert tipe["P1"]["penulangan"].lapis == 3
+    assert tipe["B1"]["penulangan"].n_utama == 8 and tipe["B1"]["diubah"] == 1
 
 
 def test_kebutuhan_besi_per_diameter(proyek_ac20):

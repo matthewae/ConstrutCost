@@ -31,7 +31,9 @@ from database.penulangan_repository import (
 from estimasi_service import hitung_ulang_penulangan
 from gui import tema
 from gui.proses_latar import jalankan_di_latar
-from rules.penulangan import DIAMETER_STANDAR, LINIER, Penulangan, jenis_baja, label_d
+from rules.penulangan import (
+    DIAMETER_STANDAR, LAPIS_BAWAH, LAPIS_PENUH, LAPIS_TUMPUAN, LINIER, NAMA_LAPIS, Penulangan, jenis_baja, label_d,
+)
 
 
 def _combo_diameter() -> QComboBox:
@@ -154,11 +156,13 @@ class PenulanganDialog(QDialog):
         self.combo_dp = _combo_diameter()
         self.spin_jp = _spin_mm(50, 400)
         self.combo_lapis = QComboBox()
-        self.combo_lapis.addItem("1 lapis (bawah)", 1)
-        self.combo_lapis.addItem("2 lapis (atas & bawah)", 2)
+        for kode in (LAPIS_BAWAH, LAPIS_TUMPUAN, LAPIS_PENUH):
+            self.combo_lapis.addItem(NAMA_LAPIS[kode], kode)
+        self.combo_lapis.setToolTip(
+            "Bawah penuh + atas tumpuan: tulangan atas hanya 1/4 bentang dari tiap tepi (pelat dua arah).")
         f.addRow(tema.label("Diameter", "formLabel"), self.combo_dp)
         f.addRow(tema.label("Jarak (dua arah)", "formLabel"), self.spin_jp)
-        f.addRow(tema.label("Lapis", "formLabel"), self.combo_lapis)
+        f.addRow(tema.label("Susunan", "formLabel"), self.combo_lapis)
         v.addWidget(self.form_bidang)
 
         f = QFormLayout()
@@ -175,6 +179,7 @@ class PenulanganDialog(QDialog):
         for w in (self.spin_n, self.combo_d, self.combo_ds, self.spin_s,
                   self.combo_dp, self.spin_jp, self.combo_lapis, self.spin_c):
             w.setFixedWidth(170)
+        self.combo_lapis.setFixedWidth(250)  # "bawah penuh + atas tumpuan" tidak terpotong
         for f in kartu.findChildren(QFormLayout):
             f.setHorizontalSpacing(12)
         v.addWidget(tema.label(
@@ -281,7 +286,7 @@ class PenulanganDialog(QDialog):
         else:
             self._set_d(self.combo_dp, p.d_utama)
             self.spin_jp.setValue(round(p.jarak_utama * 1000))
-            self.combo_lapis.setCurrentIndex(0 if p.lapis == 1 else 1)
+            self.combo_lapis.setCurrentIndex(max(0, self.combo_lapis.findData(p.lapis)))
         self.spin_c.setValue(round(p.selimut * 1000))
         self.btn_bawaan.setEnabled(bool(d["diubah"]))
 

@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS elemen_proyek (
     elevasi_lantai REAL,
     sumber_dimensi TEXT,           -- JSON: asal tiap dimensi ('qto' / 'geometri' / 'atribut' / 'manual')
     dimensi_manual INTEGER DEFAULT 0, -- KF-19: dimensi diubah pengguna lalu QTO dihitung ulang
-    tipe_id INTEGER                -- tipe_penulangan.id (kolom/balok/sloof/pelat/dak/fondasi)
+    tipe_id INTEGER,               -- tipe_penulangan.id (kolom/balok/sloof/pelat/dak/fondasi)
+    eksternal INTEGER              -- dinding luar (Pset_WallCommon.IsExternal): 1/0, NULL = tidak diisi model
 );
 
 -- hasil_estimasi: output rule-engine, per elemen per pekerjaan

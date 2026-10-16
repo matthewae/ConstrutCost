@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from klasifikasi import LABEL, ElementType
 
-from .definitions import RULES
+from .definitions import RULES, catatan_bukan_beton
 from .konteks import Konteks, siapkan_konteks
 from .parameter import PARAMETER_DEFAULT
 
@@ -33,6 +33,9 @@ def terapkan_rules(elemen: dict, konteks: Konteks = None, parameter=PARAMETER_DE
     """Return (hasil, dilewati). dilewati = alasan aturan cocok tetapi dimensinya kosong."""
     konteks = konteks or KONTEKS_KOSONG
     hasil, dilewati = [], []
+    catatan = catatan_bukan_beton(elemen, konteks, parameter)
+    if catatan:
+        dilewati.append(catatan)
     for rule in rules:
         if not _cocok(rule, elemen, konteks, parameter):
             continue
@@ -60,8 +63,14 @@ def terapkan_rules(elemen: dict, konteks: Konteks = None, parameter=PARAMETER_DE
 def proses_semua(elemen: list, parameter=PARAMETER_DEFAULT, rules=RULES):
     """Jalankan preprocessor + rule engine untuk seluruh elemen satu model.
     Return (konteks, [(elemen, [HasilRule])], dilewati)."""
-    konteks = siapkan_konteks(elemen)
+    konteks = siapkan_konteks(elemen, parameter)
     keluaran, dilewati = [], []
+    ada_dinding = any(e["kelas"] == ElementType.WALL.value for e in elemen)
+    if ada_dinding and not konteks.ada_info_dinding_luar:
+        dilewati.append(
+            "Model tidak menandai dinding luar (Pset_WallCommon.IsExternal): bowplank dan cat eksterior "
+            "tidak dihitung, seluruh sisi dinding dihitung cat interior."
+        )
     for el in elemen:
         hasil, lewat = terapkan_rules(el, konteks, parameter, rules)
         keluaran.append((el, hasil))

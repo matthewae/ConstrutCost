@@ -37,6 +37,7 @@ _KOLOM_ELEMEN = (
     "keliling",
     "kemiringan",
     "luas_bukaan",
+    "eksternal",
     "sumber_volume",
     "sumber_dimensi",
     "tipe_id",
@@ -109,6 +110,7 @@ def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=None)
 
         conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ?", (proyek_id,))
         conn.execute("DELETE FROM elemen_proyek WHERE proyek_id = ?", (proyek_id,))
+        siapkan_konteks(elemen, parameter)  # fakta per elemen dipakai pengelompokan tipe (pelat dasar, sloof)
         pasang_tipe(conn, proyek_id, elemen, parameter.batas_kemiringan_dak)
         konteks, keluaran, dilewati = proses_semua(elemen, parameter)
         peringatan.extend(dilewati)
@@ -211,7 +213,7 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=None) -> dict:
             el if r["id"] == elemen_id else dict(r)
             for r in conn.execute("SELECT * FROM elemen_proyek WHERE proyek_id = ?", (el["proyek_id"],))
         ]
-        konteks = siapkan_konteks(semua)
+        konteks = siapkan_konteks(semua, parameter)
         pasang_tipe(conn, el["proyek_id"], [el], parameter.batas_kemiringan_dak)  # penampang bisa berubah
         hasil, dilewati = terapkan_rules(el, konteks, parameter)
 
@@ -284,7 +286,7 @@ def hitung_ulang_penulangan(proyek_id: int, parameter=None) -> dict:
         semua = [_baris_ke_elemen(r) for r in conn.execute(
             "SELECT * FROM elemen_proyek WHERE proyek_id = ?", (proyek_id,)
         )]
-        konteks = siapkan_konteks(semua)
+        konteks = siapkan_konteks(semua, parameter)
         pasang_tipe(conn, proyek_id, semua, parameter.batas_kemiringan_dak)
         harga, kode_ke_id = _harga_dan_kode(conn)
         syarat_bsi = "proyek_id = ? AND pekerjaan_id IN (SELECT id FROM pekerjaan WHERE kode_ahsp LIKE 'BSI.%')"
@@ -321,6 +323,7 @@ def hitung_ulang_dari_elemen(proyek_id: int, parameter=None) -> dict:
         manual = conn.execute(
             "SELECT COUNT(*) FROM hasil_estimasi WHERE proyek_id = ? AND diedit_manual = 1", (proyek_id,)
         ).fetchone()[0]
+        siapkan_konteks(semua, parameter)
         pasang_tipe(conn, proyek_id, semua, parameter.batas_kemiringan_dak)
         konteks, keluaran, peringatan = proses_semua(semua, parameter)
         harga, kode_ke_id = _harga_dan_kode(conn)

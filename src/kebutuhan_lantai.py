@@ -339,6 +339,7 @@ def penutup_bangunan(rincian: list) -> tuple:
 # Judul bagian mengikuti penulisan RAP/RAB konsultan (mis. RAP SMK N 6 Bandung: "I. PEK. TANAH",
 # "II. PEKERJAAN BETON", ... "VI. PEKERJAAN KUDA-KUDA DAN ATAP", "VII. PEKERJAAN PENGECATAN").
 JUDUL_KATEGORI = {
+    "Persiapan": "PEKERJAAN PERSIAPAN",
     "Tanah": "PEKERJAAN TANAH",
     "Fondasi": "PEKERJAAN FONDASI",
     "Beton": "PEKERJAAN BETON",

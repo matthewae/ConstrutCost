@@ -1,7 +1,9 @@
 # Kesesuaian dengan Kebutuhan Fungsional (KF) dan Non-Fungsional (KNF)
 
 Acuan: Tabel 3.1 (KF-1 s.d. KF-19) dan Tabel 3.2 (KNF-1 s.d. KNF-9) naskah skripsi.
-Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 286 tes lulus di Linux dan Windows).
+Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 320 tes lulus).
+Koreksi basis aturan setelah audit (pelat lantai dasar, elemen bukan beton, sloof turunan, dll.)
+dijelaskan di `docs/Koreksi-Rule-Engine.md`.
 
 ## Kebutuhan fungsional
 
@@ -9,7 +11,7 @@ Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 286 tes lulus di L
 |---|---|---|---|---|
 | KF-1 | Import File IFC | Pemeriksaan ekstensi, header ISO-10303-21, penutup file, skema IFC2x3/IFC4, dan `IfcProject`. Pembacaan file dilakukan di proses terpisah; ringkasan ditampilkan sebelum import | `test_kf1_validasi.py` | Sesuai |
 | KF-2 | Parser & Klasifikasi Geometri | Elemen diklasifikasikan menjadi kolom, balok, pelat, atap, dinding, fondasi, tiang, pintu, jendela, lantai, plafon, dan ruang. Dimensi diambil dari Qto/BaseQuantities/PSet; bila tidak ada, dari geometri | `test_kf2_ekstraksi.py` | Sesuai |
-| KF-3 | Rule-Based Processing | Aturan IF–THEN per kelas elemen menentukan item pekerjaan (beton, bekisting, pembesian, pasangan, plesteran, dst.) | `test_kf3_kf4_rules.py`, `test_penulangan.py` | Sesuai |
+| KF-3 | Rule-Based Processing | 64 aturan IF–THEN per kelas elemen menentukan item pekerjaan (persiapan, tanah, beton, bekisting, pembesian, pasangan, plesteran, dst.). Preprocessor konteks menetapkan lantai dasar, sumber luas, elemen turunan (batu kali, sloof, sumuran), dan elemen bukan beton | `test_kf3_kf4_rules.py`, `test_penulangan.py`, `test_rule_koreksi.py` | Sesuai |
 | KF-4 | Perhitungan QTO | Volume, luas, panjang, berat besi (Rumus 2.30–2.33), dan pekerjaan tanah dihitung per elemen | `test_kf3_kf4_rules.py`, `test_kf4_tanah.py` | Sesuai |
 | KF-5 | Manajemen Harga Satuan | Ubah harga dan merk bahan, upah, serta alat; tambah material; harga bawaan HSPK | `test_kf5_harga.py`, `test_hspk.py` | Sesuai |
 | KF-6 | Edit Hasil Estimasi | Edit volume, harga khusus, dan catatan; undo/redo; pratinjau PDF | `test_kf6_edit.py` | Sesuai |

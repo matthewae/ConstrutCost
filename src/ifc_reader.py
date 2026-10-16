@@ -32,7 +32,7 @@ import ifcopenshell.util.element as element_util
 import ifcopenshell.util.shape as shape_util
 import ifcopenshell.util.unit as unit_util
 
-from klasifikasi import LABEL, ElementType, kumpulkan_elemen, predefined_type
+from klasifikasi import LABEL, ElementType, hitung_tidak_dihitung, kumpulkan_elemen, predefined_type
 
 SKEMA_DIDUKUNG = {"IFC2X3": "IFC2x3", "IFC4": "IFC4"}
 PESAN_TIDAK_VALID = "File tidak valid. Pastikan file berformat IFC2x3 atau IFC4."
@@ -66,6 +66,7 @@ class InfoFileIFC:
     lantai: list  # [(nama, elevasi_meter)] urut dari bawah
     jumlah_per_kelas: dict  # ElementType -> jumlah
     model: object = field(default=None, repr=False)
+    tidak_dihitung: dict = field(default_factory=dict)  # 'Tangga (IfcStair)' -> jumlah
 
     @property
     def total_elemen(self) -> int:
@@ -164,6 +165,7 @@ def _validasi(p: Path) -> InfoFileIFC:
         lantai=lantai,
         jumlah_per_kelas=jumlah,
         model=model,
+        tidak_dihitung=hitung_tidak_dihitung(model),
     )
 
 
@@ -615,6 +617,15 @@ def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
     return d
 
 
+def _dinding_luar(entity) -> bool | None:
+    """Pset_WallCommon.IsExternal: True/False, atau None bila model tidak mengisinya."""
+    try:
+        nilai = element_util.get_psets(entity).get("Pset_WallCommon", {}).get("IsExternal")
+    except Exception:
+        return None
+    return bool(nilai) if isinstance(nilai, bool) else None
+
+
 def _nama(entity, kelas):
     if kelas == ElementType.SPACE:
         bagian = [x for x in (entity.Name, getattr(entity, "LongName", None)) if x]
@@ -649,12 +660,13 @@ def ekstrak_elemen(model, progress=None):
                 f"Dimensi gagal dihitung: {LABEL[kelas]} '{nama}' ({entity.GlobalId}): {e}"
             )
 
-        luas_bukaan = None
+        luas_bukaan = eksternal = None
         if kelas == ElementType.WALL:
             try:
                 luas_bukaan = p.luas_bukaan(entity)
             except Exception:
                 luas_bukaan = None
+            eksternal = _dinding_luar(entity)
 
         lantai, elevasi = p.info_lantai(entity)
         if "volume" in d.sumber:
@@ -680,11 +692,16 @@ def ekstrak_elemen(model, progress=None):
                 **{k: d.nilai.get(k) for k in DIMENSI},
                 "kemiringan": d.nilai.get("kemiringan"),
                 "luas_bukaan": luas_bukaan,
+                "eksternal": eksternal,
                 "sumber_volume": sumber_volume,
                 "sumber_dimensi": dict(d.sumber),
             }
         )
 
+    for label, jumlah in hitung_tidak_dihitung(model).items():
+        peringatan.append(
+            f"{jumlah} {label} tidak dihitung rule engine; tambahkan pekerjaannya secara manual bila diperlukan."
+        )
     if progress:
         progress(total, total, "Ekstraksi selesai")
     return elemen, peringatan

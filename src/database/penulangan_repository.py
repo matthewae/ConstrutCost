@@ -11,6 +11,7 @@ from dataclasses import fields
 
 from aktivitas import catat
 from database.estimasi_repository import _connect
+from rules.sifat import beton
 from rules.penulangan import (
     AWALAN_KODE,
     LINIER,
@@ -46,17 +47,31 @@ def ke_penulangan(row) -> Penulangan:
 
 def pasang_tipe(conn, proyek_id: int, elemen: list, batas_kemiringan_dak: float = 5.0) -> None:
     """Isi el['tipe_id'] dan el['penulangan'] untuk setiap elemen struktur (diubah di tempat).
-    Tipe baru dibuat dengan konfigurasi bawaan. Tidak melakukan commit."""
+    Tipe baru dibuat dengan konfigurasi bawaan; tipe yang belum diubah pengguna disamakan dengan
+    konfigurasi bawaan terbaru. Elemen harus sudah melalui siapkan_konteks (penanda lantai dasar).
+    Tidak melakukan commit."""
     ada = {
         (r["kelompok"], r["b_cm"], r["h_cm"]): r
         for r in conn.execute("SELECT * FROM tipe_penulangan WHERE proyek_id = ?", (proyek_id,))
     }
     for el in elemen:
-        kunci = kunci_tipe(el, batas_kemiringan_dak)
+        # profil baja / lapisan finishing tidak dihitung sebagai beton, jadi tidak diberi tipe tulangan
+        kunci = kunci_tipe(el, batas_kemiringan_dak) if beton(el) else None
         if kunci is None:
             el["tipe_id"], el["penulangan"] = None, None
             continue
         row = ada.get(kunci)
+        if row is not None and not row["diubah"]:
+            # konfigurasi bawaan yang belum diubah pengguna mengikuti asumsi bawaan terbaru
+            kelompok, b_cm, h_cm = kunci
+            p = bawaan(kelompok, b_cm / 100 or None, h_cm / 100)
+            if any(row[k] != getattr(p, k) for k in _KOLOM_KONFIG):
+                conn.execute(
+                    f"UPDATE tipe_penulangan SET {', '.join(f'{k} = ?' for k in _KOLOM_KONFIG)} WHERE id = ?",
+                    (*[getattr(p, k) for k in _KOLOM_KONFIG], row["id"]),
+                )
+                row = conn.execute("SELECT * FROM tipe_penulangan WHERE id = ?", (row["id"],)).fetchone()
+                ada[kunci] = row
         if row is None:
             kelompok, b_cm, h_cm = kunci
             p = bawaan(kelompok, b_cm / 100 or None, h_cm / 100)

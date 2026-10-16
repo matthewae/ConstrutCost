@@ -300,8 +300,10 @@ def test_penutup_bangunan_atap_dak_plafon(db_sementara, proyek_bertingkat):
     lantai, unsur = hasil["AC20"]  # atap genteng + rangka baja ringan, plafon gypsum di lantai teratas
     assert lantai == "Dachgeschoss" and [j for j, _ in unsur] == ["Atap", "Plafon"]
     assert "Genteng" in dict(unsur)["Atap"] and "Gypsum" in dict(unsur)["Plafon"]
-    lantai, unsur = hasil["Duplex"]  # dak beton di lantai Roof
-    assert lantai == "Roof" and unsur[0][0] == "Dak beton"
+    # Duplex: atap "Live Roof over Wood Joist Flat Roof" = atap datar rangka kayu, bukan dak beton,
+    # sehingga penutup yang dihitung adalah plafon lantai teratas (Level 2)
+    lantai, unsur = hasil["Duplex"]
+    assert lantai == "Level 2" and "Dak beton" not in dict(unsur) and "Plafon" in dict(unsur)
 
 
 def test_panel_rincian_perhitungan_per_lantai(proyek_bertingkat):

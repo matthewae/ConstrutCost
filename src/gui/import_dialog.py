@@ -118,6 +118,17 @@ class RingkasanImportDialog(QDialog):
         tabel.setFixedHeight(min(48 + 30 * max(len(urut), 1), 360))
         root.addWidget(tabel)
 
+        tidak = getattr(info, "tidak_dihitung", None) or {}
+        if tidak:
+            daftar = ", ".join(f"{n} {label}" for label, n in tidak.items())
+            lain = QLabel(
+                f"Tidak dihitung otomatis: {daftar}. Tambahkan pekerjaannya secara manual bila termasuk "
+                "lingkup RAB (mis. tangga beton)."
+            )
+            lain.setObjectName("infoKecil")
+            lain.setWordWrap(True)
+            root.addWidget(lain)
+
         ada_utama = any(k in KELAS_UTAMA for k in info.jumlah_per_kelas)
         if not ada_utama:
             peringatan = QLabel(

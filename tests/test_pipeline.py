@@ -17,7 +17,8 @@ def test_pipeline_ac20(db_sementara):
     r = jalankan_estimasi(pid, progress=lambda i, n, t: progres.append((i, n)))
     assert r["elemen"] == 44
     assert r["baris_hasil"] > 0
-    assert r["peringatan"] == []
+    # hanya peringatan informatif (entitas tidak dihitung, gording kayu, tanpa penanda dinding luar)
+    assert all("tidak dihitung" in x or "IsExternal" in x for x in r["peringatan"]), r["peringatan"]
     # KNF-5: indikator selesai di 100% dan tidak pernah mundur (termasuk tahap geometri paralel)
     assert progres[-1][0] == progres[-1][1] >= 44
     persen = [i / n for i, n in progres if n]
@@ -30,8 +31,8 @@ def test_pipeline_ac20(db_sementara):
     assert sumber["luas"] == "qto"
     kode = {r[0] for r in conn.execute(
         "SELECT p.kode_ahsp FROM hasil_estimasi h JOIN pekerjaan p ON p.id = h.pekerjaan_id")}
-    assert {"FDN.BATUKALI", "ATP.PENUTUP", "ATP.RANGKA", "KRM.LANTAI", "PLF.GYPSUM", "PLF.RANGKA",
-            "PTU.DAUN", "PTU.KUSEN", "ACI.DINDING"} <= kode
+    assert {"FDN.BATUKALI", "BTN.SLOOF", "ATP.PENUTUP", "ATP.RANGKA", "KRM.LANTAI", "PLF.GYPSUM", "PLF.RANGKA",
+            "PTU.DAUN", "PTU.KUSEN", "ACI.DINDING", "PSP.BERSIH"} <= kode
     assert conn.execute("SELECT COUNT(*) FROM hasil_estimasi WHERE rumus IS NULL OR rumus = ''").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM hasil_estimasi WHERE subtotal_biaya <= 0").fetchone()[0] == 0
 

@@ -29,6 +29,7 @@ from klasifikasi import ElementType as T
 from . import penulangan, tanah
 from .konteks import Konteks
 from .parameter import ParameterEstimasi
+from .sifat import balok_sloof, bukan_beton, dinding_pasangan, kolom_struktur
 
 
 @dataclass(frozen=True)
@@ -99,10 +100,71 @@ def _bekisting_kolom(e, p):
 
 
 def _bekisting_balok(e, p):
-    # dua sisi + alas balok (sisi atas tertutup bekisting pelat)
+    # dua sisi + alas balok (sisi atas tertutup bekisting pelat). Bila balok dicor bersama pelat,
+    # tinggi sisi yang dibekisting = h - t_pelat (bagian setinggi pelat tertutup bekisting pelat).
     b, h, L = e["lebar"], e["tinggi"], e["panjang"]
+    t = e.get("tebal_pelat_monolit")
+    if t:
+        nilai = (b + 2 * (h - t)) * L
+        return nilai, (
+            f"A = (b + 2(h − t_pelat)) × L = ({_n(b)} + 2 × ({_n(h)} − {_n(t)})) × {_n(L)} = {_n(nilai)} m² "
+            "(balok dicor bersama pelat)"
+        )
     nilai = (b + 2 * h) * L
     return nilai, f"A = (b + 2h) × L = ({_n(b)} + 2 × {_n(h)}) × {_n(L)} = {_n(nilai)} m²"
+
+
+def _bekisting_sloof_balok(e, p):
+    # balok bernama sloof: dua sisi tegak (alas di atas pasir/batu kali)
+    h, L = e["tinggi"], e["panjang"]
+    nilai = 2 * h * L
+    return nilai, f"A = 2 × h × L = 2 × {_n(h)} × {_n(L)} = {_n(nilai)} m²"
+
+
+# ---------------------------------------------------------------- sloof turunan
+
+
+def _ukuran_sloof_turunan(e):
+    b, h, ket = e["sloof_turunan"]
+    return b, h, e["panjang"], ket
+
+
+def _beton_sloof_turunan(e, p):
+    b, h, L, ket = _ukuran_sloof_turunan(e)
+    nilai = b * h * L
+    return nilai, (
+        f"V = b × h × L = {_n(b, 2)} × {_n(h, 2)} × {_n(L)} = {_n(nilai)} m³ "
+        f"(sloof {_cm(b)}/{_cm(h)} di bawah dinding, ukuran {ket}; panjang = panjang dinding)"
+    )
+
+
+def _bekisting_sloof_turunan(e, p):
+    b, h, L, _ = _ukuran_sloof_turunan(e)
+    nilai = 2 * h * L
+    return nilai, f"A = 2 × h × L = 2 × {_n(h, 2)} × {_n(L)} = {_n(nilai)} m² (dua sisi sloof)"
+
+
+def _pembesian_sloof_turunan(e, p):
+    items = penulangan.hitung(e, e.get("penulangan"), p.batas_kemiringan_dak)
+    if items:
+        return items
+    b, h, L, _ = _ukuran_sloof_turunan(e)
+    v = b * h * L
+    nilai = v * p.rasio_besi_sloof
+    return [penulangan.ItemBesi(
+        penulangan.KODE_PEKERJAAN["SLOOF"], nilai,
+        f"Berat = V_sloof × rasio = {_n(v)} m³ × {_n(p.rasio_besi_sloof, 0)} kg/m³ = {_n(nilai, 2)} kg",
+        f"Pembesian (asumsi {p.rasio_besi_sloof:.0f} kg/m³)", None,
+    )]
+
+
+def _tanah_sloof_turunan(e, p):
+    b, _, L, _ = _ukuran_sloof_turunan(e)
+    return tanah.pasir_sloof(b, L, p)
+
+
+def _cm(x: float) -> str:
+    return f"{x * 100:g}".replace(".", ",")
 
 
 def _bekisting_sisi(e, p):
@@ -137,6 +199,42 @@ def _luas_dinding_kali(nama_sisi, nama):
         )
 
     return f
+
+
+def _cat_interior(e, p):
+    # dinding luar: satu sisi dicat eksterior (aturan CAT.EKSTERIOR), sisanya cat interior
+    sisi = p.jumlah_sisi_cat - (1 if e.get("eksternal") and p.jumlah_sisi_cat >= 2 else 0)
+    nilai = e["luas"] * sisi
+    bukaan = e.get("luas_bukaan") or 0.0
+    catatan = f"; luas bukaan {_n(bukaan, 2)} m² sudah dikurangkan" if bukaan else ""
+    luar = " (dinding luar: sisi luar dicat eksterior)" if sisi < p.jumlah_sisi_cat else ""
+    return nilai, (
+        f"A_cat interior = A_dinding bersih × {sisi} sisi = {_n(e['luas'])} × {sisi} = {_n(nilai)} m²{luar}{catatan}"
+    )
+
+
+def _cat_eksterior(e, p):
+    nilai = e["luas"]
+    return nilai, f"A_cat eksterior = A_dinding bersih × 1 sisi luar = {_n(nilai)} m²"
+
+
+# ---------------------------------------------------------------- pekerjaan persiapan
+
+
+def _bersih_lahan(sumber):
+    def f(e, p):
+        return e["luas"], f"A = luas tapak lantai dasar ({sumber}) = {_n(e['luas'])} m²"
+
+    return f
+
+
+def _bowplank(e, p):
+    L, tambah, keliling = e["porsi_bowplank"]
+    nilai = L + tambah
+    return nilai, (
+        f"L = L_dinding + 8a × L_dinding / K = {_n(L)} + 8 × {_n(p.jarak_bowplank, 2)} × {_n(L)} / {_n(keliling)} "
+        f"= {_n(nilai)} m' (K = keliling dinding luar lantai dasar {_n(keliling)} m; bowplank berjarak a dari as dinding)"
+    )
 
 
 def _luas_dinding(e, p):
@@ -229,6 +327,80 @@ def _keramik_dinding(e, p):
 # ---------------------------------------------------------------- syarat
 
 
+def _dan(*syarat):
+    """Gabungan beberapa syarat: semuanya harus terpenuhi."""
+    return lambda e, k, p: all(s(e, k, p) for s in syarat)
+
+
+def _beton(e, k, p):
+    # elemen benar-benar beton bertulang (bukan lapisan finishing, profil baja, atau kayu)
+    return bukan_beton(e) is None
+
+
+def _kolom_struktur(e, k, p):
+    return kolom_struktur(e)
+
+
+def _pasangan(e, k, p):
+    # dinding pasangan bata (bukan partisi ringan) yang memerlukan fondasi/sloof di lantai dasar
+    return dinding_pasangan(e)
+
+
+def _sloof(e, k, p):
+    return balok_sloof(e)
+
+
+def _bukan_sloof(e, k, p):
+    return not balok_sloof(e)
+
+
+def _sloof_turunan(e, k, p):
+    return bool(e.get("sloof_turunan"))
+
+
+def _sloof_di_atas_tanah(e, k, p):
+    # sloof di atas tanah (bukan di atas batu kali) memerlukan urugan pasir di bawahnya
+    return not k.sloof_di_atas_batu_kali
+
+
+def _menerus_batu_kali(e, k, p):
+    return (e.get("predefined_type") or "") in FONDASI_MENERUS and not e.get("menerus_beton")
+
+
+def _fondasi_beton(e, k, p):
+    # footplate / pile cap, atau fondasi menerus yang ditetapkan beton bertulang
+    pre = e.get("predefined_type") or ""
+    if pre in FONDASI_MENERUS:
+        return bool(e.get("menerus_beton"))
+    return pre not in SLOOF
+
+
+def _dinding_luar(e, k, p):
+    return bool(e.get("eksternal")) and p.jumlah_sisi_cat >= 2
+
+
+def _bowplank_ada(e, k, p):
+    return bool(e.get("porsi_bowplank"))
+
+
+def _ruang_dasar_tanpa_pelat(e, k, p):
+    return e.get("di_lantai_dasar", False) and not k.ada_pelat_dasar
+
+
+def catatan_bukan_beton(e, k, p) -> str | None:
+    """Peringatan untuk elemen yang tidak dihitung sebagai beton (ditampilkan ke pengguna)."""
+    kelas = e.get("kelas")
+    if kelas == T.ROOF.value and _atap_miring(e, k, p):
+        return None  # atap miring memang tidak dihitung sebagai beton
+    if kelas not in (T.COLUMN.value, T.BEAM.value, T.SLAB.value, T.ROOF.value):
+        return None
+    alasan = bukan_beton(e)
+    if alasan is None:
+        return None
+    label = {"COLUMN": "Kolom", "BEAM": "Balok", "SLAB": "Pelat", "ROOF": "Dak"}[kelas]
+    return f"{label} '{e.get('nama')}' tidak dihitung sebagai beton bertulang: {alasan}."
+
+
 def _pre(*nilai):
     return lambda e, k, p: (e.get("predefined_type") or "") in nilai
 
@@ -240,6 +412,12 @@ def _bukan_pre(*nilai):
 def _fondasi_turunan(e, k: Konteks, p):
     # model tidak memuat fondasi -> fondasi diturunkan dari elemen di lantai dasar (Batasan no. 8)
     return e.get("di_lantai_dasar", False) and not k.ada_fondasi_model
+
+
+# sumuran turunan hanya di bawah kolom struktur; kolom praktis berdiri di atas sloof/fondasi menerus
+_sumuran_turunan = _dan(_fondasi_turunan, _kolom_struktur)
+# batu kali turunan hanya di bawah dinding pasangan (partisi ringan tidak berfondasi)
+_batu_kali_turunan = _dan(_fondasi_turunan, _pasangan)
 
 
 def _atap_miring(e, k, p):
@@ -319,41 +497,55 @@ def _lantai_tanpa_pelat(sumber):
 
 RULES = [
     # ===== Kolom (Rumus 2.10) =====
-    Rule("BTN.KOLOM", T.COLUMN, _volume(), ("volume",), keterangan="Volume beton kolom"),
-    Rule("BSI.KOLOM", T.COLUMN, _pembesian("rasio_besi_kolom"), ("volume",), keterangan="Pembesian per diameter"),
-    Rule("BSK.KOLOM", T.COLUMN, _bekisting_kolom, ("lebar", "tebal", "tinggi"), keterangan="Bekisting kolom"),
-    # Fondasi sumuran di bawah kolom lantai dasar (Rumus 2.36 - 2.39)
-    Rule("BTN.SUMURAN", T.COLUMN, _sumuran, syarat=_fondasi_turunan, keterangan="Fondasi sumuran (turunan)"),
+    Rule("BTN.KOLOM", T.COLUMN, _volume(), ("volume",), syarat=_beton, keterangan="Volume beton kolom"),
+    Rule("BSI.KOLOM", T.COLUMN, _pembesian("rasio_besi_kolom"), ("volume",), syarat=_beton,
+         keterangan="Pembesian per diameter"),
+    Rule("BSK.KOLOM", T.COLUMN, _bekisting_kolom, ("lebar", "tebal", "tinggi"), syarat=_beton,
+         keterangan="Bekisting kolom"),
+    # Fondasi sumuran di bawah kolom struktur lantai dasar (Rumus 2.36 - 2.39)
+    Rule("BTN.SUMURAN", T.COLUMN, _sumuran, syarat=_sumuran_turunan, keterangan="Fondasi sumuran (turunan)"),
     # ===== Balok (Rumus 2.9) =====
-    Rule("BTN.BALOK", T.BEAM, _volume(), ("volume",)),
-    Rule("BSI.BALOK", T.BEAM, _pembesian("rasio_besi_balok"), ("volume",)),
-    Rule("BSK.BALOK", T.BEAM, _bekisting_balok, ("lebar", "tinggi", "panjang")),
+    Rule("BTN.BALOK", T.BEAM, _volume(), ("volume",), syarat=_dan(_beton, _bukan_sloof)),
+    Rule("BSI.BALOK", T.BEAM, _pembesian("rasio_besi_balok"), ("volume",), syarat=_dan(_beton, _bukan_sloof)),
+    Rule("BSK.BALOK", T.BEAM, _bekisting_balok, ("lebar", "tinggi", "panjang"), syarat=_dan(_beton, _bukan_sloof)),
+    # balok yang dimodelkan sebagai sloof (nama "sloof", "tie beam", ...)
+    Rule("BTN.SLOOF", T.BEAM, _volume(), ("volume",), syarat=_dan(_beton, _sloof), keterangan="Sloof (balok)"),
+    Rule("BSI.SLOOF", T.BEAM, _pembesian("rasio_besi_sloof"), ("volume",), syarat=_dan(_beton, _sloof)),
+    Rule("BSK.SLOOF", T.BEAM, _bekisting_sloof_balok, ("tinggi", "panjang"), syarat=_dan(_beton, _sloof)),
     # ===== Pelat lantai (Rumus 2.11 / 2.37) =====
-    Rule("BTN.PELAT", T.SLAB, _volume(), ("volume",)),
-    Rule("BSI.PELAT", T.SLAB, _pembesian("rasio_besi_pelat"), ("volume",)),
-    Rule("BSK.PELAT", T.SLAB, _luas("luas bidang bawah pelat"), ("luas",), syarat=_pelat_melayang),
+    Rule("BTN.PELAT", T.SLAB, _volume(), ("volume",), syarat=_beton),
+    Rule("BSI.PELAT", T.SLAB, _pembesian("rasio_besi_pelat"), ("volume",), syarat=_beton),
+    Rule("BSK.PELAT", T.SLAB, _luas("luas bidang bawah pelat"), ("luas",), syarat=_dan(_beton, _pelat_melayang)),
     # ===== Atap miring: rangka baja ringan + genteng (Rumus 2.22 / 2.23 / 2.42) =====
     Rule("ATP.RANGKA", T.ROOF, _luas_atap, ("luas",), syarat=_atap_miring, keterangan="Rangka atap baja ringan per m² luas atap"),
     Rule("ATP.PENUTUP", T.ROOF, _luas_atap, ("luas",), syarat=_atap_miring, keterangan="Penutup atap genteng"),
     # ===== Atap datar: dak beton =====
-    Rule("BTN.DAK", T.ROOF, _volume(), ("volume",), syarat=_dak),
-    Rule("BSI.DAK", T.ROOF, _pembesian("rasio_besi_pelat"), ("volume",), syarat=_dak),
-    Rule("BSK.DAK", T.ROOF, _luas("luas bidang bawah dak"), ("luas",), syarat=_dak),
+    Rule("BTN.DAK", T.ROOF, _volume(), ("volume",), syarat=_dan(_dak, _beton)),
+    Rule("BSI.DAK", T.ROOF, _pembesian("rasio_besi_pelat"), ("volume",), syarat=_dan(_dak, _beton)),
+    Rule("BSK.DAK", T.ROOF, _luas("luas bidang bawah dak"), ("luas",), syarat=_dan(_dak, _beton)),
     # ===== Dinding (Rumus 2.17 - 2.19) =====
     Rule("DND.BATA", T.WALL, _luas_dinding, ("luas",), keterangan="Pasangan dinding bata (m²)"),
     Rule("PLS.DINDING", T.WALL, _luas_dinding_kali("jumlah_sisi_plester", "plester"), ("luas",)),
     Rule("ACI.DINDING", T.WALL, _luas_dinding_kali("jumlah_sisi_plester", "acian"), ("luas",)),
-    Rule("CAT.DINDING", T.WALL, _luas_dinding_kali("jumlah_sisi_cat", "cat"), ("luas",)),
-    # Fondasi batu kali di bawah dinding lantai dasar (Rumus 2.34)
-    Rule("FDN.BATUKALI", T.WALL, _batu_kali_dinding, ("panjang",), syarat=_fondasi_turunan, keterangan="Fondasi batu kali (turunan)"),
+    Rule("CAT.DINDING", T.WALL, _cat_interior, ("luas",)),
+    Rule("CAT.EKSTERIOR", T.WALL, _cat_eksterior, ("luas",), syarat=_dinding_luar, keterangan="Cat sisi luar dinding luar"),
+    # Fondasi batu kali di bawah dinding pasangan lantai dasar (Rumus 2.34)
+    Rule("FDN.BATUKALI", T.WALL, _batu_kali_dinding, ("panjang",), syarat=_batu_kali_turunan,
+         keterangan="Fondasi batu kali (turunan)"),
+    # Sloof di atas fondasi batu kali / di antara footplate bila sloof tidak dimodelkan
+    Rule("BTN.SLOOF", T.WALL, _beton_sloof_turunan, ("panjang",), syarat=_sloof_turunan, keterangan="Sloof (turunan)"),
+    Rule("BSI.SLOOF", T.WALL, _pembesian_sloof_turunan, ("panjang",), syarat=_sloof_turunan),
+    Rule("BSK.SLOOF", T.WALL, _bekisting_sloof_turunan, ("panjang",), syarat=_sloof_turunan),
     # ===== Fondasi yang dimodelkan =====
-    Rule("FDN.BATUKALI", T.FOOTING, _volume(), ("volume",), syarat=_pre(*FONDASI_MENERUS), keterangan="Fondasi menerus = batu kali"),
+    Rule("FDN.BATUKALI", T.FOOTING, _volume(), ("volume",), syarat=_menerus_batu_kali,
+         keterangan="Fondasi menerus = batu kali"),
     Rule("BTN.SLOOF", T.FOOTING, _volume(), ("volume",), syarat=_pre(*SLOOF)),
     Rule("BSI.SLOOF", T.FOOTING, _pembesian("rasio_besi_sloof"), ("volume",), syarat=_pre(*SLOOF)),
     Rule("BSK.SLOOF", T.FOOTING, _bekisting_sisi, ("tebal", "panjang"), syarat=_pre(*SLOOF)),
-    Rule("BTN.FONDASI", T.FOOTING, _volume(), ("volume",), syarat=_bukan_pre(*FONDASI_MENERUS, *SLOOF), keterangan="Footplate / pile cap"),
-    Rule("BSI.FONDASI", T.FOOTING, _pembesian("rasio_besi_fondasi"), ("volume",), syarat=_bukan_pre(*FONDASI_MENERUS, *SLOOF)),
-    Rule("BSK.FONDASI", T.FOOTING, _bekisting_keliling, ("keliling", "tebal"), syarat=_bukan_pre(*FONDASI_MENERUS, *SLOOF)),
+    Rule("BTN.FONDASI", T.FOOTING, _volume(), ("volume",), syarat=_fondasi_beton,
+         keterangan="Footplate / pile cap / fondasi menerus beton"),
+    Rule("BSI.FONDASI", T.FOOTING, _pembesian("rasio_besi_fondasi"), ("volume",), syarat=_fondasi_beton),
+    Rule("BSK.FONDASI", T.FOOTING, _bekisting_keliling, ("keliling", "tebal"), syarat=_fondasi_beton),
     Rule("BTN.SUMURAN", T.PILE, _volume(), ("volume",)),
     # ===== Pintu (susunan HSPK: daun + kusen + kunci + engsel) & jendela =====
     Rule("PTU.DAUN", T.DOOR, _luas_bukaan, ("luas",), keterangan="Luas daun pintu"),
@@ -364,22 +556,28 @@ RULES = [
     # ===== Lantai (Rumus 2.12 - 2.13): sumber dipilih preprocessor =====
     Rule("KRM.LANTAI", T.FLOOR, _luas("luas penutup lantai"), ("luas",), syarat=_sumber_lantai("covering")),
     Rule("KRM.LANTAI", T.SPACE, _luas("luas lantai ruang"), ("luas",), syarat=_sumber_lantai("ruang")),
-    Rule("KRM.LANTAI", T.SLAB, _luas("asumsi: luas keramik = luas pelat"), ("luas",), syarat=_sumber_lantai("pelat")),
+    Rule("KRM.LANTAI", T.SLAB, _luas("asumsi: luas keramik = luas pelat"), ("luas",),
+         syarat=_dan(_sumber_lantai("pelat"), _beton)),
     # ===== Keramik dinding ruang basah (Rumus 2.14 - 2.15) =====
     Rule("KRM.DINDING", T.SPACE, _keramik_dinding, ("keliling",), syarat=_ruang_basah),
     # ===== Pekerjaan tanah (KF-4): diturunkan dari fondasi & lantai dasar =====
-    Rule("TNH.FONDASI", T.WALL, _tanah_batu_kali_dinding, ("panjang",), syarat=_fondasi_turunan, keterangan="Galian & urugan fondasi batu kali"),
-    Rule("TNH.FONDASI", T.FOOTING, _tanah_fondasi_menerus, ("lebar", "tebal", "panjang", "volume"), syarat=_pre(*FONDASI_MENERUS)),
-    Rule("TNH.FONDASI", T.FOOTING, _tanah_footplate, ("tebal", "volume"), syarat=_bukan_pre(*FONDASI_MENERUS, *SLOOF)),
-    Rule("TNH.FONDASI", T.COLUMN, _tanah_sumuran, syarat=_fondasi_turunan, keterangan="Galian sumuran (turunan)"),
+    Rule("TNH.FONDASI", T.WALL, _tanah_batu_kali_dinding, ("panjang",), syarat=_batu_kali_turunan,
+         keterangan="Galian & urugan fondasi batu kali"),
+    Rule("TNH.FONDASI", T.FOOTING, _tanah_fondasi_menerus, ("lebar", "tebal", "panjang", "volume"),
+         syarat=_menerus_batu_kali),
+    Rule("TNH.FONDASI", T.FOOTING, _tanah_footplate, ("tebal", "volume"), syarat=_fondasi_beton),
+    Rule("TNH.FONDASI", T.COLUMN, _tanah_sumuran, syarat=_sumuran_turunan, keterangan="Galian sumuran (turunan)"),
     Rule("TNH.FONDASI", T.PILE, _tanah_tiang, ("volume",)),
-    Rule("TNH.SLOOF", T.FOOTING, _tanah_sloof, ("lebar", "panjang"), syarat=_pre(*SLOOF)),
-    Rule("TNH.LANTAI", T.SLAB, _tanah_lantai(False), ("luas",), syarat=_pelat_dasar),
+    Rule("TNH.SLOOF", T.FOOTING, _tanah_sloof, ("lebar", "panjang"), syarat=_dan(_pre(*SLOOF), _sloof_di_atas_tanah)),
+    Rule("TNH.SLOOF", T.BEAM, _tanah_sloof, ("lebar", "panjang"), syarat=_dan(_beton, _sloof, _sloof_di_atas_tanah)),
+    Rule("TNH.SLOOF", T.WALL, _tanah_sloof_turunan, ("panjang",), syarat=_dan(_sloof_turunan, _sloof_di_atas_tanah)),
+    Rule("TNH.LANTAI", T.SLAB, _tanah_lantai(False), ("luas",), syarat=_dan(_pelat_dasar, _beton)),
     Rule("TNH.LANTAI", T.FLOOR, _tanah_lantai(True), ("luas",), syarat=_lantai_tanpa_pelat("covering")),
     Rule("TNH.LANTAI", T.SPACE, _tanah_lantai(True), ("luas",), syarat=_lantai_tanpa_pelat("ruang")),
     # ===== Plafon (Rumus 2.16): sumber dipilih preprocessor =====
     *[
-        Rule(kode, kelas, _luas(ket), ("luas",), syarat=_sumber_plafon(sumber))
+        Rule(kode, kelas, _luas(ket), ("luas",),
+             syarat=_dan(_sumber_plafon(sumber), _beton) if kelas == T.SLAB else _sumber_plafon(sumber))
         for kode in ("PLF.RANGKA", "PLF.GYPSUM")
         for kelas, sumber, ket in (
             (T.CEILING, "covering", "luas plafon dari model"),
@@ -387,4 +585,10 @@ RULES = [
             (T.SLAB, "pelat", "asumsi: luas plafon = luas pelat"),
         )
     ],
+    # ===== Pekerjaan persiapan: pembersihan lahan (luas tapak) & bowplank (keliling luar + 8a) =====
+    Rule("PSP.BERSIH", T.SLAB, _bersih_lahan("pelat lantai dasar"), ("luas",), syarat=_dan(_pelat_dasar, _beton),
+         keterangan="Pembersihan lahan"),
+    Rule("PSP.BERSIH", T.SPACE, _bersih_lahan("luas ruang lantai dasar"), ("luas",), syarat=_ruang_dasar_tanpa_pelat,
+         keterangan="Pembersihan lahan"),
+    Rule("PSP.BOWPLANK", T.WALL, _bowplank, syarat=_bowplank_ada, keterangan="Pengukuran & bowplank"),
 ]

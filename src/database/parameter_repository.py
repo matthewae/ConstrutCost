@@ -11,7 +11,7 @@ from dataclasses import fields, replace
 
 from aktivitas import catat
 from database.estimasi_repository import _connect
-from rules.parameter import PARAMETER_DEFAULT, ParameterEstimasi
+from rules.parameter import JENIS_MENERUS, PARAMETER_DEFAULT, ParameterEstimasi
 
 # (kunci, label, satuan, minimum, maksimum, desimal) per kelompok, untuk dialog Parameter Aturan
 PARAMETER_EDIT = {
@@ -20,7 +20,14 @@ PARAMETER_EDIT = {
         ("batu_kali_lebar_bawah", "Lebar bawah", "m", 0.2, 2.0, 2),
         ("batu_kali_tinggi", "Tinggi", "m", 0.3, 2.0, 2),
     ],
-    "Fondasi sumuran (turunan kolom lantai dasar)": [
+    "Sloof turunan (bila sloof tidak dimodelkan)": [
+        ("sloof_lebar", "Lebar sloof (0 = otomatis)", "m", 0.0, 0.6, 2),
+        ("sloof_tinggi", "Tinggi sloof (0 = otomatis)", "m", 0.0, 0.8, 2),
+    ],
+    "Fondasi menerus dari model (STRIP_FOOTING)": [
+        ("fondasi_menerus_jenis", "Dihitung sebagai", "", 0, 2, 0),
+    ],
+    "Fondasi sumuran (turunan kolom struktur lantai dasar)": [
         ("sumuran_diameter", "Diameter sumuran", "m", 0.4, 2.0, 2),
         ("sumuran_kedalaman", "Kedalaman sumuran", "m", 0.5, 6.0, 2),
         ("sumuran_jumlah_tiang", "Jumlah sumuran per kolom", "buah", 1, 4, 0),
@@ -34,7 +41,10 @@ PARAMETER_EDIT = {
         ("tebal_pasir_sloof", "Pasir bawah sloof", "m", 0.0, 0.3, 2),
         ("tebal_pasir_lantai", "Pasir bawah lantai", "m", 0.0, 0.3, 2),
         ("tebal_lantai_kerja", "Lantai kerja / rabat", "m", 0.0, 0.2, 2),
-        ("kedalaman_fondasi_telapak", "Kedalaman dasar footplate", "m", 0.5, 4.0, 2),
+        ("kedalaman_fondasi_telapak", "Kedalaman dasar footplate / fondasi beton", "m", 0.5, 4.0, 2),
+    ],
+    "Pekerjaan persiapan": [
+        ("jarak_bowplank", "Jarak bowplank dari as dinding luar", "m", 0.5, 3.0, 2),
     ],
     "Pembesian bila penampang tidak diketahui": [
         ("rasio_besi_kolom", "Rasio besi kolom", "kg/m³", 50, 400, 0),
@@ -48,7 +58,13 @@ PARAMETER_EDIT = {
         ("jumlah_sisi_cat", "Sisi cat", "sisi", 1, 2, 0),
         ("batas_kemiringan_dak", "Batas kemiringan dak datar", "°", 0, 15, 1),
         ("jumlah_engsel_pintu", "Engsel per daun pintu", "buah", 2, 4, 0),
+        ("bekisting_balok_monolit", "Bekisting balok dikurangi tebal pelat", "", 0, 1, 0),
     ],
+}
+# Parameter berupa pilihan: nilai -> label (ditampilkan sebagai daftar pilihan di dialog)
+PILIHAN = {
+    "fondasi_menerus_jenis": JENIS_MENERUS,
+    "bekisting_balok_monolit": {1: "Ya (b + 2(h − t))", 0: "Tidak (b + 2h)"},
 }
 _SPEK = {k: (label, sat, lo, hi, d) for grup in PARAMETER_EDIT.values() for k, label, sat, lo, hi, d in grup}
 _TIPE = {f.name: f.type for f in fields(ParameterEstimasi)}
@@ -95,13 +111,29 @@ def validasi_parameter(nilai: dict) -> dict:
             v = float(v)
         except (TypeError, ValueError):
             raise ParameterTidakValid(f"{label} harus berupa angka.") from None
-        if not lo <= v <= hi:
+        if k in PILIHAN:
+            if int(round(v)) not in PILIHAN[k]:
+                raise ParameterTidakValid(f"Pilihan '{label}' tidak dikenal.")
+        elif not lo <= v <= hi:
             raise ParameterTidakValid(f"{label} harus {lo:g} sampai {hi:g} {sat}.")
         hasil[k] = int(round(v)) if _TIPE[k] in (int, "int") else v
     p = _ke_param(hasil)
     if p.batu_kali_lebar_atas > p.batu_kali_lebar_bawah:
         raise ParameterTidakValid("Lebar atas batu kali tidak boleh lebih besar dari lebar bawah.")
+    for k, nama in (("sloof_lebar", "Lebar sloof"), ("sloof_tinggi", "Tinggi sloof")):
+        if 0 < getattr(p, k) < 0.10:
+            raise ParameterTidakValid(f"{nama} harus 0 (otomatis) atau minimal 0,10 m.")
     return hasil
+
+
+def teks_nilai(k: str, v) -> str:
+    """Nilai parameter untuk ditampilkan/dicatat: label pilihan, 'otomatis', atau angka + satuan."""
+    if k in PILIHAN:
+        return PILIHAN[k].get(int(round(v)), str(v))
+    label, sat, lo, hi, d = _SPEK[k]
+    if v == 0 and "otomatis" in label:
+        return "otomatis"
+    return f"{v:g} {sat}".strip()
 
 
 def simpan_parameter(proyek_id: int, nilai: dict) -> None:
@@ -115,7 +147,7 @@ def simpan_parameter(proyek_id: int, nilai: dict) -> None:
             (json.dumps(beda) if beda else None, proyek_id),
         )
         conn.commit()
-        teks = ", ".join(f"{_SPEK[k][0].lower()} {v:g} {_SPEK[k][1]}" for k, v in beda.items()) or "semua nilai bawaan"
+        teks = ", ".join(f"{_SPEK[k][0].lower()} {teks_nilai(k, v)}" for k, v in beda.items()) or "semua nilai bawaan"
         catat("parameter", f"Parameter aturan disimpan: {teks}", proyek_id)
     finally:
         conn.close()

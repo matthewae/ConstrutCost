@@ -67,11 +67,15 @@ def test_rab_rinci_per_tipe_elemen(data_export, tmp_path):
     path = tmp_path / "rab.xlsx"
     export_excel(path, data_export, META, OpsiExport())
     teks = [c.value for row in load_workbook(path)["RAB Rinci"].iter_rows() for c in row if isinstance(c.value, str)]
-    assert "Balok B1 (18/41) — 6 buah" in teks
-    assert any("Tulangan utama 6 D16" in t for t in teks)
-    assert any("Sengkang Ø10-150" in t for t in teks)
+    # Duplex: fondasi menerus "Bearing Footing" = beton bertulang, pelat lantai dasar 1 lapis;
+    # balok W310/W410 adalah profil baja sehingga tidak muncul sebagai tipe beton
+    assert "Fondasi Beton F1 (t = 30 cm) — 7 buah" in teks
+    assert "Pelat Lantai Dasar L1 (t = 15 cm) — 2 buah" in teks
+    assert any("Tulangan D13-150 dua arah, 1 lapis (bawah)" in t for t in teks)
+    assert any("Tulangan Ø8-150 dua arah, 1 lapis (bawah)" in t for t in teks)
+    assert not any(t.startswith("Balok B") for t in teks)
     besi = [c.value for row in load_workbook(path)["Kebutuhan Besi"].iter_rows() for c in row]
-    assert {"Ø10", "D13", "D16"} <= set(besi)
+    assert {"Ø8", "D13"} <= set(besi)
 
 
 def test_rekap_biaya_tidak_langsung_dan_terbilang(data_export, tmp_path):

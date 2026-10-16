@@ -21,7 +21,8 @@ def test_klasifikasi_tanpa_duplikat(ekstrak_cache):
 
 def test_dimensi_dinding_dari_qto_archicad(ekstrak_cache):
     _, elemen, peringatan = ekstrak_cache(AC20)
-    assert peringatan == []
+    # hanya laporan entitas yang tidak dihitung (tangga, railing, member); tidak ada dimensi yang gagal
+    assert all("tidak dihitung rule engine" in x for x in peringatan), peringatan
     dinding = next(e for e in elemen if e["kelas"] == "WALL" and e["panjang"] == pytest.approx(4.17))
     assert dinding["tinggi"] == pytest.approx(2.5)
     assert dinding["tebal"] == pytest.approx(0.24)

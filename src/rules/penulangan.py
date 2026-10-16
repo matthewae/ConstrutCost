@@ -21,18 +21,32 @@ import math
 from dataclasses import dataclass
 
 KOLOM, BALOK, SLOOF, PELAT, DAK, FONDASI = "KOLOM", "BALOK", "SLOOF", "PELAT", "DAK", "FONDASI"
+PELAT_DASAR = "PELAT_DASAR"  # pelat lantai di atas tanah (slab on grade), lantai dasar
 LINIER = (KOLOM, BALOK, SLOOF)  # tulangan memanjang + sengkang
-BIDANG = (PELAT, DAK, FONDASI)  # tulangan anyaman dua arah
-URUTAN = (FONDASI, SLOOF, KOLOM, BALOK, PELAT, DAK)
+BIDANG = (PELAT_DASAR, PELAT, DAK, FONDASI)  # tulangan anyaman dua arah
+URUTAN = (FONDASI, SLOOF, KOLOM, BALOK, PELAT_DASAR, PELAT, DAK)
 
 NAMA_KELOMPOK = {
-    KOLOM: "Kolom", BALOK: "Balok", SLOOF: "Sloof", PELAT: "Pelat Lantai",
-    DAK: "Pelat Atap (Dak)", FONDASI: "Fondasi Telapak",
+    KOLOM: "Kolom", BALOK: "Balok", SLOOF: "Sloof", PELAT_DASAR: "Pelat Lantai Dasar", PELAT: "Pelat Lantai",
+    DAK: "Pelat Atap (Dak)", FONDASI: "Fondasi Beton",  # footplate / fondasi menerus beton
 }
-AWALAN_KODE = {KOLOM: "K", BALOK: "B", SLOOF: "S", PELAT: "P", DAK: "D", FONDASI: "F"}
+AWALAN_KODE = {KOLOM: "K", BALOK: "B", SLOOF: "S", PELAT_DASAR: "L", PELAT: "P", DAK: "D", FONDASI: "F"}
 KODE_PEKERJAAN = {
     KOLOM: "BSI.KOLOM", BALOK: "BSI.BALOK", SLOOF: "BSI.SLOOF",
-    PELAT: "BSI.PELAT", DAK: "BSI.DAK", FONDASI: "BSI.FONDASI",
+    PELAT_DASAR: "BSI.PELAT", PELAT: "BSI.PELAT", DAK: "BSI.DAK", FONDASI: "BSI.FONDASI",
+}
+
+# Susunan tulangan bidang (kolom tipe_penulangan.lapis):
+#   1 = satu lapis (bawah),
+#   2 = dua lapis penuh (atas & bawah),
+#   3 = bawah penuh + atas di daerah tumpuan saja. Tulangan tumpuan atas dipasang 1/4 bentang dari
+#       tiap tepi (praktik pelat dua arah rumah tinggal), jadi panjangnya setengah lapis penuh.
+LAPIS_BAWAH, LAPIS_PENUH, LAPIS_TUMPUAN = 1, 2, 3
+FAKTOR_LAPIS = {LAPIS_BAWAH: 1.0, LAPIS_PENUH: 2.0, LAPIS_TUMPUAN: 1.5}
+NAMA_LAPIS = {
+    LAPIS_BAWAH: "1 lapis (bawah)",
+    LAPIS_PENUH: "2 lapis penuh (atas & bawah)",
+    LAPIS_TUMPUAN: "bawah penuh + atas tumpuan",
 }
 
 DIAMETER_STANDAR = (6, 8, 10, 12, 13, 16, 19, 22, 25)  # mm
@@ -52,7 +66,8 @@ PENAMPANG_MIN_LINIER = 0.10  # m, sisi terkecil kolom/balok/sloof (2 x selimut +
 
 # Selimut beton (SNI 2847:2019 Tabel 20.6.1.3.1): balok/kolom 40 mm, pelat 20 mm,
 # sloof bersentuhan tanah ≤ D16 40 mm, fondasi dicor langsung di atas tanah 75 mm.
-SELIMUT = {KOLOM: 0.040, BALOK: 0.040, SLOOF: 0.040, PELAT: 0.020, DAK: 0.020, FONDASI: 0.075}
+# Pelat lantai dasar dicor di atas pasir urug + plastik: 40 mm.
+SELIMUT = {KOLOM: 0.040, BALOK: 0.040, SLOOF: 0.040, PELAT_DASAR: 0.040, PELAT: 0.020, DAK: 0.020, FONDASI: 0.075}
 
 
 def berat_per_m(d_mm: float) -> float:
@@ -90,7 +105,7 @@ class Penulangan:
     n_utama: int = 0  # linier: jumlah tulangan memanjang
     d_utama: float = 0.0  # mm
     jarak_utama: float = 0.0  # m, bidang: jarak antar tulangan
-    lapis: int = 1  # bidang: 1 = bawah saja, 2 = atas & bawah
+    lapis: int = 1  # bidang: susunan tulangan, lihat LAPIS_BAWAH / LAPIS_PENUH / LAPIS_TUMPUAN
     d_sengkang: float = 0.0  # mm, linier
     jarak_sengkang: float = 0.0  # m, linier
     selimut: float = 0.04  # m
@@ -101,8 +116,7 @@ class Penulangan:
                 f"{self.n_utama} {label_d(self.d_utama)}, sengkang "
                 f"{label_d(self.d_sengkang)}-{self.jarak_sengkang * 1000:.0f}"
             )
-        lapis = "2 lapis (atas & bawah)" if self.lapis == 2 else "1 lapis"
-        return f"{label_d(self.d_utama)}-{self.jarak_utama * 1000:.0f} dua arah, {lapis}"
+        return f"{label_d(self.d_utama)}-{self.jarak_utama * 1000:.0f} dua arah, {NAMA_LAPIS.get(self.lapis, '?')}"
 
 
 def label_tipe(kelompok: str, kode: str, b: float | None, h: float | None) -> str:
@@ -125,13 +139,20 @@ def ukuran_elemen(e: dict, batas_kemiringan_dak: float = 5.0):
     if kelas == "COLUMN":
         return KOLOM, e.get("lebar"), e.get("tebal"), e.get("tinggi")
     if kelas == "BEAM":
-        return BALOK, e.get("lebar"), e.get("tinggi"), e.get("panjang")
+        # balok bernama sloof (ditandai preprocessor konteks) dihitung sebagai sloof
+        return SLOOF if e.get("balok_sloof") else BALOK, e.get("lebar"), e.get("tinggi"), e.get("panjang")
+    if kelas == "WALL" and e.get("sloof_turunan"):
+        # sloof turunan di bawah dinding lantai dasar: penampang dari parameter, panjang = panjang dinding
+        b, h = e["sloof_turunan"][:2]
+        return SLOOF, b, h, e.get("panjang")
     if kelas == "FOOTING" and pre == "FOOTING_BEAM":
         return SLOOF, e.get("lebar"), e.get("tebal"), e.get("panjang")
-    if kelas == "FOOTING" and pre != "STRIP_FOOTING":
+    if kelas == "FOOTING" and (pre != "STRIP_FOOTING" or e.get("menerus_beton")):
         return FONDASI, None, e.get("tebal"), None
     if kelas == "SLAB":
-        return PELAT, None, e.get("tebal"), None
+        # pelat di atas tanah: BASESLAB atau pelat pada lantai dasar (ditandai preprocessor konteks)
+        dasar = pre == "BASESLAB" or e.get("di_lantai_dasar", False)
+        return PELAT_DASAR if dasar else PELAT, None, e.get("tebal"), None
     if kelas == "ROOF":
         teta = e.get("kemiringan")
         if teta is not None and teta < batas_kemiringan_dak:
@@ -190,10 +211,14 @@ def bawaan(kelompok: str, b: float | None, h: float | None) -> Penulangan:
         if b * h <= 0.05 + 1e-9:
             return Penulangan(SLOOF, 6, 13, d_sengkang=10, jarak_sengkang=0.15, selimut=c)
         return Penulangan(SLOOF, 6, 16, d_sengkang=10, jarak_sengkang=0.15, selimut=c)
+    if kelompok == PELAT_DASAR:
+        # pelat di atas tanah rumah tinggal: satu lapis Ø8-150 dua arah (setara wiremesh M8-150, 5,3 kg/m²)
+        return Penulangan(PELAT_DASAR, d_utama=8, jarak_utama=0.15, lapis=LAPIS_BAWAH, selimut=c)
     if kelompok in (PELAT, DAK):
+        # pelat dua arah: tulangan bawah penuh, tulangan atas hanya di daerah tumpuan
         if h <= 0.15 + 1e-9:
-            return Penulangan(kelompok, d_utama=10, jarak_utama=0.15, lapis=2, selimut=c)
-        return Penulangan(kelompok, d_utama=13, jarak_utama=0.15, lapis=2, selimut=c)
+            return Penulangan(kelompok, d_utama=10, jarak_utama=0.15, lapis=LAPIS_TUMPUAN, selimut=c)
+        return Penulangan(kelompok, d_utama=13, jarak_utama=0.15, lapis=LAPIS_TUMPUAN, selimut=c)
     if kelompok == FONDASI:
         if h <= 0.30 + 1e-9:
             return Penulangan(FONDASI, d_utama=13, jarak_utama=0.15, lapis=1, selimut=c)
@@ -225,8 +250,8 @@ def validasi(p: Penulangan) -> None:
     else:
         if not 0.05 <= p.jarak_utama <= 0.40:
             raise PenulanganTidakValid("Jarak tulangan harus 50 - 400 mm.")
-        if p.lapis not in (1, 2):
-            raise PenulanganTidakValid("Jumlah lapis tulangan harus 1 atau 2.")
+        if p.lapis not in FAKTOR_LAPIS:
+            raise PenulanganTidakValid("Susunan tulangan tidak dikenal (1 lapis, 2 lapis penuh, atau bawah + atas tumpuan).")
 
 
 # ---------------------------------------------------------------- hitung
@@ -283,6 +308,9 @@ def _linier(kelompok, b, h, L, p: Penulangan) -> list:
 
 def _bidang(kelompok, e, h, p: Penulangan) -> list:
     d, s, c = p.d_utama, p.jarak_utama, p.selimut
+    faktor = FAKTOR_LAPIS[p.lapis]
+    teks_lapis = {LAPIS_BAWAH: "1 lapis", LAPIS_PENUH: "atas + bawah",
+                  LAPIS_TUMPUAN: "bawah + ½ atas di tumpuan"}[p.lapis]
     wm = berat_per_m(d)
     kait = 2 * KAIT_UTAMA * d / 1000
     P, B = e.get("panjang"), e.get("lebar")
@@ -291,9 +319,10 @@ def _bidang(kelompok, e, h, p: Penulangan) -> list:
         nx = math.floor(max(B - 2 * c, 0) / s + 1e-9) + 1
         ny = math.floor(max(P - 2 * c, 0) / s + 1e-9) + 1
         lx, ly = max(P - 2 * c, 0) + kait, max(B - 2 * c, 0) + kait
-        panjang = (nx * lx + ny * ly) * p.lapis
+        panjang = (nx * lx + ny * ly) * faktor
         uraian_l = (
-            f"arah L: {nx} × {_n(lx)} m, arah B: {ny} × {_n(ly)} m, × {p.lapis} lapis = {_n(panjang)} m"
+            f"arah L: {nx} × {_n(lx)} m, arah B: {ny} × {_n(ly)} m, × {_n(faktor, 1)} ({teks_lapis}) "
+            f"= {_n(panjang)} m"
         )
     else:
         # bentuk tidak reguler: panjang tulangan per m² = 1/s tiap arah
@@ -302,14 +331,16 @@ def _bidang(kelompok, e, h, p: Penulangan) -> list:
             A = e["volume"] / h
         if A <= 0:
             return []
-        panjang = 2 * A / s * p.lapis
-        uraian_l = f"2 arah × A / s × lapis = 2 × {_n(A)} / {_n(s, 2)} × {p.lapis} = {_n(panjang)} m"
+        panjang = 2 * A / s * faktor
+        uraian_l = (
+            f"2 arah × A / s × {_n(faktor, 1)} ({teks_lapis}) = 2 × {_n(A)} / {_n(s, 2)} × {_n(faktor, 1)} "
+            f"= {_n(panjang)} m"
+        )
     berat = panjang * wm * FAKTOR_SISA
-    lapis = "atas & bawah" if p.lapis == 2 else "1 lapis"
     return [ItemBesi(
         kode_pekerjaan(kelompok, d), berat,
         f"{_rumus_wm(d)}; panjang total {uraian_l}; W = {_n(panjang)} × {_n(wm)} × 1,05 = {_n(berat, 2)} kg",
-        f"Tulangan {label_d(d)}-{s * 1000:.0f} dua arah, {lapis}", d,
+        f"Tulangan {label_d(d)}-{s * 1000:.0f} dua arah, {NAMA_LAPIS[p.lapis]}", d,
     )]
 
 

@@ -4,9 +4,10 @@ fondasi batu kali turunan, sumuran, pekerjaan tanah, dan rasio besi cadangan. Me
 parameter menjalankan ulang rule engine dari elemen tersimpan (file IFC tidak dibaca ulang).
 """
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
+    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFrame,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from database.parameter_repository import (
     PARAMETER_EDIT,
+    PILIHAN,
     ParameterTidakValid,
     muat_parameter,
     simpan_parameter,
@@ -28,6 +30,26 @@ from estimasi_service import hitung_ulang_dari_elemen
 from gui import tema
 from gui.proses_latar import jalankan_di_latar
 from rules.parameter import PARAMETER_DEFAULT
+
+
+class _Pilihan(QComboBox):
+    """Daftar pilihan dengan antarmuka seperti spin box (value / setValue / valueChanged)."""
+
+    valueChanged = Signal(float)
+
+    def __init__(self, pilihan: dict):
+        super().__init__()
+        for nilai, label in pilihan.items():
+            self.addItem(label, nilai)
+        self.currentIndexChanged.connect(lambda _i: self.valueChanged.emit(self.value()))
+
+    def value(self) -> float:
+        return float(self.currentData())
+
+    def setValue(self, v) -> None:
+        i = self.findData(int(round(v)))
+        if i >= 0:
+            self.setCurrentIndex(i)
 
 
 class ParameterDialog(QDialog):
@@ -75,13 +97,19 @@ class ParameterDialog(QDialog):
             g.setColumnStretch(0, 1)
             g.addWidget(tema.label(grup.upper(), "bagian"), 0, 0, 1, 4)
             for i, (k, label, sat, lo, hi, d) in enumerate(daftar, 1):
-                sp = QDoubleSpinBox()
-                sp.setRange(lo, hi)
-                sp.setDecimals(d)
-                sp.setSingleStep(10 ** -d if d else 1)
-                sp.setButtonSymbols(QAbstractSpinBox.NoButtons)
-                sp.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                sp.setFixedWidth(110)
+                if k in PILIHAN:
+                    sp = _Pilihan(PILIHAN[k])
+                    sp.setMinimumWidth(170)
+                else:
+                    sp = QDoubleSpinBox()
+                    sp.setRange(lo, hi)
+                    sp.setDecimals(d)
+                    sp.setSingleStep(10 ** -d if d else 1)
+                    sp.setButtonSymbols(QAbstractSpinBox.NoButtons)
+                    sp.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    sp.setFixedWidth(110)
+                    if lo == 0 and "otomatis" in label:
+                        sp.setSpecialValueText("otomatis")
                 sp.setValue(getattr(self._awal, k))
                 sp.valueChanged.connect(lambda _=0, k=k: self._berubah(k))
                 self.spin[k] = sp
@@ -125,7 +153,14 @@ class ParameterDialog(QDialog):
         tanda, bawaan, d = self.tanda[k]
         nilai = self.spin[k].value()
         if abs(nilai - bawaan) > 10 ** -(d + 1):
-            tanda.setText(f"● bawaan {tema.format_angka(bawaan, d)}")
+            if k in PILIHAN:
+                teks = PILIHAN[k][bawaan]
+            elif bawaan == 0 and isinstance(self.spin[k], QDoubleSpinBox) and self.spin[k].specialValueText():
+                teks = "otomatis"
+            else:
+                teks = tema.format_angka(bawaan, d)
+            tanda.setText(f"● bawaan {teks}")
+            tanda.setToolTip(f"Nilai bawaan: {teks}")
             tanda.setStyleSheet(f"color: {tema.W['peringatan']};")
         else:
             tanda.setText("bawaan")

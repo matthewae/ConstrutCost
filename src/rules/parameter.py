@@ -1,7 +1,7 @@
 """
 Parameter asumsi teknis yang dipakai rule engine (KF-3/KF-4).
 
-Semua angka di sini adalah ASUMSI tipikal rumah tinggal <= 2 lantai pada kondisi tanah normal
+Semua angka di sini adalah ASUMSI tipikal rumah tinggal pada kondisi tanah normal
 (Batasan Masalah no. 6-8). Angka dikumpulkan di satu tempat supaya mudah diverifikasi,
 dikutip di laporan, dan nantinya diubah lewat menu pengaturan.
 """
@@ -31,6 +31,15 @@ class ParameterEstimasi:
     poer_lebar: float = 0.80  # m
     poer_tebal: float = 0.25  # m
 
+    # --- Sloof turunan di atas fondasi batu kali / di antara footplate (bila sloof tidak dimodelkan) ---
+    # 0 = otomatis menurut jumlah lantai: 1 lantai 15/20, >= 2 lantai 20/30 (lihat SLOOF_OTOMATIS)
+    sloof_lebar: float = 0.0  # m
+    sloof_tinggi: float = 0.0  # m
+
+    # --- Fondasi menerus (IfcFooting STRIP_FOOTING) yang dimodelkan ---
+    # 0 = otomatis dari nama elemen, 1 = pasangan batu kali, 2 = beton bertulang (lihat JENIS_MENERUS)
+    fondasi_menerus_jenis: int = 0
+
     # --- Pekerjaan tanah (KF-4): galian, urugan pasir, lantai kerja, urugan kembali ---
     ruang_kerja_galian: float = 0.10  # m, kelonggaran galian tiap sisi fondasi
     tebal_pasir_fondasi: float = 0.05  # m, urugan pasir bawah fondasi batu kali
@@ -38,6 +47,13 @@ class ParameterEstimasi:
     tebal_pasir_lantai: float = 0.05  # m, urugan pasir bawah lantai dasar
     tebal_lantai_kerja: float = 0.05  # m, lantai kerja f'c 7,5 MPa bawah footplate / rabat lantai
     kedalaman_fondasi_telapak: float = 1.00  # m, muka tanah ke dasar footplate (tanpa lantai kerja)
+
+    # --- Pekerjaan persiapan ---
+    jarak_bowplank: float = 1.50  # m, jarak bowplank dari as dinding luar
+
+    # --- Balok ---
+    # 1 = bekisting sisi balok dikurangi tebal pelat yang dicor bersamaan (b + 2(h - t)), 0 = b + 2h
+    bekisting_balok_monolit: int = 1
 
     # --- Dinding ---
     jumlah_sisi_plester: int = 2  # plester dan acian dua sisi
@@ -83,3 +99,25 @@ class ParameterEstimasi:
 
 
 PARAMETER_DEFAULT = ParameterEstimasi()
+
+# Ukuran sloof turunan bila parameter = 0 (otomatis): (lebar, tinggi) m menurut jumlah lantai bangunan.
+SLOOF_OTOMATIS = {1: (0.15, 0.20), 2: (0.20, 0.30)}
+
+MENERUS_OTOMATIS, MENERUS_BATU_KALI, MENERUS_BETON = 0, 1, 2
+JENIS_MENERUS = {
+    MENERUS_OTOMATIS: "Otomatis dari nama",
+    MENERUS_BATU_KALI: "Pasangan batu kali",
+    MENERUS_BETON: "Beton bertulang",
+}
+
+
+def ukuran_sloof(p: ParameterEstimasi, jumlah_lantai: int) -> tuple:
+    """(lebar, tinggi, keterangan) sloof turunan."""
+    auto_b, auto_h = SLOOF_OTOMATIS[2 if jumlah_lantai >= 2 else 1]
+    b = p.sloof_lebar or auto_b
+    h = p.sloof_tinggi or auto_h
+    if p.sloof_lebar and p.sloof_tinggi:
+        ket = "parameter proyek"
+    else:
+        ket = f"otomatis: bangunan {jumlah_lantai} lantai"
+    return b, h, ket
