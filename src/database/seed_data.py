@@ -22,7 +22,7 @@ from database.estimasi_repository import _connect
 from database.hspk_bandung_2027 import AHSP, HSD, SUMBER
 from database.init_db import pastikan_skema
 
-SEED_VERSI = "8-hspk-bdg-2027-persiapan-cat-eksterior"
+SEED_VERSI = "9-hspk-bdg-2027-tangga-railing"
 
 SUMBER_HSPK = "HSPK Kota Bandung 2027"
 
@@ -73,6 +73,12 @@ PEMETAAN = {
     "KRM.DINDING": ("Pasangan Keramik Dinding 20x20 cm (Ruang Basah)", "Dinding", "m2", "3.10.1.4"),
     # ---------------- Lantai ----------------
     "KRM.LANTAI": ("Pasangan Keramik Lantai 40x40 cm Polished", "Lantai", "m2", "3.9.8.6"),
+    # ---------------- Tangga & railing ----------------
+    "BTN.TANGGA": ("Beton Tangga f'c 20 MPa", "Tangga & Railing", "m3", "2.2.1.4.5"),
+    "BSK.TANGGA": ("Bekisting Tangga", "Tangga & Railing", "m2", "2.2.1.3.7"),
+    "BSI.TANGGA": ("Pembesian Tangga (Asumsi Rasio kg/m³)", "Tangga & Railing", "kg", "2.2.1.1.1a"),
+    "RLG.TANGGA": ("Railing Tangga / Hand Rail Besi", "Tangga & Railing", "m'", "3.13.5"),
+    "RLG.PENGAMAN": ("Railing Besi Pengaman Tinggi 1,2 m (Balkon / Void)", "Tangga & Railing", "m'", "3.13.4"),
     # ---------------- Pintu & jendela ----------------
     "PTU.DAUN": ("Daun Pintu Panel Kayu Kelas I/II", "Pintu & Jendela", "m2", "3.11.1.11"),
     "PTU.KUSEN": ("Kusen Pintu Kayu Kelas II/III 6x15 cm", "Pintu & Jendela", "m'", "3.11.3.5"),

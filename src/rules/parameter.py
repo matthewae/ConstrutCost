@@ -17,6 +17,7 @@ class ParameterEstimasi:
     rasio_besi_sloof: float = 120.0
     rasio_besi_pelat: float = 90.0
     rasio_besi_fondasi: float = 80.0
+    rasio_besi_tangga: float = 100.0  # tangga beton: tulangan pokok + bagi pelat tangga dan bordes
 
     # --- Fondasi batu kali di bawah dinding lantai dasar (Rumus 2.34) ---
     batu_kali_lebar_atas: float = 0.30  # m

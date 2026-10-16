@@ -7,6 +7,7 @@ per kelas, lalu pengguna menekan "Import" untuk mulai parsing.
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QDialog,
     QFormLayout,
     QFrame,
@@ -15,12 +16,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
-from klasifikasi import LABEL, ElementType
+from klasifikasi import LABEL, ElementType, teks_tidak_dihitung
 from gui import tema
 
 
@@ -47,17 +50,30 @@ class RingkasanImportDialog(QDialog):
         self.info = info
         self.setWindowTitle("Import File IFC")
         self.setModal(True)
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(600)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(28, 24, 28, 22)
-        root.setSpacing(12)
+        # Kepala, kolom nama proyek, dan tombol selalu terlihat; ringkasan di tengah dapat digulir
+        # sehingga tombol Import tidak terdorong keluar layar pada model dengan banyak jenis elemen.
+        luar = QVBoxLayout(self)
+        luar.setContentsMargins(28, 24, 28, 22)
+        luar.setSpacing(12)
 
-        root.addWidget(tema.kepala_dialog(
+        luar.addWidget(tema.kepala_dialog(
             "Konfirmasi Import File IFC",
             "File valid. Periksa ringkasan di bawah, lalu tekan Import untuk memproses.",
             "sukses", "sukses",
         )[0])
+
+        self.gulir = QScrollArea()
+        self.gulir.setWidgetResizable(True)
+        self.gulir.setFrameShape(QFrame.NoFrame)
+        self.gulir.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        isi = QWidget()
+        self.gulir.setWidget(isi)
+        root = QVBoxLayout(isi)  # isi ringkasan (dapat digulir)
+        root.setContentsMargins(0, 0, 6, 0)
+        root.setSpacing(12)
+        luar.addWidget(self.gulir, stretch=1)
 
         # --- Informasi file ---
         kartu = QFrame()
@@ -115,15 +131,16 @@ class RingkasanImportDialog(QDialog):
             jml.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             tabel.setItem(r, 2, jml)
         tabel.verticalHeader().setDefaultSectionSize(30)
-        tabel.setFixedHeight(min(48 + 30 * max(len(urut), 1), 360))
+        # tinggi penuh: satu gulungan saja (area ringkasan), bukan gulungan di dalam tabel
+        tabel.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        tabel.setFixedHeight(48 + 30 * max(len(urut), 1))
         root.addWidget(tabel)
 
         tidak = getattr(info, "tidak_dihitung", None) or {}
         if tidak:
-            daftar = ", ".join(f"{n} {label}" for label, n in tidak.items())
             lain = QLabel(
-                f"Tidak dihitung otomatis: {daftar}. Tambahkan pekerjaannya secara manual bila termasuk "
-                "lingkup RAB (mis. tangga beton)."
+                f"Tidak dihitung otomatis: {teks_tidak_dihitung(tidak)}. Periksa apakah termasuk lingkup RAB, "
+                "lalu tambahkan pekerjaannya secara manual bila perlu."
             )
             lain.setObjectName("infoKecil")
             lain.setWordWrap(True)
@@ -139,14 +156,15 @@ class RingkasanImportDialog(QDialog):
             peringatan.setWordWrap(True)
             root.addWidget(peringatan)
 
-        # --- Nama proyek ---
-        root.addSpacing(6)
+        root.addStretch()
+
+        # --- Nama proyek (tetap di bawah, di luar area gulir) ---
         label_nama = QLabel("Nama proyek")
         label_nama.setObjectName("formLabel")
         self.edit_nama = QLineEdit(info.nama_file.rsplit(".", 1)[0])
         self.edit_nama.setPlaceholderText("Nama proyek")
-        root.addWidget(label_nama)
-        root.addWidget(self.edit_nama)
+        luar.addWidget(label_nama)
+        luar.addWidget(self.edit_nama)
 
         # --- Tombol ---
         tombol = QHBoxLayout()
@@ -164,7 +182,16 @@ class RingkasanImportDialog(QDialog):
         )
         tombol.addWidget(btn_batal)
         tombol.addWidget(self.btn_import)
-        root.addLayout(tombol)
+        luar.addLayout(tombol)
+        self._sesuaikan_ukuran(isi)
+
+    def _sesuaikan_ukuran(self, isi: QWidget) -> None:
+        """Tinggi mengikuti isi, tetapi tidak melebihi 88% tinggi layar (sisanya digulir)."""
+        layar = (self.parent().screen() if self.parent() is not None else None) or QApplication.primaryScreen()
+        tersedia = layar.availableGeometry().height() if layar else 900
+        kerangka = self.sizeHint().height() - self.gulir.sizeHint().height()
+        ingin = kerangka + isi.sizeHint().height() + 8
+        self.resize(max(self.minimumWidth(), 660), min(ingin, int(tersedia * 0.88)))
 
     def nama_proyek(self) -> str:
         return self.edit_nama.text().strip()
@@ -186,7 +213,10 @@ def tampilkan_hasil_proses(parent, judul: str, r: dict) -> None:
     else:
         kotak.setIcon(QMessageBox.Information)
     if r["peringatan"]:
-        teks += f"\n\n{len(r['peringatan'])} peringatan (elemen dengan data dimensi kosong). Klik 'Tampilkan Rincian' untuk melihat."
+        teks += (
+            f"\n\n{len(r['peringatan'])} catatan (elemen yang dilewati, bukan beton, atau tidak dihitung). "
+            "Klik 'Tampilkan Rincian' untuk melihat."
+        )
         kotak.setDetailedText("\n".join(r["peringatan"]))
     kotak.setText(teks)
     kotak.exec()

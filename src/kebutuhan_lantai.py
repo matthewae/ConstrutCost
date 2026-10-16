@@ -72,6 +72,8 @@ def struktur_per_tipe(baris: list) -> list:
                 label = "Lantai Kerja (bawah fondasi)"
             elif kel == "SUMURAN":
                 label = "Fondasi Sumuran"
+            elif kel == "TANGGA":
+                label = "Tangga Beton"
             else:
                 label = f"{NAMA_KELOMPOK.get(kel, kel.title())} (tanpa tipe penulangan)"
             urut = (URUTAN.index(kel) if kel in URUTAN else -1 if kel == "LANTAI_KERJA" else 9, 1, 0)
@@ -345,6 +347,7 @@ JUDUL_KATEGORI = {
     "Beton": "PEKERJAAN BETON",
     "Dinding": "PEKERJAAN DINDING",
     "Lantai": "PEKERJAAN LANTAI / KERAMIK",
+    "Tangga & Railing": "PEKERJAAN TANGGA DAN RAILING",
     "Pintu & Jendela": "PEKERJAAN PINTU DAN JENDELA",
     "Atap": "PEKERJAAN KUDA-KUDA DAN ATAP",
     "Plafon": "PEKERJAAN PLAFON",

@@ -129,3 +129,34 @@ def test_gaya_fusion_terpasang_sekali(app):
     tema.terapkan(app, "hitam_kuning")
     assert str(app.property("gaya_dasar")).lower() == "fusion"
     assert app.style() is not None and gaya is not None
+
+
+def test_dialog_import_tombol_selalu_terlihat(app):
+    """Model dengan banyak jenis elemen di layar pendek: ringkasan digulir, tombol Import tetap di dalam
+    dialog (tidak perlu menggeser jendela)."""
+    from ifc_reader import InfoFileIFC
+    from klasifikasi import ElementType
+    from gui.import_dialog import RingkasanImportDialog
+
+    info = InfoFileIFC(
+        path="rumah.ifc", nama_file="Rumah_Tipe90_2Lantai_Carport.ifc", ukuran_byte=12_000_000, skema="IFC4",
+        aplikasi=None, satuan_panjang="meter",
+        lantai=[("00 FONDASI", -1.7), ("01 LANTAI 1", 0.0), ("02 LANTAI 2", 3.5), ("03 ATAP", 6.8)],
+        jumlah_per_kelas={k: 10 for k in ElementType if k != ElementType.UNKNOWN},
+        tidak_dihitung={
+            "batang rangka (IfcMember)": {"jumlah": 94, "contoh": ["Rangka Carport 50x50"], "catatan": None},
+            "elemen generik (IfcBuildingElementProxy)": {"jumlah": 50, "contoh": ["Kitchen Set"], "catatan": None},
+        },
+    )
+    d = RingkasanImportDialog(info)
+    tinggi_layar = app.primaryScreen().availableGeometry().height()
+    assert d.height() <= int(tinggi_layar * 0.88)
+    d.show()
+    app.processEvents()
+    bawah = d.btn_import.mapTo(d, d.btn_import.rect().bottomLeft()).y()
+    assert 0 < bawah <= d.height()
+    assert d.edit_nama.isVisible() and d.btn_import.isEnabled()
+    # isi ringkasan lebih tinggi dari ruang yang tersedia -> digulir
+    assert d.gulir.verticalScrollBar().maximum() > 0
+    d.close()
+    d.deleteLater()

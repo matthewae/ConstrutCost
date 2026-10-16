@@ -121,7 +121,7 @@ def test_ac20_punya_bab_pekerjaan_tanah(db_sementara):
     # dan model tanpa penanda dinding luar; tidak ada dimensi/volume yang gagal dibaca
     assert r["peringatan"]
     assert all(
-        "tidak dihitung" in x or "IsExternal" in x for x in r["peringatan"]
+        "tidak dihitung" in x.lower() or "IsExternal" in x for x in r["peringatan"]
     ), r["peringatan"]
     rows = get_hasil_estimasi_by_proyek(pid)
     tanah = {x["kode_ahsp"] for x in rows if x["kategori"] == "Tanah"}

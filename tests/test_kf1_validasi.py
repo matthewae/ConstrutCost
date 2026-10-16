@@ -18,7 +18,7 @@ def test_file_valid_menghasilkan_ringkasan():
     assert [nama for nama, _ in info.lantai] == ["Erdgeschoss", "Dachgeschoss"]
     assert info.jumlah_per_kelas[T.WALL] == 13
     assert info.jumlah_per_kelas[T.ROOF] == 2
-    assert info.total_elemen == 44
+    assert info.total_elemen == 47  # termasuk 1 tangga dan 2 railing
     assert info.model is not None
 
 
@@ -110,4 +110,4 @@ def test_crash_proses_anak_tidak_menghentikan_aplikasi():
 
 def test_validasi_terisolasi_file_valid():
     info = buka_dan_validasi(AC20, terisolasi=True)
-    assert info.total_elemen == 44 and info.model is not None
+    assert info.total_elemen == 47 and info.model is not None

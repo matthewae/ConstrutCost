@@ -36,6 +36,9 @@ _KAYU = re.compile(
 
 KELAS_LINIER = ("COLUMN", "BEAM")
 KELAS_BIDANG = ("SLAB", "ROOF")
+# Tangga beton pejal: volume >= ± separuh kotak L x B x H (pelat miring + anak tangga). Tangga baja/kayu jauh
+# lebih kecil (hanya ibu tangga + pijakan).
+ISI_MIN_TANGGA = 0.25
 
 
 def _cm(x: float) -> str:
@@ -65,8 +68,16 @@ def penampang_linier(e: dict):
 def bukan_beton(e: dict) -> str | None:
     """Alasan elemen tidak dihitung sebagai beton bertulang, atau None bila elemen dianggap beton."""
     kelas = e.get("kelas")
-    if kelas in KELAS_LINIER + KELAS_BIDANG and _KAYU.search(e.get("nama") or ""):
+    if kelas in KELAS_LINIER + KELAS_BIDANG + ("STAIR",) and _KAYU.search(e.get("nama") or ""):
         return "nama elemen menunjukkan bahan kayu/finishing, bukan beton"
+    if kelas == "STAIR":
+        if _PROFIL_BAJA.search(e.get("nama") or ""):
+            return "nama elemen menunjukkan tangga baja"
+        L, B, H, v = e.get("panjang"), e.get("lebar"), e.get("tinggi"), e.get("volume")
+        if L and B and H and v and v / (L * B * H) < ISI_MIN_TANGGA:
+            return (f"volume hanya {v / (L * B * H) * 100:.0f}% dari L × B × H, kemungkinan tangga baja/kayu "
+                    "(ibu tangga + pijakan)")
+        return None
     if kelas in KELAS_BIDANG:
         t = tebal_bidang(e)
         if t is not None and t < TEBAL_MIN_BIDANG - 1e-9:

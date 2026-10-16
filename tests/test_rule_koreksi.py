@@ -2,6 +2,7 @@
 turunan, jenis fondasi menerus, bekisting balok monolit, cat eksterior, pekerjaan persiapan, dan
 laporan elemen IFC yang tidak dihitung."""
 
+import math
 from dataclasses import replace
 
 import pytest
@@ -244,9 +245,10 @@ def test_dinding_luar_dibaca_dan_elemen_tidak_dihitung_dilaporkan(ekstrak_cache)
     luar = [e for e in elemen if e["kelas"] == "WALL" and e["eksternal"]]
     dalam = [e for e in elemen if e["kelas"] == "WALL" and e["eksternal"] is False]
     assert luar and dalam
-    assert info.tidak_dihitung  # Duplex memuat tangga, railing, dll.
-    assert any("Tangga (IfcStair)" in k for k in info.tidak_dihitung)
-    assert any("tidak dihitung rule engine" in p for p in peringatan)
+    # tangga & railing Duplex sekarang dihitung; yang tersisa batang rangka (stringer tangga kayu)
+    assert list(info.tidak_dihitung) == ["batang rangka (IfcMember)"]
+    assert {"STAIR", "RAILING"} <= {e["kelas"] for e in elemen}
+    assert any(p.startswith("Tidak dihitung otomatis") for p in peringatan)
 
 
 # ---------------------------------------------------------------- antarmuka
@@ -297,3 +299,124 @@ def test_dialog_tipe_penulangan_susunan_tumpuan(app, db_sementara):
     assert d.combo_lapis.currentText() == "bawah penuh + atas tumpuan"
     assert [d.combo_lapis.itemData(i) for i in range(d.combo_lapis.count())] == [1, 3, 2]
     d.deleteLater()
+
+
+# ---------------------------------------------------------------- balok miring, tangga, railing
+
+
+def _model_gevel(tmp_path):
+    """IFC kecil: ring balok miring 13/15 tanpa quantity set (seperti ring balok gevel dari Revit),
+    tangga beton, railing tangga, dan batang rangka carport."""
+    import math
+
+    import ifcopenshell
+    import ifcopenshell.api as api
+    import numpy as np
+
+    f = api.run("project.create_file", version="IFC4")
+    proj = api.run("root.create_entity", f, ifc_class="IfcProject", name="Uji gevel")
+    api.run("unit.assign_unit", f, length={"is_metric": True, "raw": "METERS"})
+    model = api.run("context.add_context", f, context_type="Model")
+    body = api.run("context.add_context", f, context_type="Model", context_identifier="Body",
+                   target_view="MODEL_VIEW", parent=model)
+    site = api.run("root.create_entity", f, ifc_class="IfcSite")
+    gedung = api.run("root.create_entity", f, ifc_class="IfcBuilding")
+    lt = api.run("root.create_entity", f, ifc_class="IfcBuildingStorey", name="02 LANTAI 2")
+    lt.Elevation = 3.5
+    api.run("aggregate.assign_object", f, products=[site], relating_object=proj)
+    api.run("aggregate.assign_object", f, products=[gedung], relating_object=site)
+    api.run("aggregate.assign_object", f, products=[lt], relating_object=gedung)
+
+    def elemen(kelas, nama, rep, matriks=None, **kw):
+        el = api.run("root.create_entity", f, ifc_class=kelas, name=nama, **kw)
+        api.run("geometry.assign_representation", f, product=el, representation=rep)
+        api.run("geometry.edit_object_placement", f, product=el, matrix=matriks if matriks is not None else np.eye(4))
+        api.run("spatial.assign_container", f, products=[el], relating_structure=lt)
+        return el
+
+    # ring balok miring 30°: profil 13 x 15 cm diekstrusi 4 m sepanjang sumbu lokal Z yang diputar
+    prof = f.createIfcRectangleProfileDef("AREA", None, None, 0.13, 0.15)
+    rep = api.run("geometry.add_profile_representation", f, context=body, profile=prof, depth=4.0)
+    t = math.radians(30)
+    putar = np.array([[1, 0, 0, 0], [0, math.cos(t), -math.sin(t), 0], [0, math.sin(t), math.cos(t), 0], [0, 0, 0, 1]])
+    putar = putar @ np.array([[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]])  # sumbu balok miring
+    elemen("IfcBeam", "Ring Balok Miring Gevel 13/15 As A Depan", rep, putar)
+
+    # tangga beton: blok miring disederhanakan (volume ≈ separuh kotak L x B x H)
+    tangga = api.run("geometry.add_wall_representation", f, context=body, length=3.0, height=1.8, thickness=1.0)
+    elemen("IfcStairFlight", "Tangga Beton Lt 1-2", tangga)
+    railing = api.run("geometry.add_wall_representation", f, context=body, length=3.0, height=2.7, thickness=0.05)
+    elemen("IfcRailing", "Railing Tangga Besi", railing)
+    for i in range(3):
+        rangka = api.run("geometry.add_wall_representation", f, context=body, length=3.0, height=0.05, thickness=0.05)
+        elemen("IfcMember", f"Rangka Carport 50x50:{1000 + i}", rangka)
+    path = tmp_path / "gevel.ifc"
+    f.write(str(path))
+    return path
+
+
+def test_balok_miring_penampang_dari_profil_ekstrusi(tmp_path):
+    from ifc_reader import buka_dan_validasi, ekstrak_elemen
+
+    info = buka_dan_validasi(_model_gevel(tmp_path))
+    elemen, peringatan = ekstrak_elemen(info.model)
+    balok = next(e for e in elemen if e["kelas"] == "BEAM")
+    assert balok["lebar"] == pytest.approx(0.13) and balok["tinggi"] == pytest.approx(0.15)
+    assert balok["panjang"] == pytest.approx(4.0)
+    assert balok["sumber_dimensi"]["lebar"] == "profil"
+    hasil, dilewati = terapkan_rules(balok)
+    kode = {h.kode for h in hasil}
+    assert "BSK.BALOK" in kode and not any("BSK.BALOK" in d for d in dilewati)
+    assert {"BSI.BALOK.P"} <= kode  # ring balok 13/15 -> tipe bawaan 4 Ø10 + sengkang Ø8-150
+
+
+def test_penampang_dari_nama_sebagai_cadangan():
+    from ifc_reader import _Dimensi, _isi_penampang_nama
+
+    class E:
+        Name = "Ring Balok Miring Gevel 13/15 As C Belakang"
+
+    d = _Dimensi()
+    _isi_penampang_nama(E, d, "lebar", "tinggi")
+    assert d.nilai == {"lebar": pytest.approx(0.13), "tinggi": pytest.approx(0.15)}
+    assert d.sumber["lebar"] == "nama"
+    E.Name = "Balok tanpa ukuran"
+    d = _Dimensi()
+    _isi_penampang_nama(E, d, "lebar", "tinggi")
+    assert d.nilai == {}
+
+
+def test_tangga_railing_dan_catatan_ringkas(tmp_path):
+    from ifc_reader import buka_dan_validasi, ekstrak_elemen
+
+    info = buka_dan_validasi(_model_gevel(tmp_path))
+    assert {"STAIR", "RAILING"} <= {k.value for k in info.jumlah_per_kelas}
+    assert list(info.tidak_dihitung) == ["batang rangka (IfcMember)"]
+    assert info.tidak_dihitung["batang rangka (IfcMember)"]["contoh"] == ["Rangka Carport 50x50"]
+    elemen, peringatan = ekstrak_elemen(info.model)
+    assert len([p for p in peringatan if "Tidak dihitung otomatis" in p]) == 1  # satu kalimat ringkas
+    assert "'Rangka Carport 50x50'" in peringatan[-1] and "3 batang rangka" in peringatan[-1]
+    total, _ = _total(elemen)
+    assert total["BTN.TANGGA"] == pytest.approx(3.0 * 1.8 * 1.0, rel=1e-3)
+    assert total["BSI.TANGGA"] == pytest.approx(total["BTN.TANGGA"] * P.rasio_besi_tangga)
+    assert total["BSK.TANGGA"] > 0
+    assert total["RLG.TANGGA"] > 3.0  # railing miring mengikuti tangga: lebih panjang dari proyeksi 3 m
+
+
+def test_aturan_tangga_dan_railing():
+    tangga = _el("STAIR", nama="Tangga", panjang=3.0, lebar=1.0, tinggi=1.8, volume=1.6)
+    hasil, _ = terapkan_rules(tangga)
+    h = {x.kode: x for x in hasil}
+    assert h["BTN.TANGGA"].volume == pytest.approx(1.6)
+    assert h["BSK.TANGGA"].volume == pytest.approx(1.0 * math.hypot(3.0, 1.8) + 1.0 * 1.8)
+    kayu = _el("STAIR", nama="Tangga Kayu Jati", panjang=3.0, lebar=1.0, tinggi=1.8, volume=1.6)
+    assert not terapkan_rules(kayu)[0]
+    baja = _el("STAIR", nama="Tangga putar", panjang=2.0, lebar=2.0, tinggi=3.0, volume=0.2)  # 2 % isi
+    assert "baja/kayu" in bukan_beton(baja) and not terapkan_rules(baja)[0]
+
+    def kode(e):
+        return {x.kode for x in terapkan_rules(e)[0]}
+
+    assert kode(_el("RAILING", nama="Hand rail", panjang=4, tinggi=0.9)) == {"RLG.TANGGA"}
+    assert kode(_el("RAILING", nama="Railing balkon", panjang=4, tinggi=1.1)) == {"RLG.PENGAMAN"}
+    assert kode(_el("RAILING", nama="Railing", panjang=4, tinggi=3.0)) == {"RLG.TANGGA"}  # miring

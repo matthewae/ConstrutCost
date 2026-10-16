@@ -39,6 +39,9 @@ LABEL_KHUSUS = {
     T.ROOF: {"panjang": "Panjang proyeksi (L)", "lebar": "Lebar proyeksi (B)", "luas": "Luas bidang miring (A)"},
     T.PILE: {"lebar": "Diameter (d)", "panjang": "Panjang tiang (L)"},
     T.WALL: {"luas": "Luas bersih satu sisi (A)"},
+    T.STAIR: {"panjang": "Panjang horizontal (L)", "lebar": "Lebar tangga (B)", "tinggi": "Tinggi naik (H)",
+              "volume": "Volume beton (V)"},
+    T.RAILING: {"panjang": "Panjang railing (L)"},
 }
 
 # kelas -> (dimensi primer, dimensi turunan)
@@ -55,6 +58,8 @@ DIMENSI = {
     T.FLOOR: (("panjang", "lebar"), ("luas", "keliling")),
     T.CEILING: (("panjang", "lebar"), ("luas", "keliling")),
     T.SPACE: (("panjang", "lebar", "tinggi"), ("luas", "keliling")),
+    T.STAIR: (("panjang", "lebar", "tinggi"), ("volume",)),  # volume tangga tidak reguler: diisi langsung
+    T.RAILING: (("panjang",), ()),
 }
 # dimensi yang boleh bernilai nol
 BOLEH_NOL = {"kemiringan", "luas_bukaan"}

@@ -52,6 +52,7 @@ PARAMETER_EDIT = {
         ("rasio_besi_sloof", "Rasio besi sloof", "kg/m³", 50, 400, 0),
         ("rasio_besi_pelat", "Rasio besi pelat", "kg/m³", 30, 300, 0),
         ("rasio_besi_fondasi", "Rasio besi fondasi", "kg/m³", 30, 300, 0),
+        ("rasio_besi_tangga", "Rasio besi tangga beton", "kg/m³", 30, 300, 0),
     ],
     "Dinding, atap, dan pintu": [
         ("jumlah_sisi_plester", "Sisi plester & acian", "sisi", 1, 2, 0),

@@ -43,7 +43,8 @@ def terapkan_rules(elemen: dict, konteks: Konteks = None, parameter=PARAMETER_DE
         if kosong:
             label = LABEL.get(ElementType(elemen["kelas"]), elemen["kelas"])
             dilewati.append(
-                f"{rule.kode}: {', '.join(kosong)} kosong pada {label} '{elemen.get('nama')}'"
+                f"{label} '{elemen.get('nama')}': {rule.kode} tidak dihitung karena {', '.join(kosong)} "
+                "tidak terbaca dari model"
             )
             continue
         keluaran = rule.hitung(elemen, parameter)

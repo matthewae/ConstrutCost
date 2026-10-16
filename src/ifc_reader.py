@@ -18,6 +18,7 @@ Asal setiap nilai dicatat di 'sumber_dimensi' supaya bisa ditelusuri (KF-18).
 """
 
 import math
+import re
 import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
@@ -32,7 +33,7 @@ import ifcopenshell.util.element as element_util
 import ifcopenshell.util.shape as shape_util
 import ifcopenshell.util.unit as unit_util
 
-from klasifikasi import LABEL, ElementType, hitung_tidak_dihitung, kumpulkan_elemen, predefined_type
+from klasifikasi import LABEL, ElementType, hitung_tidak_dihitung, kumpulkan_elemen, predefined_type, teks_tidak_dihitung
 
 SKEMA_DIDUKUNG = {"IFC2X3": "IFC2x3", "IFC4": "IFC4"}
 PESAN_TIDAK_VALID = "File tidak valid. Pastikan file berformat IFC2x3 atau IFC4."
@@ -66,7 +67,7 @@ class InfoFileIFC:
     lantai: list  # [(nama, elevasi_meter)] urut dari bawah
     jumlah_per_kelas: dict  # ElementType -> jumlah
     model: object = field(default=None, repr=False)
-    tidak_dihitung: dict = field(default_factory=dict)  # 'Tangga (IfcStair)' -> jumlah
+    tidak_dihitung: dict = field(default_factory=dict)  # '94 batang rangka (IfcMember)' -> {jumlah, contoh, catatan}
 
     @property
     def total_elemen(self) -> int:
@@ -258,6 +259,36 @@ class _Pengukur:
         except Exception:
             settings.set(settings.USE_WORLD_COORDS, False)  # versi lama
         return settings
+
+    # ---------- profil ekstrusi ----------
+
+    def profil_ekstrusi(self, entity):
+        """(XDim, YDim, panjang ekstrusi) dalam meter dari representasi Body berupa profil persegi yang
+        diekstrusi (SweptSolid), atau None. Dipakai untuk balok/kolom miring: bounding box elemen miring
+        tidak mewakili penampang, sedangkan profil ekstrusi selalu memuat ukuran penampang sebenarnya."""
+        rep = getattr(entity, "Representation", None)
+        if rep is None:
+            return None
+
+        def cari(item):
+            if item.is_a("IfcMappedItem"):
+                for x in item.MappingSource.MappedRepresentation.Items:
+                    yield from cari(x)
+            elif item.is_a("IfcBooleanResult"):  # mis. balok yang dipotong (IfcBooleanClippingResult)
+                yield from cari(item.FirstOperand)
+            elif item.is_a("IfcExtrudedAreaSolid"):
+                yield item
+
+        for r in rep.Representations or []:
+            if (r.RepresentationIdentifier or "") not in ("Body", ""):
+                continue
+            for item in r.Items or []:
+                for solid in cari(item):
+                    prof = solid.SweptArea
+                    if prof.is_a("IfcRectangleProfileDef") and prof.XDim and prof.YDim and solid.Depth:
+                        s = self.s_panjang
+                        return prof.XDim * s, prof.YDim * s, solid.Depth * s
+        return None
 
     # ---------- quantity set ----------
 
@@ -479,6 +510,48 @@ def _cocok(a, b, toleransi=0.10) -> bool:
     return abs(a - b) <= toleransi * max(a, b)
 
 
+# Tinggi railing tipikal (m): selisih tinggi bounding box railing tangga di atas angka ini = tinggi naik tangga.
+TINGGI_RAILING = 0.90
+
+
+def _isi_penampang_profil(p: _Pengukur, entity, d: _Dimensi, k_lebar: str, k_tinggi: str, k_panjang: str,
+                          urutkan: bool = False):
+    """Penampang balok/kolom dari profil persegi yang diekstrusi bila quantity set tidak memuatnya
+    (mis. ring balok miring pada gevel). Konvensi IFC balok: XDim = lebar, YDim = tinggi penampang.
+    Kolom (urutkan=True): sisi kecil = lebar, sisi besar = tebal."""
+    if not d.kurang(k_lebar, k_tinggi):
+        return
+    try:
+        prof = p.profil_ekstrusi(entity)
+    except Exception:
+        prof = None
+    if prof is None:
+        return
+    x, y, panjang = prof
+    if urutkan:
+        x, y = min(x, y), max(x, y)
+    d.isi(k_lebar, x, "profil")
+    d.isi(k_tinggi, y, "profil")
+    d.isi(k_panjang, panjang, "profil")
+
+
+# Penampang di nama elemen, konvensi gambar kerja Indonesia: "Ring Balok 13/15", "Kolom K1 20/25" (cm).
+_PENAMPANG_NAMA = re.compile(r"(?<![\d.,])(\d{1,3})\s*/\s*(\d{1,3})(?![\d.,])")
+
+
+def _isi_penampang_nama(entity, d: _Dimensi, k_lebar: str, k_tinggi: str):
+    """Cadangan terakhir: ukuran penampang dari nama elemen (cm), mis. 'Ring Balok Miring Gevel 13/15'."""
+    if not d.kurang(k_lebar, k_tinggi):
+        return
+    m = _PENAMPANG_NAMA.search(entity.Name or "")
+    if not m:
+        return
+    b, h = (int(x) / 100 for x in m.groups())
+    if 0.05 <= b <= 1.5 and 0.05 <= h <= 1.5:
+        d.isi(k_lebar, min(b, h), "nama")
+        d.isi(k_tinggi, max(b, h), "nama")
+
+
 def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
     d = _Dimensi()
     q = p.kuantitas(entity)
@@ -506,6 +579,7 @@ def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
         d.isi("lebar", p.panjang(q, "Width", "b"), "qto")
         d.isi("tebal", p.panjang(q, "Depth", "h"), "qto")
         d.isi("volume", p.volume(q, *vol), "qto")
+        _isi_penampang_profil(p, entity, d, "lebar", "tebal", "tinggi", urutkan=True)
         if d.kurang("tinggi", "lebar", "tebal", "volume"):
             g = p.geometri(entity)
             kecil, sedang, besar = sorted(g.ext)
@@ -514,12 +588,14 @@ def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
                 d.isi("lebar", kecil, "geometri")
                 d.isi("tebal", sedang, "geometri")
             d.isi("volume", g.volume, "geometri")
+        _isi_penampang_nama(entity, d, "lebar", "tebal")
 
     elif kelas == ElementType.BEAM:
         d.isi("panjang", p.panjang(q, "Length"), "qto")
         d.isi("lebar", p.panjang(q, "Width", "b"), "qto")
         d.isi("tinggi", p.panjang(q, "Depth", "Height", "h"), "qto")
         d.isi("volume", p.volume(q, *vol), "qto")
+        _isi_penampang_profil(p, entity, d, "lebar", "tinggi", "panjang")
         if d.kurang("panjang", "lebar", "tinggi", "volume"):
             g = p.geometri(entity)
             kecil, sedang, besar = sorted(g.ext)
@@ -528,6 +604,7 @@ def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
                 d.isi("lebar", kecil, "geometri")
                 d.isi("tinggi", sedang, "geometri")
             d.isi("volume", g.volume, "geometri")
+        _isi_penampang_nama(entity, d, "lebar", "tinggi")
 
     elif kelas == ElementType.SLAB:
         d.isi("luas", p.luas(q, "NetArea", "GrossArea", "Area"), "qto")
@@ -593,6 +670,26 @@ def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
         if "lebar" in d.nilai and "tinggi" in d.nilai:
             d.isi("luas", d.nilai["lebar"] * d.nilai["tinggi"], "turunan")
         d.isi("luas", p.luas(q, "Area"), "qto")
+
+    elif kelas == ElementType.STAIR:
+        # tangga / bentang tangga: L = panjang horizontal, B = lebar, H = tinggi naik, V = volume beton
+        d.isi("volume", p.volume(q, *vol), "qto")
+        d.isi("panjang", p.panjang(q, "Length"), "qto")
+        g = p.geometri(entity)
+        ex, ey, ez = g.ext
+        d.isi("panjang", max(ex, ey), "geometri")
+        d.isi("lebar", min(ex, ey), "geometri")
+        d.isi("tinggi", ez, "geometri")
+        d.isi("volume", g.volume, "geometri")
+
+    elif kelas == ElementType.RAILING:
+        # panjang railing (m'); railing tangga miring: panjang = √(L_horizontal² + naik²)
+        d.isi("panjang", p.panjang(q, "Length"), "qto")
+        g = p.geometri(entity)
+        ex, ey, ez = g.ext
+        naik = max(ez - TINGGI_RAILING, 0.0)
+        d.isi("panjang", math.hypot(max(ex, ey), naik), "geometri")
+        d.isi("tinggi", ez, "geometri")  # > tinggi railing: railing miring mengikuti tangga
 
     elif kelas in (ElementType.FLOOR, ElementType.CEILING):
         d.isi("luas", p.luas(q, "NetArea", "GrossArea", "Area"), "qto")
@@ -698,9 +795,11 @@ def ekstrak_elemen(model, progress=None):
             }
         )
 
-    for label, jumlah in hitung_tidak_dihitung(model).items():
+    tidak = hitung_tidak_dihitung(model)
+    if tidak:
         peringatan.append(
-            f"{jumlah} {label} tidak dihitung rule engine; tambahkan pekerjaannya secara manual bila diperlukan."
+            "Tidak dihitung otomatis (periksa apakah termasuk lingkup RAB, lalu tambahkan manual bila perlu): "
+            f"{teks_tidak_dihitung(tidak)}."
         )
     if progress:
         progress(total, total, "Ekstraksi selesai")

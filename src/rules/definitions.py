@@ -218,6 +218,38 @@ def _cat_eksterior(e, p):
     return nilai, f"A_cat eksterior = A_dinding bersih × 1 sisi luar = {_n(nilai)} m²"
 
 
+# ---------------------------------------------------------------- tangga & railing
+
+
+def _bekisting_tangga(e, p):
+    # bidang miring bawah pelat tangga + bidang tegak anak tangga (riser)
+    L, B, H = e["panjang"], e["lebar"], e["tinggi"]
+    miring = math.hypot(L, H)
+    nilai = B * miring + B * H
+    return nilai, (
+        f"A = B × √(L² + H²) + B × H = {_n(B, 2)} × √({_n(L, 2)}² + {_n(H, 2)}²) + {_n(B, 2)} × {_n(H, 2)} "
+        f"= {_n(B * miring)} + {_n(B * H)} = {_n(nilai)} m² (bidang bawah miring + anak tangga)"
+    )
+
+
+_RAILING_TANGGA = re.compile(r"(?<![a-z])(tangga|stair|hand\s*-?\s*rail)", re.IGNORECASE)
+
+
+def _railing_tangga(e, k, p):
+    # railing tangga: PredefinedType HANDRAIL, nama menyebut tangga, atau miring (tinggi bbox > 1,2 m)
+    if (e.get("predefined_type") or "") == "HANDRAIL" or _RAILING_TANGGA.search(e.get("nama") or ""):
+        return True
+    return (e.get("tinggi") or 0) > 1.2
+
+
+def _railing_pengaman(e, k, p):
+    return not _railing_tangga(e, k, p)
+
+
+def _panjang_railing(e, p):
+    return e["panjang"], f"L = panjang railing = {_n(e['panjang'])} m'"
+
+
 # ---------------------------------------------------------------- pekerjaan persiapan
 
 
@@ -392,12 +424,12 @@ def catatan_bukan_beton(e, k, p) -> str | None:
     kelas = e.get("kelas")
     if kelas == T.ROOF.value and _atap_miring(e, k, p):
         return None  # atap miring memang tidak dihitung sebagai beton
-    if kelas not in (T.COLUMN.value, T.BEAM.value, T.SLAB.value, T.ROOF.value):
+    if kelas not in (T.COLUMN.value, T.BEAM.value, T.SLAB.value, T.ROOF.value, T.STAIR.value):
         return None
     alasan = bukan_beton(e)
     if alasan is None:
         return None
-    label = {"COLUMN": "Kolom", "BEAM": "Balok", "SLAB": "Pelat", "ROOF": "Dak"}[kelas]
+    label = {"COLUMN": "Kolom", "BEAM": "Balok", "SLAB": "Pelat", "ROOF": "Dak", "STAIR": "Tangga"}[kelas]
     return f"{label} '{e.get('nama')}' tidak dihitung sebagai beton bertulang: {alasan}."
 
 
@@ -585,6 +617,13 @@ RULES = [
             (T.SLAB, "pelat", "asumsi: luas plafon = luas pelat"),
         )
     ],
+    # ===== Tangga beton & railing =====
+    Rule("BTN.TANGGA", T.STAIR, _volume(), ("volume",), syarat=_beton, keterangan="Beton tangga"),
+    Rule("BSK.TANGGA", T.STAIR, _bekisting_tangga, ("panjang", "lebar", "tinggi"), syarat=_beton),
+    Rule("BSI.TANGGA", T.STAIR, _besi("rasio_besi_tangga"), ("volume",), syarat=_beton),
+    Rule("RLG.TANGGA", T.RAILING, _panjang_railing, ("panjang",), syarat=_railing_tangga, keterangan="Railing tangga"),
+    Rule("RLG.PENGAMAN", T.RAILING, _panjang_railing, ("panjang",), syarat=_railing_pengaman,
+         keterangan="Railing pengaman balkon / void"),
     # ===== Pekerjaan persiapan: pembersihan lahan (luas tapak) & bowplank (keliling luar + 8a) =====
     Rule("PSP.BERSIH", T.SLAB, _bersih_lahan("pelat lantai dasar"), ("luas",), syarat=_dan(_pelat_dasar, _beton),
          keterangan="Pembersihan lahan"),

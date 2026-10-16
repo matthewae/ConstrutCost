@@ -15,10 +15,10 @@ def test_pipeline_ac20(db_sementara):
     pid = create_proyek("AC20", str(AC20))
     progres = []
     r = jalankan_estimasi(pid, progress=lambda i, n, t: progres.append((i, n)))
-    assert r["elemen"] == 44
+    assert r["elemen"] == 47  # 44 elemen + 1 tangga + 2 railing
     assert r["baris_hasil"] > 0
     # hanya peringatan informatif (entitas tidak dihitung, gording kayu, tanpa penanda dinding luar)
-    assert all("tidak dihitung" in x or "IsExternal" in x for x in r["peringatan"]), r["peringatan"]
+    assert all("tidak dihitung" in x.lower() or "IsExternal" in x for x in r["peringatan"]), r["peringatan"]
     # KNF-5: indikator selesai di 100% dan tidak pernah mundur (termasuk tahap geometri paralel)
     assert progres[-1][0] == progres[-1][1] >= 44
     persen = [i / n for i, n in progres if n]

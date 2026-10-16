@@ -84,7 +84,7 @@ def test_validasi_masukan():
 def test_semua_kelas_berdimensi_punya_volume_atau_luas():
     for kelas in T:
         primer, turunan = kolom_dimensi(kelas)
-        if primer:
+        if primer and kelas != T.RAILING:  # railing dihitung per m' (panjang)
             assert {"luas", "volume"} & set(turunan), kelas
 
 
