@@ -22,7 +22,9 @@ import openpyxl
 
 SHEET_HSD = {"HSD (Upah)": "upah", "HSD (Material)": "bahan", "HSD (Peralatan)": "alat"}
 SHEET_AHSP = [
+    "Persiapan",
     "Galian Tanah",
+    "Timbunan Pemadatan",
     "Beton",
     "Pondasi",
     "Rangka Atap",

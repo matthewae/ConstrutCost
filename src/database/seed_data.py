@@ -17,31 +17,30 @@ harga F di dokumen HSPK (diuji di tests/test_hspk.py).
 
 """
 
-from database.ahsp_tambahan import AHSP_TAMBAHAN
 from database.estimasi_repository import _connect
 from database.hspk_bandung_2027 import AHSP, HSD, SUMBER
 from database.init_db import pastikan_skema
 
-SEED_VERSI = "9-hspk-bdg-2027-tangga-railing"
+SEED_VERSI = "10-hspk-bdg-2027-persiapan-timbunan"
 
 SUMBER_HSPK = "HSPK Kota Bandung 2027"
 
-# Seluruh analisa yang bisa dipetakan: HSPK + analisa tambahan SNI (database/ahsp_tambahan.py)
-ANALISA = {**AHSP, **AHSP_TAMBAHAN}
+# Seluruh analisa yang bisa dipetakan (semuanya dari workbook HSPK)
+ANALISA = AHSP
 
 # kode aplikasi -> (nama pekerjaan di RAB, kategori, satuan, kode HSPK)
 PEMETAAN = {
     # ---------------- Pekerjaan persiapan ----------------
-    "PSP.BERSIH": ("Pembersihan Lahan dan Perataan", "Persiapan", "m2", "SNI-2835-BERSIH"),
-    "PSP.BOWPLANK": ("Pengukuran dan Pemasangan Bowplank", "Persiapan", "m'", "SNI-2835-BOWPLANK"),
+    "PSP.BERSIH": ("Pembersihan dan Pengupasan Permukaan Tanah", "Persiapan", "m2", "1.1.3.1"),
+    "PSP.BOWPLANK": ("Pengukuran dan Pemasangan Bouwplank", "Persiapan", "m'", "1.1.4.2"),
     # ---------------- Pekerjaan tanah (KF-4) ----------------
     "TNH.GALIAN.1": ("Galian Tanah Biasa Sedalam 0 s.d. 1 m", "Tanah", "m3", "1.2.1.1.1"),
     "TNH.GALIAN.2": ("Galian Tanah Biasa Sedalam > 1 s.d. 2 m", "Tanah", "m3", "1.2.1.1.4"),
     "TNH.GALIAN.3": ("Galian Tanah Biasa Sedalam > 2 s.d. 3 m", "Tanah", "m3", "1.2.1.1.6"),
-    "TNH.URUG.KEMBALI": ("Urugan Tanah Kembali Bekas Galian", "Tanah", "m3", "SNI-2835-6.9"),
-    "TNH.PASIR.FONDASI": ("Urugan Pasir Bawah Fondasi", "Tanah", "m3", "SNI-2835-6.11"),
-    "TNH.PASIR.SLOOF": ("Urugan Pasir Bawah Sloof", "Tanah", "m3", "SNI-2835-6.11"),
-    "TNH.PASIR.LANTAI": ("Urugan Pasir Bawah Lantai", "Tanah", "m3", "SNI-2835-6.11"),
+    "TNH.URUG.KEMBALI": ("Urugan Tanah Kembali Bekas Galian", "Tanah", "m3", "1.3.1.1"),
+    "TNH.PASIR.FONDASI": ("Urugan Pasir Bawah Fondasi", "Tanah", "m3", "1.3.1.2"),
+    "TNH.PASIR.SLOOF": ("Urugan Pasir Bawah Sloof", "Tanah", "m3", "1.3.1.2"),
+    "TNH.PASIR.LANTAI": ("Urugan Pasir Bawah Lantai", "Tanah", "m3", "1.3.1.2"),
     "LTK.FONDASI": ("Lantai Kerja Beton f'c 7,5 MPa Bawah Fondasi", "Fondasi", "m3", "2.2.1.4.1"),
     "LTK.LANTAI": ("Rabat Beton f'c 7,5 MPa Bawah Lantai", "Lantai", "m3", "2.2.1.4.1"),
     # ---------------- Fondasi ----------------
@@ -233,8 +232,7 @@ def seed_pekerjaan():
         peta = _seed_sumber_daya(conn)
         for kode, (nama, kategori, satuan, kode_hspk) in PEMETAAN.items():
             sheet, uraian, harga_f, komponen = ANALISA[kode_hspk]
-            sumber = "SNI 2835:2008 (harga dasar HSPK Kota Bandung 2027)" if kode_hspk in AHSP_TAMBAHAN else SUMBER
-            catatan = f"{sumber} · {kode_hspk} · {uraian} (harga satuan dokumen Rp {harga_f:,.0f})".replace(",", ".")
+            catatan = f"{SUMBER} · {kode_hspk} · {uraian} (harga satuan dokumen Rp {harga_f:,.0f})".replace(",", ".")
             if kode in CATATAN_PEMETAAN:
                 catatan += f" · {CATATAN_PEMETAAN[kode]}"
             ada = conn.execute("SELECT id FROM pekerjaan WHERE kode_ahsp = ?", (kode,)).fetchone()

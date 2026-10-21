@@ -23,7 +23,7 @@ mencatat setiap koreksi, alasannya, dan dampaknya. Jumlah aturan bertambah dari 
 | 8 | Fondasi menerus dari model selalu dihargai sebagai batu kali | Parameter **Fondasi menerus dihitung sebagai**: otomatis dari nama (bawaan), batu kali, atau beton bertulang. Fondasi beton dihitung beton + besi + bekisting + lantai kerja dan tidak memerlukan sloof turunan | `rules/konteks.py`, `rules/parameter.py` |
 | 9 | Bekisting balok selalu (b + 2h)L | Balok yang dicor bersama pelat: **(b + 2(h − t_pelat))L**, dengan t = median tebal pelat/dak beton. Ring balok/latei (≤ 15/20) dan sloof tidak dikurangi. Bisa dimatikan di Parameter Aturan | `rules/konteks.py`, `rules/definitions.py` |
 | 10 | Sisi luar dinding luar memakai item cat interior | Dinding luar dikenali dari `Pset_WallCommon.IsExternal`, dan sisi luarnya menjadi item **Pengecatan Tembok Eksterior**. Harganya sementara mengikuti analisa interior (lihat catatan HSPK di bawah) | `ifc_reader.py`, `rules/definitions.py`, `database/seed_data.py` |
-| 11 | Pekerjaan persiapan belum ada | **Pembersihan lahan** (luas pelat/ruang lantai dasar) dan **pengukuran + bowplank** (keliling dinding luar lantai dasar + 8a, dengan a = jarak bowplank, bawaan 1,5 m) | `rules/definitions.py`, `database/ahsp_tambahan.py` |
+| 11 | Pekerjaan persiapan belum ada | **Pembersihan lahan** (luas pelat/ruang lantai dasar) dan **pengukuran + bowplank** (keliling dinding luar lantai dasar + 8a, dengan a = jarak bowplank, bawaan 1,5 m) | `rules/definitions.py`, `database/seed_data.py` |
 
 Perbaikan pendukung:
 - **Dinding pasangan:** batu kali dan sloof turunan hanya diberikan pada dinding setebal ≥ 10 cm, sehingga partisi gypsum/GRC tidak mendapat fondasi.
@@ -42,19 +42,19 @@ Perbaikan pendukung:
 | Tangga beton "Anak Tangga 1A (1-10)" ditolak (isi 15%) | Batas isi tangga diturunkan dari 25% menjadi **6%**. Tangga beton (pelat miring 10–15 cm + anak tangga) mengisi ± 11–20% kotak L × B × H. Tangga kayu/baja hanya ± 0,5–3% | `rules/sifat.py` |
 | Catatan "tidak dihitung" untuk proxy *Lantai Kerja FP…* dan penutup *Keramik Dinding* | Catatan menurut nama: lantai kerja sudah dihitung dari ukuran fondasi telapak, sehingga tidak perlu ditambah lagi. Keramik dinding ruang basah dihitung dari ruang (IfcSpace) bila ada | `klasifikasi.py` |
 
-## Analisa tambahan pekerjaan persiapan
+## Analisa pekerjaan persiapan
 
-HSPK Kota Bandung 2027 tidak memuat pekerjaan persiapan. Analisanya memakai koefisien acuan SNI 2835:2008 /
-AHSP bidang Cipta Karya dengan harga dasar HSPK. Koefisien dapat disesuaikan di **Harga Satuan → Analisa
-Pekerjaan**.
+Pekerjaan persiapan memakai analisa HSPK Kota Bandung 2027 dari sheet *Persiapan* (bab 1.1):
 
-| Kode | Analisa | Koefisien | Harga satuan |
-|---|---|---|---|
-| SNI-2835-BERSIH | Pembersihan 1 m² lapangan dan perataan | Pekerja 0,100 OH; Mandor 0,050 OH | Rp 39.686 /m² |
-| SNI-2835-BOWPLANK | Pengukuran dan pemasangan 1 m' bouwplank | Kaso 5/7 kelas III 0,012 m³; paku 5–7 cm 0,020 kg; papan kelas III 0,007 m³; Pekerja 0,100; Tukang kayu 0,100; Kepala tukang 0,010; Mandor 0,005 OH | Rp 106.880 /m' |
+| Kode HSPK | Analisa | Harga satuan |
+|---|---|---|
+| 1.1.3.1 | Pembersihan dan pengupasan permukaan tanah (striping) s.d. tanaman Ø 2 cm | Rp 24.413 /m² |
+| 1.1.4.2 | Pasangan 1 m' bouwplank | Rp 76.453 /m' |
 
-**Perlu diverifikasi tim estimator:** angka koefisien di atas berasal dari acuan umum AHSP. Cocokkan dengan
-dokumen AHSP yang dipakai kantor sebelum dipakai untuk penawaran.
+**Koreksi:** versi sebelumnya memakai analisa pengganti SNI 2835:2008 (Rp 39.686/m² dan Rp 106.880/m').
+Alasannya keliru, yaitu anggapan bahwa HSPK tidak memuat pekerjaan persiapan; sebenarnya sheet *Persiapan*
+saja yang belum ikut diimpor. Urugan tanah kembali dan urugan pasir juga sudah dipindahkan ke analisa
+HSPK 1.3.1.1 dan 1.3.1.2.
 
 ## Catatan data HSPK: cat tembok eksterior
 

@@ -102,11 +102,11 @@ def test_harga_galian_dan_urugan(db_sementara):
     conn.close()
     assert get_harga_satuan_pekerjaan(kode["TNH.GALIAN.1"]) == pytest.approx(194855, abs=1)  # HSPK 1.2.1.1.1
     assert varian["harga"] == pytest.approx(219263.24)  # upah pekerja khusus sheet Galian Tanah
-    # SNI 2835:2008 6.11: 1,2 m³ pasir urug + 0,3 pekerja + 0,01 mandor, + BUK 10%
-    pasir = (1.2 * 287174.25 + 0.3 * 206513.24 + 0.01 * 308530.78) * 1.1
-    assert get_harga_satuan_pekerjaan(kode["TNH.PASIR.LANTAI"]) == pytest.approx(pasir, abs=1)
-    urug = (0.192 * 206513.24 + 0.019 * 308530.78) * 1.1
-    assert get_harga_satuan_pekerjaan(kode["TNH.URUG.KEMBALI"]) == pytest.approx(urug, abs=1)
+    # harga F dokumen HSPK: 1.3.1.2 urugan pasir, 1.3.1.1 urugan kembali, 1.1.3.1 pembersihan, 1.1.4.2 bouwplank
+    assert get_harga_satuan_pekerjaan(kode["TNH.PASIR.LANTAI"]) == pytest.approx(452310, abs=1)
+    assert get_harga_satuan_pekerjaan(kode["TNH.URUG.KEMBALI"]) == pytest.approx(122066, abs=1)
+    assert get_harga_satuan_pekerjaan(kode["PSP.BERSIH"]) == pytest.approx(24413, abs=1)
+    assert get_harga_satuan_pekerjaan(kode["PSP.BOWPLANK"]) == pytest.approx(76453, abs=1)
 
 
 def test_ac20_punya_bab_pekerjaan_tanah(db_sementara):

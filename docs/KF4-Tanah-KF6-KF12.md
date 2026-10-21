@@ -34,14 +34,17 @@ Item galian dipilih menurut kedalaman:
 | > 1 – 2 m | 1.2.1.1.4 | Rp 233.605 /m³ |
 | > 2 – 3 m | 1.2.1.1.6 | Rp 277.867 /m³ |
 
-**Harga.** Workbook HSPK Kota Bandung 2027 tidak memuat analisa urugan, sehingga dibuat analisa tambahan
-(`src/database/ahsp_tambahan.py`) dengan koefisien **SNI 2835:2008** dan harga dasar HSPK:
+**Harga.** Seluruh analisa diambil dari workbook HSPK Kota Bandung 2027. Urugan ada di sheet *Timbunan
+Pemadatan* (bab 1.3):
 
-| Kode | Analisa | Koefisien | Harga satuan |
+| Kode HSPK | Analisa | Koefisien | Harga satuan |
 |---|---|---|---|
-| SNI-2835-6.9 | 1 m³ urugan tanah kembali | Pekerja 0,192 OH; Mandor 0,019 OH | Rp 50.064 |
-| SNI-2835-6.11 | 1 m³ urugan pasir | Pasir urug 1,2 m³; Pekerja 0,3 OH; Mandor 0,01 OH | Rp 450.613 |
-| 2.2.1.4.1 (HSPK) | Lantai kerja / rabat beton f'c 7,5 MPa | sesuai HSPK | Rp 2.346.944 |
+| 1.3.1.1 | 1 m³ urukan kembali galian tanah tanpa pemadatan, manual | Pekerja 0,5 OH; Mandor 0,025 OH | Rp 122.066 |
+| 1.3.1.2 | 1 m³ urukan pasir uruk (s.d. 200 m³) tanpa pemadatan, manual | Pasir urug 1,2 m³; Pekerja 0,3 OH; Mandor 0,015 OH | Rp 452.310 |
+| 2.2.1.4.1 | Lantai kerja / rabat beton f'c 7,5 MPa | sesuai HSPK | Rp 2.346.944 |
+
+Versi sebelumnya memakai analisa pengganti SNI 2835:2008 karena sheet *Timbunan Pemadatan* belum ikut
+diimpor. Analisa pengganti itu sudah dihapus.
 
 Sheet *Galian Tanah* di HSPK memakai upah Pekerja Rp 219.263,24 dan Mandor Rp 334.030,78, berbeda dari
 daftar HSD (Rp 206.513,24 dan Rp 308.530,78). Agar harga satuan galian tetap sama dengan harga F dokumen,
