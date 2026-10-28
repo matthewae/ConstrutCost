@@ -275,3 +275,88 @@ def test_export_kebutuhan_bahan_proyek_dan_per_elemen(db_sementara, tmp_path):
     assert any("Pasangan Dinding Bata Merah" in t for t in per_el)
     pdf = export_pdf(tmp_path / "bahan.pdf", data, meta, opsi)
     assert (tmp_path / "bahan.pdf").stat().st_size > 2000 and pdf.endswith(".pdf")
+
+
+def test_item_tambahan_dari_katalog(db_sementara, tmp_path):
+    from database.berkas_proyek import duplikat_proyek
+    from database.estimasi_repository import NilaiTidakValid, get_harga_satuan_pekerjaan, get_hasil_estimasi_by_proyek
+    from database.katalog import cari_katalog, daftar_katalog, hapus_item, tambah_item
+    from estimasi_service import hitung_ulang_dari_elemen, jalankan_estimasi
+
+    data = daftar_katalog()
+    assert len(data) == len(AHSP)
+    kloset = cari_katalog(data, "closet duduk")
+    assert kloset and kloset[0]["kode"] == "3.18.3.1" and kloset[0]["kategori"] == "Sanitair"
+    assert all(d["bab"] == "5" for d in cari_katalog(data, "", "5"))
+
+    pid = _proyek_ac20()
+    lantai = get_hasil_estimasi_by_proyek(pid)[0]["lantai"]
+    hid = tambah_item(pid, "3.18.3.1", 2, lantai, "KM utama & KM tamu")
+    hid2 = tambah_item(pid, "5.1.1.1" if "5.1.1.1" in AHSP else next(k for k in AHSP if k.startswith("5.1.")), 10)
+    rows = {r["hasil_id"]: r for r in get_hasil_estimasi_by_proyek(pid)}
+    r = rows[hid]
+    assert r["kode_ahsp"] == "HSPK-3.18.3.1" and r["item_tambahan"] == 1 and r["elemen_id"] is None
+    assert r["lantai"] == lantai and r["catatan"] == "KM utama & KM tamu"
+    # harga = komponen analisa x (1 + BUK). (Untuk 3.18.3.1 harga F dokumen sendiri tidak sama dengan
+    # hitungan komponennya; selisih itu dilaporkan tools/impor_hspk.py.)
+    dasar = sum(k[3] * k[4] for k in AHSP["3.18.3.1"][3])
+    assert get_harga_satuan_pekerjaan(r["pekerjaan_id"]) == pytest.approx(dasar * 1.1, rel=1e-6)
+    assert r["subtotal_biaya"] == pytest.approx(2 * get_harga_satuan_pekerjaan(r["pekerjaan_id"]))
+    assert rows[hid2]["lantai"] is None
+
+    # estimasi ulang (dari elemen maupun IFC) tidak menghapus item tambahan
+    hitung_ulang_dari_elemen(pid)
+    jalankan_estimasi(pid)
+    assert {hid, hid2} <= {r["hasil_id"] for r in get_hasil_estimasi_by_proyek(pid)}
+    # ikut duplikat proyek
+    salinan = duplikat_proyek(pid, "Salinan")
+    assert any(r["kode_ahsp"] == "HSPK-3.18.3.1" and r["item_tambahan"] for r in get_hasil_estimasi_by_proyek(salinan))
+
+    with pytest.raises(NilaiTidakValid):
+        tambah_item(pid, "3.18.3.1", 0)
+    with pytest.raises(NilaiTidakValid):
+        hapus_item(next(r["hasil_id"] for r in get_hasil_estimasi_by_proyek(pid) if not r["item_tambahan"]))
+    hapus_item(hid)
+    assert hid not in {r["hasil_id"] for r in get_hasil_estimasi_by_proyek(pid)}
+
+
+def test_dialog_katalog_tambah_dan_hapus_item(db_sementara, qapp, monkeypatch):
+    from gui import tema
+    from gui.estimasi_page import EstimasiPage
+    from gui.katalog_dialog import KatalogDialog
+
+    pid = _proyek_ac20()
+    hal = EstimasiPage(pid, "AC20")
+    lantai = sorted({r["lantai"] for r in hal._data if r["lantai"]})
+    d = KatalogDialog(pid, lantai, hal)
+    assert d.tabel.rowCount() > 100  # dibatasi MAKS_BARIS
+    d.kolom_cari.setText("closet duduk")
+    d._isi()
+    assert d.tabel.rowCount() >= 1 and d.tabel.item(0, 0).text() == "3.18.3.1"
+    d.tabel.selectRow(0)
+    assert d.btn_tambah.isEnabled() and "Bahan" in d.label_analisa.text() and d.label_satuan.text() == "buah"
+    d.spin_volume.setValue(2)
+    d.combo_lantai.setCurrentIndex(1)
+    d._tambah()
+    d.combo_bab.setCurrentIndex(d.combo_bab.findData("5"))
+    d.kolom_cari.setText("")
+    d._isi()
+    assert all(d.tabel.item(i, 0).text().startswith("5.") for i in range(min(20, d.tabel.rowCount())))
+    assert len(d.ditambah) == 1
+
+    hal.muat()
+    r = next(x for x in hal._data if x["item_tambahan"])
+    assert r["kategori"] == "Sanitair" and r["lantai"] == lantai[0] and r["volume_pekerjaan"] == 2
+    for mode in range(5):  # semua mode tampil tanpa galat
+        hal.grup_mode.button(mode).setChecked(True)
+        hal._isi_ulang()
+    hal.grup_mode.button(hal.MODE_DETAIL).setChecked(True)
+    hal._isi_ulang()
+    hal.panel.tampilkan_elemen(r, [r], hal.komponen())
+    assert "Hapus Item Tambahan" in [b.text() for b in hal.panel.findChildren(type(d.btn_tambah))]
+    monkeypatch.setattr(tema, "tanya", lambda *a, **k: True)
+    hal._hapus_item(r["hasil_id"])
+    assert not any(x["item_tambahan"] for x in hal._data)
+    hal.riwayat.undo()  # urungkan hapus
+    assert any(x["item_tambahan"] for x in hal._data) or any(
+        x["item_tambahan"] for x in __import__("database.estimasi_repository", fromlist=["x"]).get_hasil_estimasi_by_proyek(pid))

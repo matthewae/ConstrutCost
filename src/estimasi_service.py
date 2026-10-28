@@ -123,7 +123,8 @@ def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=None)
         for el in elemen:
             el["material"] = material_lama.get(el["global_id"])
 
-        conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ?", (proyek_id,))
+        # item tambahan dari katalog (tanpa elemen) tidak dihasilkan rule engine, jadi dipertahankan
+        conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ? AND COALESCE(item_tambahan, 0) = 0", (proyek_id,))
         conn.execute("DELETE FROM elemen_proyek WHERE proyek_id = ?", (proyek_id,))
         siapkan_konteks(elemen, parameter)  # fakta per elemen dipakai pengelompokan tipe (pelat dasar, sloof)
         pasang_tipe(conn, proyek_id, elemen, parameter.batas_kemiringan_dak)
@@ -343,7 +344,8 @@ def hitung_ulang_dari_elemen(proyek_id: int, parameter=None) -> dict:
         pasang_tipe(conn, proyek_id, semua, parameter.batas_kemiringan_dak)
         konteks, keluaran, peringatan = proses_semua(semua, parameter)
         harga, kode_ke_id = _harga_dan_kode(conn, proyek_id)
-        conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ?", (proyek_id,))
+        # item tambahan dari katalog (tanpa elemen) tidak dihasilkan rule engine, jadi dipertahankan
+        conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ? AND COALESCE(item_tambahan, 0) = 0", (proyek_id,))
         n = 0
         for el, hasil in keluaran:
             conn.execute("UPDATE elemen_proyek SET tipe_id = ? WHERE id = ?", (el["tipe_id"], el["id"]))

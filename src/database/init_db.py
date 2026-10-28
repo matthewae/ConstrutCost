@@ -29,7 +29,8 @@ KOLOM_TAMBAHAN = {
         "eksternal": "INTEGER",
         "material": "TEXT",
     },
-    "hasil_estimasi": {"rumus": "TEXT", "uraian": "TEXT", "diameter": "REAL", "harga_manual": "REAL", "catatan": "TEXT"},
+    "hasil_estimasi": {"rumus": "TEXT", "uraian": "TEXT", "diameter": "REAL", "harga_manual": "REAL", "catatan": "TEXT",
+                       "lantai": "TEXT", "item_tambahan": "INTEGER DEFAULT 0"},
     "komponen_harga": {"sumber_daya_id": "INTEGER REFERENCES sumber_daya(id)"},
 }
 

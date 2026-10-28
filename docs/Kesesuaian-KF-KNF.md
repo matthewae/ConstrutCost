@@ -1,9 +1,10 @@
 # Kesesuaian dengan Kebutuhan Fungsional (KF) dan Non-Fungsional (KNF)
 
 Acuan: Tabel 3.1 (KF-1 s.d. KF-19) dan Tabel 3.2 (KNF-1 s.d. KNF-9) naskah skripsi.
-Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 334 tes lulus).
+Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 487 tes lulus).
 Koreksi basis aturan setelah audit (pelat lantai dasar, elemen bukan beton, sloof turunan, dll.)
-dijelaskan di `docs/Koreksi-Rule-Engine.md`.
+dijelaskan di `docs/Koreksi-Rule-Engine.md`. Katalog HSPK lengkap, pilihan material per pekerjaan dan per elemen,
+serta rincian kebutuhan bahan (keseluruhan, per lantai, per elemen) dijelaskan di `docs/Katalog-Material-Kebutuhan.md`.
 
 ## Kebutuhan fungsional
 
@@ -13,8 +14,8 @@ dijelaskan di `docs/Koreksi-Rule-Engine.md`.
 | KF-2 | Parser & Klasifikasi Geometri | Elemen diklasifikasikan menjadi kolom, balok, pelat, atap, dinding, fondasi, tiang, pintu, jendela, lantai, plafon, dan ruang. Dimensi diambil dari Qto/BaseQuantities/PSet; bila tidak ada, dari geometri | `test_kf2_ekstraksi.py` | Sesuai |
 | KF-3 | Rule-Based Processing | 69 aturan IF–THEN per kelas elemen menentukan item pekerjaan (persiapan, tanah, beton, tangga, railing, bekisting, pembesian, pasangan, plesteran, dst.). Preprocessor konteks menetapkan lantai dasar, sumber luas, elemen turunan (batu kali, sloof, sumuran), dan elemen bukan beton | `test_kf3_kf4_rules.py`, `test_penulangan.py`, `test_rule_koreksi.py` | Sesuai |
 | KF-4 | Perhitungan QTO | Volume, luas, panjang, berat besi (Rumus 2.30–2.33), dan pekerjaan tanah dihitung per elemen | `test_kf3_kf4_rules.py`, `test_kf4_tanah.py` | Sesuai |
-| KF-5 | Manajemen Harga Satuan | Ubah harga dan merk bahan, upah, serta alat; tambah material; harga bawaan HSPK | `test_kf5_harga.py`, `test_hspk.py` | Sesuai |
-| KF-6 | Edit Hasil Estimasi | Edit volume, harga khusus, dan catatan; undo/redo; pratinjau PDF | `test_kf6_edit.py` | Sesuai |
+| KF-5 | Manajemen Harga Satuan | Ubah harga dan merk bahan, upah, serta alat; tambah material; harga bawaan HSPK (katalog lengkap 2.802 analisa bab 1–10); pilihan material per pekerjaan dan per elemen | `test_kf5_harga.py`, `test_hspk.py`, `test_material_katalog.py` | Sesuai |
+| KF-6 | Edit Hasil Estimasi | Edit volume, harga khusus, dan catatan; tambah/hapus item dari katalog HSPK; undo/redo; pratinjau PDF | `test_kf6_edit.py`, `test_material_katalog.py` | Sesuai |
 | KF-7 | Penyimpanan Proyek | File `.coststruct` berisi elemen, aturan (parameter), harga, dan hasil estimasi; bisa disimpan dan dibuka | `test_kf7_kf9_proyek.py`, `test_ketahanan.py` | Sesuai |
 | KF-8 | Export Excel & PDF | Laporan RAB `.xlsx` (rumus aktif) dan `.pdf` | `test_kf17_export.py`, `test_kf12_lantai.py`, `test_kebutuhan_lantai.py` | Sesuai |
 | KF-9 | Multi-Project | Daftar proyek, info proyek, ganti nama, duplikat, ganti file IFC, hapus | `test_kf7_kf9_proyek.py` | Sesuai |
@@ -25,7 +26,7 @@ dijelaskan di `docs/Koreksi-Rule-Engine.md`.
 | KF-14 | Notifikasi & Error Handling | Pesan galat berbahasa Indonesia beserta saran solusi, rincian teknis, dan toast | `test_knf8_kf14_kf15.py` | Sesuai |
 | KF-15 | Logging Aktivitas | Import, estimasi, edit, harga, export, file proyek, dan galat dicatat di database serta log harian; ada halaman Riwayat Aktivitas | `test_knf8_kf14_kf15.py` | Sesuai |
 | KF-16 | Navigasi Data | Pencarian, filter (kategori, lantai, jenis), dan pengurutan kolom di hasil estimasi, harga, proyek, dan aktivitas | `test_kf16_urut.py` | Sesuai |
-| KF-17 | Custom Output Formatting | Pilihan kolom (No, Kode, Harga, Bobot, Rumus), isi dokumen, dan orientasi PDF | `test_kf17_export.py` | Sesuai |
+| KF-17 | Custom Output Formatting | Pilihan kolom (No, Kode, Harga, Bobot, Rumus), isi dokumen (termasuk kebutuhan bahan proyek & per elemen), dan orientasi PDF | `test_kf17_export.py`, `test_material_katalog.py` | Sesuai |
 | KF-18 | Detail Volume Breakdown | Panel Rincian Perhitungan menampilkan dimensi, sumber data, rumus, dan backup volume; tersedia kolom "Uraian rumus" di export | `test_kf3_kf4_rules.py`, `test_kebutuhan_lantai.py` | Sesuai |
 | KF-19 | Recalculate QTO | Ubah dimensi elemen (mis. pelat 30×30 → 50×50) lalu QTO dan RAB dihitung ulang | `test_kf19_dimensi.py` | Sesuai |
 

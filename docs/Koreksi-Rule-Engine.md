@@ -1,5 +1,8 @@
 # Koreksi Basis Aturan (Rule Engine) setelah Audit
 
+> Pilihan material, katalog HSPK lengkap, dan kebutuhan bahan per elemen: lihat `docs/Katalog-Material-Kebutuhan.md`.
+> Mulai versi itu pasangan dinding bawaan adalah bata ringan 60×20×10 (HSPK 3.6.4.2); angka dampak di bawah dihitung dengan bata merah.
+
 Mesin aturannya sudah benar sejak awal:
 - pencocokan kelas, syarat, dan dimensi wajib;
 - *forward chaining* satu siklus;

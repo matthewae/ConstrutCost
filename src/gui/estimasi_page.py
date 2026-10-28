@@ -65,6 +65,8 @@ from gui.biaya_dialog import BiayaDialog
 from gui.dimensi_dialog import DimensiDialog
 from gui.export_dialog import ExportDialog
 from gui.import_dialog import tampilkan_hasil_proses
+from database.katalog import hapus_item
+from gui.katalog_dialog import KatalogDialog
 from gui.material_dialog import MaterialDialog, MaterialElemenDialog, angka_bahan
 from gui.parameter_dialog import ParameterDialog
 from gui.penulangan_dialog import PenulanganDialog
@@ -263,6 +265,7 @@ class EstimasiPage(QWidget):
         menu.addAction("Biaya Tidak Langsung...", self._buka_biaya)
         menu.addSection("Proyek")
         menu.addAction("Info Proyek...", self._ubah_info)
+        menu.addAction("Tambah Item dari Katalog HSPK...", self._buka_katalog)
         menu.addAction("Pilihan Material...", self._buka_material)
         menu.addAction("Parameter Aturan...", self._buka_parameter)
         menu.addSeparator()
@@ -364,6 +367,10 @@ class EstimasiPage(QWidget):
         self.riwayat.redoTextChanged.connect(
             lambda t: self.btn_ulangi.setToolTip(f"Ulangi: {t} (Ctrl+Y)" if t else "Ulangi perubahan yang dibatalkan (Ctrl+Y)")
         )
+        self.btn_katalog = tema.tombol("+ Item Katalog", "ghost", None,
+                                       "Tambah pekerjaan dari katalog HSPK (listrik, plambing, sanitair, ...) ke RAB")
+        self.btn_katalog.clicked.connect(self._buka_katalog)
+        alat.addWidget(self.btn_katalog)
         alat.addWidget(self.btn_urungkan)
         alat.addWidget(self.btn_ulangi)
         alat.addSpacing(6)
@@ -399,6 +406,7 @@ class EstimasiPage(QWidget):
         self.panel.minta_harga_baris.connect(self._harga_diubah)
         self.panel.minta_catatan.connect(self._catatan_diubah)
         self.panel.minta_material_elemen.connect(self._buka_material_elemen)
+        self.panel.minta_hapus_item.connect(self._hapus_item)
         self.splitter.addWidget(self.panel)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 0)
@@ -1377,6 +1385,26 @@ class EstimasiPage(QWidget):
         self.muat()
         tema.toast(self, "Parameter disimpan, kuantitas dihitung ulang")
 
+    def _buka_katalog(self):
+        sebelum = potret_proyek(self.proyek_id)
+        lantai = [x for x in daftar_lantai(self._data) if x != TANPA_LANTAI] if self._data else []
+        dialog = KatalogDialog(self.proyek_id, lantai, self)
+        dialog.exec()
+        if not dialog.ditambah:
+            return
+        self._catat(f"Tambah {len(dialog.ditambah)} item dari katalog", sebelum)
+        self.muat()
+        tema.toast(self, f"{len(dialog.ditambah)} item katalog ditambahkan ke RAB")
+
+    def _hapus_item(self, hasil_id: int):
+        if not tema.tanya(self, "Hapus Item", "Hapus item tambahan ini dari RAB?", ya="Ya, Hapus"):
+            return
+        sebelum = potret_proyek(self.proyek_id)
+        hapus_item(hasil_id)
+        self._catat("Hapus item tambahan", sebelum)
+        self.muat()
+        tema.toast(self, "Item tambahan dihapus")
+
     def _buka_material(self):
         sebelum = potret_proyek(self.proyek_id)
         dialog = MaterialDialog(self.proyek_id, self._data, self)
@@ -1411,6 +1439,7 @@ class PanelRincian(QFrame):
     minta_harga_baris = Signal(object, object)  # [hasil_id], harga (None = harga master)
     minta_catatan = Signal(int, str)  # hasil_id, teks
     minta_material_elemen = Signal(int, str)  # elemen_id, nama elemen
+    minta_hapus_item = Signal(int)  # hasil_id item tambahan katalog
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1588,6 +1617,14 @@ class PanelRincian(QFrame):
                                 self.minta_material_elemen.emit(eid, nm))
             self._lay.addSpacing(2)
             self._lay.addWidget(btn)
+
+        if r.get("item_tambahan"):
+            self._lay.addWidget(tema.label(
+                "Item tambahan dari katalog HSPK (tidak dihitung dari model). Ubah volumenya di kolom Volume; "
+                "item ini tetap ada saat estimasi dihitung ulang.", "infoKecil", wrap=True))
+            hapus = tema.tombol("Hapus Item Tambahan", "danger")
+            hapus.clicked.connect(lambda _=False, hid=r["hasil_id"]: self.minta_hapus_item.emit(hid))
+            self._lay.addWidget(hapus)
 
         self._lay.addWidget(tema.garis())
         self._lay.addWidget(tema.label("CATATAN", "bagian"))

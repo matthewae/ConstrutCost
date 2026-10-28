@@ -103,7 +103,9 @@ CREATE TABLE IF NOT EXISTS hasil_estimasi (
     uraian TEXT,                      -- rincian item, mis. 'Tulangan utama 6 D13'
     diameter REAL,                    -- mm, khusus pembesian
     harga_manual REAL,                -- KF-6: harga satuan khusus baris ini (NULL = harga master)
-    catatan TEXT                      -- KF-6: catatan pengguna
+    catatan TEXT,                     -- KF-6: catatan pengguna
+    lantai TEXT,                      -- lantai item tambahan (baris tanpa elemen); baris lain memakai lantai elemen
+    item_tambahan INTEGER DEFAULT 0   -- 1 = item dari katalog HSPK yang ditambahkan pengguna (tidak dihapus estimasi ulang)
 );
 
 -- tipe_penulangan: konfigurasi tulangan per tipe elemen dalam satu proyek (K1 20/25, P1 t=12, ...)
