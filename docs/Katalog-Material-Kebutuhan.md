@@ -44,7 +44,11 @@ Sifat item tambahan:
 Pekerjaan katalog dibuat di database saat pertama dipakai (kode `HSPK-<kode>`), lengkap dengan komponennya,
 sehingga perubahan harga dasar di Harga Satuan juga berlaku untuk item tambahan.
 
-## 2. Pilihan material per pekerjaan (Hasil Estimasi → "Material")
+## 2. Pilihan material per pekerjaan (Hasil Estimasi → "Ganti Bahan")
+
+Dialog menampilkan pekerjaan yang ada di proyek: dinding, lantai, atap, plafon, cat, pintu & jendela. Mutu beton,
+fondasi, dan pekerjaan yang belum ada di proyek disimpan di **Pengaturan lanjutan** agar daftar awal tidak
+membingungkan. Panduan pemakaian 5 langkah ada di `docs/Panduan-Singkat.md`.
 
 Rule engine menghitung **volume** pekerjaan dari model: dinding dalam m², kolom dalam m³. **Bahan** yang dipilih
 menentukan analisa HSPK yang dipakai, sehingga harga satuan dan kebutuhan bahannya ikut berubah. Setiap pilihan
@@ -79,7 +83,15 @@ RAB yang sudah ada**:
 
 Pilihan disimpan per proyek (`proyek.material`) dan ikut file proyek, duplikat, serta undo/redo.
 
-### Material khusus satu elemen (panel Rincian → "Ganti Material Elemen...")
+### Material khusus satu elemen
+
+Ada dua cara:
+- tab **Per Elemen** → kolom **BAHAN ▾** di baris elemen itu: langsung tersimpan;
+- panel kanan → **Bandingkan & Ganti Bahan...**: dengan tabel perbandingan.
+
+Setelah diganti, subtotal baris, total RAB (kartu di atas), rekap per lantai, dan kebutuhan bahan ikut dihitung
+ulang. Pesan menampilkan "Total RAB Rp lama → Rp baru". Perubahan bisa dibatalkan dengan Urungkan. Alur ini diuji
+oleh `test_ganti_bahan_di_tabel_per_elemen_mengubah_total_dan_kebutuhan`.
 
 Contoh: semua dinding bata ringan, tetapi "Dinding A" bata merah. Dialog menampilkan **tabel perbandingan semua
 pilihan** untuk volume elemen itu, mis. dinding 18,47 m²:
@@ -132,7 +144,7 @@ Total bata ringan di atas juga sudah memakai analisa HSPK untuk pembersihan laha
 
 ## Pengujian
 
-`tests/test_material_katalog.py` (33 tes) menguji:
+`tests/test_material_katalog.py` (34 tes) menguji:
 - keberadaan dan satuan setiap pilihan;
 - penggantian material proyek dan elemen tanpa mengubah volume;
 - hitung ulang dan baca ulang IFC;

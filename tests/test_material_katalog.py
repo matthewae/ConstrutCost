@@ -188,8 +188,12 @@ def test_dialog_material_dan_panel_kebutuhan_bahan(db_sementara, qapp):
     assert set(d.combo) == set(SLOT)
     cb = d.combo["DND.BATA"]
     assert cb.currentData() == "ringan10" and "(bawaan)" in cb.currentText() and "Rp" in cb.currentText()
-    assert "Bata ringan" in d._info["DND.BATA"].text() and "di proyek ini" in d._info["DND.BATA"].text()
-    assert "42.800" in d._info["DND.BATA"].text()  # catatan harga mortar HSPK
+    assert "Bata ringan" in d._info["DND.BATA"].text() and "proyek:" in d._info["DND.BATA"].text()
+    assert "42.800" in d._info["DND.BATA"].toolTip()  # catatan harga mortar HSPK (rinci di tooltip)
+    assert "perlu dicek" in d._info["DND.BATA"].text()
+    assert not d.wadah_lanjutan.isVisibleTo(d)  # mutu beton & fondasi di bagian lanjutan
+    d.btn_lanjutan.setChecked(True)
+    assert d.wadah_lanjutan.isVisibleTo(d) and "BTN.KOLOM" in d.combo
     assert not d.btn_simpan.isEnabled()
     cb.setCurrentIndex(cb.findData("merah"))
     assert d.btn_simpan.isEnabled() and "naik" in d.label_selisih.text()  # bata merah lebih mahal
@@ -203,7 +207,7 @@ def test_dialog_material_dan_panel_kebutuhan_bahan(db_sementara, qapp):
     hal.panel.tampilkan_elemen(r, sebaris, hal.komponen())
     teks = _teks_panel(hal.panel)
     assert "KEBUTUHAN BAHAN" in teks and "Bata merah" in teks and "zak" in teks
-    assert "SELURUH ELEMEN" in teks
+    assert "ELEMEN INI" in teks
 
     # dialog material elemen: tabel perbandingan semua pilihan untuk volume elemen ini
     de = MaterialElemenDialog(r["elemen_id"], r["nama_elemen"], hal)
@@ -360,3 +364,49 @@ def test_dialog_katalog_tambah_dan_hapus_item(db_sementara, qapp, monkeypatch):
     hal.riwayat.undo()  # urungkan hapus
     assert any(x["item_tambahan"] for x in hal._data) or any(
         x["item_tambahan"] for x in __import__("database.estimasi_repository", fromlist=["x"]).get_hasil_estimasi_by_proyek(pid))
+
+
+def test_ganti_bahan_di_tabel_per_elemen_mengubah_total_dan_kebutuhan(db_sementara, qapp, monkeypatch):
+    """Ganti bahan satu dinding di mode Per Elemen: subtotal baris, total RAB (kartu), rekap per lantai,
+    dan kebutuhan bahan ikut berubah; urungkan mengembalikan semuanya."""
+    from gui import tema
+    from gui.estimasi_page import EstimasiPage, _bahan_baris
+    from database.biaya_repository import ringkasan_biaya
+
+    pesan = []
+    monkeypatch.setattr(tema, "toast", lambda w, teks, *a, **k: pesan.append(teks))
+    pid = _proyek_ac20()
+    hal = EstimasiPage(pid, "AC20")
+    hal.grup_mode.button(hal.MODE_DETAIL).setChecked(True)
+    hal._isi_ulang()
+    t = hal.tabel
+    i = next(i for i in range(t.rowCount())
+             if hal._index[t.item(i, 0).data(0x0100)[1]]["kode_ahsp"] == "DND.BATA")
+    r = hal._index[t.item(i, 0).data(0x0100)[1]]
+    cb = t.cellWidget(i, 2)
+    assert cb is not None and cb.currentData() == "ringan10" and _bahan_baris(r) == ("DND.BATA", "ringan10")
+    total_lama = ringkasan_biaya(pid)
+    lantai_lama = {x["lantai"]: x["total"] for x in __import__("rab_rinci").rekap_per_lantai(hal._data)}
+    kartu_lama = hal.k_total.findChildren(type(hal.label_mode))[1].text() if hal.k_total.findChildren(type(hal.label_mode)) else ""
+
+    cb.setCurrentIndex(cb.findData("merah"))  # langsung tersimpan
+
+    baru = {x["hasil_id"]: x for x in hal._data}[r["hasil_id"]]
+    assert baru["kode_ahsp"] == "DND.BATA~merah"
+    assert baru["volume_pekerjaan"] == pytest.approx(r["volume_pekerjaan"])  # volume tetap
+    assert baru["subtotal_biaya"] > r["subtotal_biaya"]  # bata merah lebih mahal
+    d = baru["subtotal_biaya"] - r["subtotal_biaya"]
+    assert ringkasan_biaya(pid)["langsung"] == pytest.approx(total_lama["langsung"] + d)
+    lantai_baru = {x["lantai"]: x["total"] for x in __import__("rab_rinci").rekap_per_lantai(hal._data)}
+    assert lantai_baru[r["lantai"]] == pytest.approx(lantai_lama[r["lantai"]] + d)
+    assert pesan and "Total RAB" in pesan[-1] and "naik" in pesan[-1]
+    if kartu_lama:
+        assert hal.k_total.findChildren(type(hal.label_mode))[1].text() != kartu_lama
+    # kebutuhan bahan proyek kini memuat bata merah, bata ringan berkurang
+    hal.grup_mode.button(hal.MODE_BAHAN).setChecked(True)
+    hal._isi_ulang()
+    nama = {x["nama"]: x["jumlah"] for x in hal._bahan.values()}
+    assert any(n.startswith("Bata merah") for n in nama)
+    # urungkan: kembali bata ringan dan total semula
+    hal.riwayat.undo()
+    assert ringkasan_biaya(pid)["langsung"] == pytest.approx(total_lama["langsung"])

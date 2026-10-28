@@ -61,6 +61,18 @@ def teks_bahan(bahan: list, satuan: str, volume: float = 0.0) -> str:
     return teks
 
 
+def teks_ringkas(bahan: list, satuan: str, volume: float = 0.0) -> str:
+    """Bahan utama saja: 'Per m²: 8,75 buah Bata ringan · 3,43 kg Mortar  →  proyek: 1.667 buah'."""
+    if not bahan:
+        return ""
+    utama = bahan[:2]
+    teks = f"Per {satuan_tampil(satuan)}: " + " · ".join(f"{angka_bahan(k)} {s} {n}" for n, s, k in utama)
+    if volume > 1e-9:
+        n, s, k = utama[0]
+        teks += f"  →  proyek: {angka_bahan(k * volume)} {s} {n}"
+    return teks
+
+
 class MaterialDialog(QDialog):
     def __init__(self, proyek_id: int, baris: list | None = None, parent=None):
         super().__init__(parent)
@@ -76,16 +88,16 @@ class MaterialDialog(QDialog):
             if slot in SLOT and not r.get("harga_manual"):
                 self._volume[slot] = self._volume.get(slot, 0.0) + (r.get("volume_pekerjaan") or 0.0)
 
-        self.setWindowTitle("Pilihan Material")
+        self.setWindowTitle("Ganti Bahan")
         self.setModal(True)
         self.resize(860, 760)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(26, 22, 26, 20)
         lay.setSpacing(10)
         lay.addWidget(tema.kepala_dialog(
-            "Pilihan Material Proyek",
-            "Bahan yang dipakai setiap pekerjaan menentukan analisa HSPK, harga satuan, dan kebutuhan bahannya "
-            "(jumlah bata, semen, pasir, ...). Volume pekerjaan dari model tidak berubah.",
+            "Ganti Bahan Proyek",
+            "Bahan yang dipilih dipakai semua elemen proyek. Harga, kebutuhan bahan, dan total RAB menyesuaikan "
+            "otomatis. Bahan satu elemen saja bisa diganti di tab Per Elemen.",
             "kubus",
         )[0])
 
@@ -99,40 +111,31 @@ class MaterialDialog(QDialog):
         v.setSpacing(12)
         self.combo = {}
         self._info = {}
-        for kelompok in KELOMPOK:
-            kartu = QFrame()
-            kartu.setObjectName("kartu")
-            g = QGridLayout(kartu)
-            g.setContentsMargins(18, 14, 18, 14)
-            g.setHorizontalSpacing(12)
-            g.setVerticalSpacing(4)
-            g.setColumnStretch(1, 1)
-            g.addWidget(tema.label(kelompok.upper(), "bagian"), 0, 0, 1, 2)
-            baris_g = 1
-            slots = [s for s in SLOT.values() if s.kelompok == kelompok]
-            if kelompok == "Mutu beton":
-                samakan = tema.tombol("Samakan semua dengan kolom", "ghost", None,
-                                      "Pakai mutu beton kolom untuk balok, pelat, dak, sloof, fondasi, dan tangga")
-                samakan.clicked.connect(lambda _=False, sl=slots: self._samakan(sl))
-                g.addWidget(samakan, 0, 1, alignment=Qt.AlignRight)
-            for s in slots:
-                cb = QComboBox()
-                cb.setMinimumWidth(420)
-                for o in s.opsi:
-                    data = self._opsi.get(kode_varian(s.kode, o.kunci))
-                    harga = f"  ·  {tema.format_rupiah(data['harga'])}/{satuan_tampil(data['satuan'])}" if data else ""
-                    bawaan = "  (bawaan)" if o.kunci == s.bawaan else ""
-                    cb.addItem(f"{o.label}{bawaan}{harga}", o.kunci)
-                cb.setCurrentIndex(max(0, cb.findData(self._awal[s.kode])))
-                cb.currentIndexChanged.connect(lambda _i, k=s.kode: self._berubah(k))
-                self.combo[s.kode] = cb
-                info = tema.label("", "infoKecil", wrap=True)
-                self._info[s.kode] = info
-                g.addWidget(tema.label(s.judul, "formLabel"), baris_g, 0)
-                g.addWidget(cb, baris_g, 1)
-                g.addWidget(info, baris_g + 1, 1)
-                baris_g += 2
-            v.addWidget(kartu)
+        # Bagian utama: pekerjaan yang ada di proyek ini (dinding, lantai, atap, ...). Mutu beton, fondasi, dan
+        # pekerjaan yang belum ada di proyek disimpan di bagian Lanjutan agar daftar awal tidak membingungkan.
+        dipakai = set(self._volume) if baris is not None else set(SLOT)
+        lanjutan_kel = ("Mutu beton", "Fondasi")
+        utama = [(k, [s for s in SLOT.values() if s.kelompok == k and s.kode in dipakai])
+                 for k in KELOMPOK if k not in lanjutan_kel]
+        lanjut = [(k, [s for s in SLOT.values() if s.kelompok == k and (k in lanjutan_kel or s.kode not in dipakai)])
+                  for k in KELOMPOK]
+        for kelompok, slots in utama:
+            if slots:
+                v.addWidget(self._kartu(kelompok, slots))
+        self.btn_lanjutan = tema.tombol("▸ Pengaturan lanjutan: mutu beton, fondasi, dan pekerjaan lain", "ghost")
+        self.btn_lanjutan.setCheckable(True)
+        v.addWidget(self.btn_lanjutan, alignment=Qt.AlignLeft)
+        self.wadah_lanjutan = QWidget()
+        vl = QVBoxLayout(self.wadah_lanjutan)
+        vl.setContentsMargins(0, 0, 0, 0)
+        vl.setSpacing(12)
+        for kelompok, slots in lanjut:
+            if slots:
+                judul = kelompok if kelompok in lanjutan_kel else f"{kelompok} (belum ada di proyek ini)"
+                vl.addWidget(self._kartu(judul, slots, samakan=kelompok == "Mutu beton"))
+        self.wadah_lanjutan.setVisible(False)
+        self.btn_lanjutan.toggled.connect(self._tampil_lanjutan)
+        v.addWidget(self.wadah_lanjutan)
         v.addStretch()
         lay.addWidget(gulir, stretch=1)
 
@@ -147,7 +150,7 @@ class MaterialDialog(QDialog):
         bawaan.clicked.connect(self._bawaan)
         batal = tema.tombol("Batal", "secondary")
         batal.clicked.connect(self.reject)
-        self.btn_simpan = tema.tombol("Simpan Pilihan", "primary")
+        self.btn_simpan = tema.tombol("Simpan && Hitung RAB", "primary")
         self.btn_simpan.clicked.connect(self._simpan)
         tombol.addWidget(bawaan)
         tombol.addStretch()
@@ -157,6 +160,44 @@ class MaterialDialog(QDialog):
         for k in self.combo:
             self._berubah(k, perbarui=False)
         self._perbarui()
+
+    def _kartu(self, judul: str, slots: list, samakan: bool = False) -> QFrame:
+        kartu = QFrame()
+        kartu.setObjectName("kartu")
+        g = QGridLayout(kartu)
+        g.setContentsMargins(18, 14, 18, 14)
+        g.setHorizontalSpacing(12)
+        g.setVerticalSpacing(4)
+        g.setColumnStretch(1, 1)
+        g.addWidget(tema.label(judul.upper(), "bagian"), 0, 0, 1, 2)
+        if samakan:
+            b = tema.tombol("Samakan semua dengan kolom", "ghost", None,
+                            "Pakai mutu beton kolom untuk balok, pelat, dak, sloof, fondasi, dan tangga")
+            b.clicked.connect(lambda _=False, sl=slots: self._samakan(sl))
+            g.addWidget(b, 0, 1, alignment=Qt.AlignRight)
+        baris_g = 1
+        for s in slots:
+            cb = QComboBox()
+            cb.setMinimumWidth(420)
+            for o in s.opsi:
+                data = self._opsi.get(kode_varian(s.kode, o.kunci))
+                harga = f"  ·  {tema.format_rupiah(data['harga'])}/{satuan_tampil(data['satuan'])}" if data else ""
+                bawaan = "  (bawaan)" if o.kunci == s.bawaan else ""
+                cb.addItem(f"{o.label}{bawaan}{harga}", o.kunci)
+            cb.setCurrentIndex(max(0, cb.findData(self._awal[s.kode])))
+            cb.currentIndexChanged.connect(lambda _i, k=s.kode: self._berubah(k))
+            self.combo[s.kode] = cb
+            info = tema.label("", "infoKecil", wrap=True)
+            self._info[s.kode] = info
+            g.addWidget(tema.label(s.judul, "formLabel"), baris_g, 0)
+            g.addWidget(cb, baris_g, 1)
+            g.addWidget(info, baris_g + 1, 1)
+            baris_g += 2
+        return kartu
+
+    def _tampil_lanjutan(self, tampil: bool):
+        self.wadah_lanjutan.setVisible(tampil)
+        self.btn_lanjutan.setText(("▾ " if tampil else "▸ ") + self.btn_lanjutan.text()[2:])
 
     def pilihan(self) -> dict:
         return {k: cb.currentData() for k, cb in self.combo.items()}
@@ -170,15 +211,17 @@ class MaterialDialog(QDialog):
         kunci = self.combo[slot].currentData()
         o = s.cari(kunci)
         data = self._opsi.get(kode_varian(slot, kunci)) or {}
-        teks = teks_bahan(data.get("bahan", []), data.get("satuan", ""), self._volume.get(slot, 0.0))
-        teks = f"HSPK {o.kode_hspk}" + (f"  ·  {teks}" if teks else "")
+        bahan, satuan, vol = data.get("bahan", []), data.get("satuan", ""), self._volume.get(slot, 0.0)
+        # ringkas di layar: bahan utama per satuan (+ total proyek); rincian lengkap di tooltip
+        teks = teks_ringkas(bahan, satuan, vol)
+        lengkap = f"HSPK {o.kode_hspk}<br>" + teks_bahan(bahan, satuan, vol)
         warna = None
         if o.catatan:
-            teks += f"<br>⚠ {o.catatan}"
+            teks += "<br>⚠ Harga di HSPK perlu dicek (arahkan kursor ke sini)"
+            lengkap += f"<br><br>⚠ {o.catatan}"
             warna = tema.W["peringatan"]
-        if kunci != s.bawaan:
-            teks += f"<br>● bawaan: {s.opsi_bawaan.label}"
         self._info[slot].setText(teks)
+        self._info[slot].setToolTip(lengkap)
         self._info[slot].setStyleSheet(f"color: {warna};" if warna else "")
         if perbarui:
             self._perbarui()

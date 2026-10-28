@@ -44,7 +44,7 @@ def test_urut_detail_dan_rekap(db_sementara, qapp):
     hal = EstimasiPage(pid, "AC20")
 
     hal.grup_mode.button(hal.MODE_DETAIL).click()
-    kolom_subtotal = 4
+    kolom_subtotal = 5
 
     def subtotal():
         return [hal._index[hal.tabel.item(i, 0).data(Qt.UserRole)[1]]["subtotal_biaya"] for i in range(hal.tabel.rowCount())]

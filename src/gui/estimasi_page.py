@@ -66,6 +66,7 @@ from gui.dimensi_dialog import DimensiDialog
 from gui.export_dialog import ExportDialog
 from gui.import_dialog import tampilkan_hasil_proses
 from database.katalog import hapus_item
+from database.material_repository import simpan_material_elemen
 from gui.katalog_dialog import KatalogDialog
 from gui.material_dialog import MaterialDialog, MaterialElemenDialog, angka_bahan
 from gui.parameter_dialog import ParameterDialog
@@ -91,25 +92,20 @@ from rab_rinci import TANPA_LANTAI, cocok_saring, daftar_lantai, susun_rinci, ur
 from rules.dimensi import kolom_dimensi
 from rules.penulangan import label_tipe
 
-# Penjelasan tiap mode tampilan, ditampilkan di atas tabel agar beda Rekap RAB dan RAB Rinci jelas.
+# Penjelasan singkat tiap tab, ditampilkan di atas tabel (bahasa sederhana, satu kalimat).
 KETERANGAN_MODE = (
-    ("REKAP RAB · per item pekerjaan",
-     "Satu baris untuk setiap item pekerjaan (mis. \"Beton Kolom f'c 20 MPa\" = jumlah volume semua kolom), "
-     "dikelompokkan per bagian. Bentuk ringkas untuk dokumen RAB resmi / penawaran (sheet \"RAB\")."),
-    ("RAB RINCI · per tipe elemen",
-     "Setiap item dipecah: struktur per tipe seperti RAP konsultan (Kolom K1 (20/25) — 12 buah → Beton, Bekisting, "
-     "Tulangan utama 6 D13, Sengkang Ø10-150), pekerjaan lain per tipe elemen IFC (Pasangan dinding bata → Exterior "
-     "Brick — 16 buah, Interior 100 mm — 9 buah). Total biayanya sama dengan Rekap RAB (sheet \"RAB Rinci\")."),
-    ("PER LANTAI · biaya & kebutuhan tiap lantai",
-     "Judul lantai dan bagian pekerjaan beserta beton, bekisting, dan besi. Pilih lantai atau bagian untuk "
-     "rincian perhitungan (susunan RAP + backup volume) di panel kanan."),
-    ("DETAIL PER ELEMEN · bisa diedit",
-     "Satu baris untuk setiap elemen IFC dan pekerjaannya. Volume, harga satuan khusus, catatan, dan dimensi "
-     "elemen bisa diubah di sini; Rekap, Rinci, dan Per Lantai ikut menyesuaikan. Panel kanan menampilkan "
-     "kebutuhan bahan elemen (bata, semen, pasir, cat, ...) dan tombol Ganti Material Elemen."),
-    ("KEBUTUHAN BAHAN · volume × koefisien analisa",
-     "Total bahan, tenaga kerja, dan alat seluruh bangunan (atau satu lantai / satu bagian lewat filter): "
-     "jumlah bata, semen (zak), pasir, cat, besi, dan seterusnya. Mengikuti pilihan material proyek dan elemen."),
+    ("RAB",
+     "Daftar pekerjaan beserta volume dan harganya, seperti RAB penawaran. Pilih baris untuk melihat analisa harganya."),
+    ("RAB RINCI",
+     "Sama dengan RAB, tetapi tiap pekerjaan dipecah per tipe elemen (mis. Kolom K1, Dinding luar). Totalnya sama."),
+    ("PER LANTAI",
+     "Biaya dan kebutuhan setiap lantai. Pilih satu lantai di filter kanan atas untuk rincian lengkapnya."),
+    ("PER ELEMEN",
+     "Setiap elemen dari model (dinding, kolom, ...). Ganti bahan, volume, atau harga di sini; total RAB langsung "
+     "ikut berubah. Kebutuhan bahan elemen terlihat di panel kanan."),
+    ("KEBUTUHAN BAHAN",
+     "Jumlah bahan yang perlu dibeli (bata, semen, pasir, cat, besi, ...), tenaga kerja, dan alat untuk seluruh "
+     "bangunan atau satu lantai."),
 )
 SEMUA_KATEGORI = "Semua kategori"
 SEMUA_LANTAI = "Semua lantai"
@@ -244,11 +240,15 @@ class EstimasiPage(QWidget):
         )
         self.btn_biaya.clicked.connect(self._buka_biaya)
         self.btn_material = tema.tombol(
-            "Material", "secondary", None,
-            "Pilihan bahan per pekerjaan (bata ringan / bata merah, keramik, atap, mutu beton, ...) beserta "
-            "kebutuhan bahannya",
+            "Ganti Bahan", "secondary", None,
+            "Pilih bahan untuk seluruh proyek: bata ringan / bata merah, keramik, atap, plafon, cat, mutu beton, ...",
         )
         self.btn_material.clicked.connect(self._buka_material)
+        self.btn_katalog = tema.tombol(
+            "+ Tambah Pekerjaan", "secondary", None,
+            "Tambah pekerjaan yang tidak ada di model dari katalog HSPK (listrik, plambing, kloset, pagar, ...)",
+        )
+        self.btn_katalog.clicked.connect(self._buka_katalog)
         self.btn_export = tema.tombol("Export RAB", "primary", "unduh", "Export ke Excel / PDF (Ctrl+E)")
         self.btn_export.clicked.connect(self._buka_export)
         # KF-7 / KF-9: menu proyek
@@ -259,25 +259,27 @@ class EstimasiPage(QWidget):
         self.btn_proyek.setPopupMode(QToolButton.InstantPopup)
         self.btn_proyek.setToolButtonStyle(Qt.ToolButtonTextOnly)
         menu = QMenu(self.btn_proyek)
-        menu.addSection("Estimasi")
-        menu.addAction("Hitung Ulang dari IFC", self._hitung_ulang)
-        menu.addAction("Tipe Penulangan...", self._buka_penulangan)
+        menu.addSection("Bahan & pekerjaan")
+        menu.addAction("Ganti Bahan Proyek...", self._buka_material)
+        menu.addAction("Tambah Pekerjaan dari Katalog HSPK...", self._buka_katalog)
         menu.addAction("Biaya Tidak Langsung...", self._buka_biaya)
+        menu.addSection("Pengaturan lanjutan")
+        menu.addAction("Tipe Penulangan...", self._buka_penulangan)
+        menu.addAction("Parameter Aturan...", self._buka_parameter)
+        menu.addAction("Hitung Ulang dari File IFC", self._hitung_ulang)
         menu.addSection("Proyek")
         menu.addAction("Info Proyek...", self._ubah_info)
-        menu.addAction("Tambah Item dari Katalog HSPK...", self._buka_katalog)
-        menu.addAction("Pilihan Material...", self._buka_material)
-        menu.addAction("Parameter Aturan...", self._buka_parameter)
-        menu.addSeparator()
         menu.addAction("Simpan File Proyek...\tCtrl+S", self._simpan_file)
         menu.addAction("Duplikat Proyek...", self._duplikat)
         self.btn_proyek.setMenu(menu)
+        # Header ringkas: hanya aksi yang sering dipakai. Hitung ulang, penulangan, dan biaya tidak langsung ada di
+        # menu Proyek ▾ (biaya tidak langsung juga lewat kartu B di bawah).
         kepala.addWidget(self.btn_proyek, alignment=Qt.AlignTop)
-        kepala.addWidget(self.btn_ulang, alignment=Qt.AlignTop)
         kepala.addWidget(self.btn_material, alignment=Qt.AlignTop)
-        kepala.addWidget(self.btn_tulangan, alignment=Qt.AlignTop)
-        kepala.addWidget(self.btn_biaya, alignment=Qt.AlignTop)
+        kepala.addWidget(self.btn_katalog, alignment=Qt.AlignTop)
         kepala.addWidget(self.btn_export, alignment=Qt.AlignTop)
+        for b in (self.btn_ulang, self.btn_tulangan, self.btn_biaya):
+            b.hide()
         root.addLayout(kepala)
 
         self.banner_harga = tema.Banner("info")
@@ -314,10 +316,10 @@ class EstimasiPage(QWidget):
         dua_baris.addLayout(alat2)
         self.grup_mode = QButtonGroup(self)
         for i, (teks, posisi, tip) in enumerate((
-            ("Rekap RAB", "kiri", KETERANGAN_MODE[0][1]),
+            ("RAB", "kiri", KETERANGAN_MODE[0][1]),
             ("RAB Rinci", "tengah", KETERANGAN_MODE[1][1]),
             ("Per Lantai", "tengah", KETERANGAN_MODE[2][1]),
-            ("Detail per Elemen", "tengah", KETERANGAN_MODE[3][1]),
+            ("Per Elemen", "tengah", KETERANGAN_MODE[3][1]),
             ("Kebutuhan Bahan", "kanan", KETERANGAN_MODE[4][1]),
         )):
             b = QPushButton(teks)
@@ -367,10 +369,6 @@ class EstimasiPage(QWidget):
         self.riwayat.redoTextChanged.connect(
             lambda t: self.btn_ulangi.setToolTip(f"Ulangi: {t} (Ctrl+Y)" if t else "Ulangi perubahan yang dibatalkan (Ctrl+Y)")
         )
-        self.btn_katalog = tema.tombol("+ Item Katalog", "ghost", None,
-                                       "Tambah pekerjaan dari katalog HSPK (listrik, plambing, sanitair, ...) ke RAB")
-        self.btn_katalog.clicked.connect(self._buka_katalog)
-        alat.addWidget(self.btn_katalog)
         alat.addWidget(self.btn_urungkan)
         alat.addWidget(self.btn_ulangi)
         alat.addSpacing(6)
@@ -453,16 +451,6 @@ class EstimasiPage(QWidget):
     def mode(self) -> int:
         return self.grup_mode.checkedId()
 
-    def resizeEvent(self, event):
-        """Layar sempit (laptop / skala Windows 125-150%): tombol sekunder header disembunyikan (tetap ada
-        di menu Proyek ▾) agar nama proyek tidak terpotong."""
-        super().resizeEvent(event)
-        lega = self.width() >= 1380
-        if getattr(self, "_header_lega", None) != lega and self._data:
-            self._header_lega = lega
-            for b in (self.btn_ulang, self.btn_material, self.btn_tulangan, self.btn_biaya):
-                b.setVisible(lega)
-
     def muat(self):
         self._data = [dict(r) for r in get_hasil_estimasi_by_proyek(self.proyek_id)]
         self._komponen = None  # analisa AHSP untuk kebutuhan bahan per lantai, dimuat saat dibutuhkan
@@ -482,9 +470,8 @@ class EstimasiPage(QWidget):
         for w in (self.baris_kartu, self.baris_alat, self.label_mode, self.baris_bawah):
             w.setVisible(ada)
         self.btn_export.setEnabled(ada)
-        self._header_lega = ada and self.width() >= 1380
-        for b in (self.btn_ulang, self.btn_tulangan, self.btn_biaya):
-            b.setVisible(self._header_lega)
+        for b in (self.btn_material, self.btn_katalog):
+            b.setEnabled(ada)
         if not ada:
             self.banner_harga.hide()
             self.banner_nol.hide()
@@ -594,45 +581,31 @@ class EstimasiPage(QWidget):
         if self.mode == self.MODE_REKAP:
             n = self._isi_rekap(baris)
             satuan = "item pekerjaan"
-            self.label_petunjuk.setText(
-                "Volume tiap pekerjaan adalah jumlah dari semua elemen. "
-                "Pilih baris untuk melihat analisa harga satuannya."
-            )
+            self.label_petunjuk.setText("Volume = jumlah dari semua elemen. Untuk mengganti bahan: tombol Ganti Bahan.")
         elif self.mode == self.MODE_RINCI:
             n = self._isi_rinci(baris)
             satuan = "item"
-            self.label_petunjuk.setText(
-                "Struktur per tipe penulangan (ubah lewat tombol Penulangan), pekerjaan lain per tipe elemen IFC. "
-                "Pilih baris untuk melihat analisa harga satuannya."
-            )
+            self.label_petunjuk.setText("Pilih baris untuk melihat analisa harga satuannya.")
         elif self.mode == self.MODE_LANTAI:
             if lantai and lantai != SEMUA_LANTAI:
                 n = self._isi_lantai_rinci(baris)
                 satuan = "baris rincian"
-                self.label_petunjuk.setText(
-                    "Rincian satu lantai: struktur beton per tipe, besi per diameter, bahan, tenaga kerja, alat, "
-                    "dan RAB rinci. Pilih \"Semua lantai\" untuk kembali ke ringkasan."
-                )
+                self.label_petunjuk.setText("Pilih \"Semua lantai\" untuk kembali ke ringkasan semua lantai.")
             else:
                 n = self._isi_lantai(baris)
                 satuan = "lantai"
-                self.label_petunjuk.setText(
-                    "Tabel berisi judul lantai & bagian pekerjaan. Pilih lantai atau bagian untuk rincian perhitungan "
-                    "(susunan RAP + backup volume) di panel kanan; klik dua kali untuk tabel rinci lantai."
-                )
+                self.label_petunjuk.setText("Klik dua kali nama lantai untuk rincian lengkap lantai itu.")
         elif self.mode == self.MODE_BAHAN:
             n = self._isi_bahan(baris)
             satuan = "jenis bahan, tenaga, & alat"
             self.label_petunjuk.setText(
-                "Pakai filter lantai / bagian untuk kebutuhan satu lantai atau satu bagian pekerjaan. Pilih baris untuk "
-                "melihat asal kebutuhannya (pekerjaan & lantai). Harga dasar belum termasuk biaya umum & keuntungan."
+                "Pilih baris untuk melihat bahan itu dipakai di pekerjaan & lantai mana. Filter lantai = kebutuhan satu lantai."
             )
         else:
             n = self._isi_detail(baris)
             satuan = "baris"
             self.label_petunjuk.setText(
-                "Klik angka di kolom Volume untuk mengubahnya, lalu tekan Enter. Klik dua kali kolom "
-                "Elemen untuk mengubah dimensinya. Subtotal dan total dihitung ulang otomatis."
+                "Ganti bahan di kolom Bahan, atau ubah Volume / Harga lalu tekan Enter. Total RAB langsung dihitung ulang."
             )
         teks = f"{n} {satuan}"
         if lantai and lantai != SEMUA_LANTAI:
@@ -1062,13 +1035,14 @@ class EstimasiPage(QWidget):
         t.clearSpans()
         t.clear()
         tema.siapkan_tabel(
-            t, ["PEKERJAAN", "ELEMEN / LANTAI", "VOLUME (EDIT)", "HARGA SATUAN (EDIT)", "SUBTOTAL", "STATUS"],
-            rata_kanan=(2, 3, 4), tinggi_baris=46,
+            t, ["PEKERJAAN", "ELEMEN / LANTAI", "BAHAN ▾", "VOLUME ✎", "HARGA SATUAN ✎", "SUBTOTAL", "STATUS"],
+            rata_kanan=(3, 4, 5), tinggi_baris=46,
         )
         baris = self._terurut(baris, {
             0: lambda r: _nama_baris(r).lower(), 1: lambda r: ((r["lantai"] or ""), (r["nama_elemen"] or "").lower()),
-            2: lambda r: r["volume_pekerjaan"], 3: lambda r: r["harga_satuan"], 4: lambda r: r["subtotal_biaya"],
-            5: lambda r: (bool(r["diedit_manual"] or r.get("harga_manual")), bool(r.get("dimensi_manual"))),
+            2: lambda r: _bahan_baris(r)[1] or "", 3: lambda r: r["volume_pekerjaan"], 4: lambda r: r["harga_satuan"],
+            5: lambda r: r["subtotal_biaya"],
+            6: lambda r: (bool(r["diedit_manual"] or r.get("harga_manual")), bool(r.get("dimensi_manual"))),
         })
         t.setRowCount(len(baris))
         self._volume_terakhir = {}
@@ -1081,27 +1055,81 @@ class EstimasiPage(QWidget):
                 tooltip=f"{r['kategori']} — {nama}", data=("detail", hid),
             ))
             t.setItem(i, 1, tema.sel(_label_elemen(r), warna=tema.W["teks_redup"], tooltip=_label_elemen(r)))
+            combo = self._combo_bahan(r)
+            if combo is not None:
+                t.setCellWidget(i, 2, combo)
+            else:
+                t.setItem(i, 2, tema.sel("–", "tengah", tema.W["teks_samar"],
+                                         tooltip="Pekerjaan ini tidak punya pilihan bahan"))
             spin = SpinVolume(r["volume_pekerjaan"], r["satuan"])
             self._volume_terakhir[hid] = spin.value()
             spin.editingFinished.connect(
                 lambda hid=hid, pid=r["pekerjaan_id"], sp=spin: self._volume_diubah(hid, pid, sp.value())
             )
-            t.setCellWidget(i, 2, spin)
+            t.setCellWidget(i, 3, spin)
             harga = SpinHarga(r["harga_satuan"])
             self._harga_terakhir[hid] = harga.value()
             harga.editingFinished.connect(lambda hid=hid, sp=harga: self._harga_sel_diubah(hid, sp))
-            t.setCellWidget(i, 3, harga)
-            t.setItem(i, 4, tema.sel(tema.format_rupiah(r["subtotal_biaya"]), "kanan", tebal=True))
-            t.setItem(i, 5, _sel_status(r["diedit_manual"], r.get("dimensi_manual"), r.get("harga_manual")))
-        tema.atur_lebar(t, 0, isi_konten=(4, 5))
+            t.setCellWidget(i, 4, harga)
+            t.setItem(i, 5, tema.sel(tema.format_rupiah(r["subtotal_biaya"]), "kanan", tebal=True))
+            t.setItem(i, 6, _sel_status(r["diedit_manual"], r.get("dimensi_manual"), r.get("harga_manual")))
+        tema.atur_lebar(t, 0, isi_konten=(5, 6))
         h = t.horizontalHeader()
         h.setSectionResizeMode(1, QHeaderView.Interactive)
-        t.setColumnWidth(1, 180)
-        h.setSectionResizeMode(2, QHeaderView.Fixed)
-        t.setColumnWidth(2, 140)
+        t.setColumnWidth(1, 150)
+        h.setSectionResizeMode(2, QHeaderView.Interactive)
+        t.setColumnWidth(2, 210)
         h.setSectionResizeMode(3, QHeaderView.Fixed)
-        t.setColumnWidth(3, 150)
+        t.setColumnWidth(3, 120)
+        h.setSectionResizeMode(4, QHeaderView.Fixed)
+        t.setColumnWidth(4, 148)
         return len(baris)
+
+    def _combo_bahan(self, r: dict):
+        """Combo box bahan untuk baris pekerjaan yang punya pilihan material (mis. pasangan dinding), atau None.
+        Mengganti bahan di sini hanya berlaku untuk elemen baris ini."""
+        slot, kunci = _bahan_baris(r)
+        if slot is None or not r.get("elemen_id"):
+            return None
+        cb = QComboBox()
+        cb.setFocusPolicy(Qt.StrongFocus)  # roda mouse saat menggulir tabel tidak mengganti bahan
+        cb.wheelEvent = lambda e: e.ignore()
+        for o in SLOT[slot].opsi:
+            cb.addItem(o.label, o.kunci)
+            cb.setItemData(cb.count() - 1, o.label, Qt.ToolTipRole)
+        cb.setCurrentIndex(max(0, cb.findData(kunci)))
+        cb.setToolTip(f"Bahan {SLOT[slot].judul.lower()} untuk elemen ini saja. Harga, subtotal, kebutuhan bahan, "
+                      "dan total RAB langsung dihitung ulang.")
+        cb.currentIndexChanged.connect(
+            lambda _i, c=cb, eid=r["elemen_id"], sl=slot, nm=r.get("nama_elemen") or "":
+            self._ganti_bahan_elemen(eid, sl, c.currentData(), nm)
+        )
+        return cb
+
+    def _ganti_bahan_elemen(self, elemen_id: int, slot: str, kunci: str, nama: str = ""):
+        lama = ringkasan_biaya(self.proyek_id)
+        sebelum = potret_proyek(self.proyek_id)
+        try:
+            simpan_material_elemen(elemen_id, {slot: kunci})
+        except ValueError as e:
+            tema.toast(self, str(e), "peringatan")
+            self.muat()
+            return
+        label = SLOT[slot].cari(kunci).label
+        self._catat(f"Ganti bahan {nama}: {label}".strip(), sebelum)
+        kunci_baris = self._kunci_terpilih()
+        self.muat()
+        self._pilih_kunci(kunci_baris)
+        self._umpan_balik_total(lama, f"{SLOT[slot].judul} {nama} → {label}")
+
+    def _umpan_balik_total(self, lama: dict, apa: str):
+        """Pesan setelah bahan diganti: total RAB sebelum → sesudah, agar jelas perubahan ikut ke RAB."""
+        baru = ringkasan_biaya(self.proyek_id)
+        d = baru["dibulatkan"] - lama["dibulatkan"]
+        arah = "naik" if d > 0 else "turun" if d < 0 else "tetap"
+        selisih = f" ({arah} {tema.format_rupiah(abs(d))})" if d else ""
+        tema.toast(self, f"{apa}. Total RAB {tema.format_rupiah(lama['dibulatkan'])} → "
+                         f"{tema.format_rupiah(baru['dibulatkan'])}{selisih}")
 
     def _baris_dari_id(self, hasil_id: int) -> int:
         for i in range(self.tabel.rowCount()):
@@ -1128,8 +1156,8 @@ class EstimasiPage(QWidget):
                 r["harga_satuan"] = subtotal / volume_baru
         i = self._baris_dari_id(hasil_id)
         if i >= 0 and r is not None:
-            self.tabel.setItem(i, 4, tema.sel(tema.format_rupiah(subtotal), "kanan", tebal=True))
-            self.tabel.setItem(i, 5, _sel_status(True, r.get("dimensi_manual"), r.get("harga_manual")))
+            self.tabel.setItem(i, 5, tema.sel(tema.format_rupiah(subtotal), "kanan", tebal=True))
+            self.tabel.setItem(i, 6, _sel_status(True, r.get("dimensi_manual"), r.get("harga_manual")))
         self._perbarui_ringkasan()
         self._tampilkan_rincian()
 
@@ -1406,24 +1434,26 @@ class EstimasiPage(QWidget):
         tema.toast(self, "Item tambahan dihapus")
 
     def _buka_material(self):
+        lama = ringkasan_biaya(self.proyek_id)
         sebelum = potret_proyek(self.proyek_id)
         dialog = MaterialDialog(self.proyek_id, self._data, self)
         if dialog.exec() != MaterialDialog.Accepted or not dialog.diubah:
             return
-        self._catat("Ubah pilihan material", sebelum)
+        self._catat("Ganti bahan proyek", sebelum)
         self.muat()
-        tema.toast(self, f"Pilihan material disimpan ({dialog.hasil['baris']} baris RAB diperbarui)")
+        self._umpan_balik_total(lama, f"Bahan diganti ({dialog.hasil['baris']} baris RAB)")
 
     def _buka_material_elemen(self, elemen_id: int, nama: str = ""):
+        lama = ringkasan_biaya(self.proyek_id)
         sebelum = potret_proyek(self.proyek_id)
         dialog = MaterialElemenDialog(elemen_id, nama, self)
         if dialog.exec() != MaterialElemenDialog.Accepted or not dialog.diubah:
             return
-        self._catat(f"Ubah material elemen {nama}".strip(), sebelum)
+        self._catat(f"Ganti bahan elemen {nama}".strip(), sebelum)
         kunci = self._kunci_terpilih()
         self.muat()
         self._pilih_kunci(kunci)
-        tema.toast(self, "Material elemen disimpan")
+        self._umpan_balik_total(lama, f"Bahan {nama} diganti".replace("  ", " "))
 
     def _buka_export(self):
         dialog = ExportDialog(self.proyek_id, self.nama_proyek, self)
@@ -1515,7 +1545,9 @@ class PanelRincian(QFrame):
         if not kb["bahan"] and not kb["upah"]:
             return
         self._lay.addWidget(tema.garis())
-        self._lay.addWidget(tema.label(judul, "bagian"))
+        lbl = tema.label(judul, "bagian", wrap=True)  # judul panjang dibungkus, panel tidak melebar
+        lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._lay.addWidget(lbl)
         for d in kb["bahan"][:maks]:
             self._baris_kecil(d["nama"], f"{angka_bahan(d['jumlah'])} {d['satuan']}", ket=d["keterangan"])
         if len(kb["bahan"]) > maks:
@@ -1525,106 +1557,104 @@ class PanelRincian(QFrame):
             self._baris_kecil("Tenaga kerja (semua jenis)", f"{angka_bahan(oh)} OH", ket="orang-hari")
 
     def tampilkan_elemen(self, r: dict, baris_elemen: list | None = None, komponen: dict | None = None):
+        """Urutan dari yang paling sering dicari: harga → bahan & kebutuhannya → detail perhitungan → catatan."""
         self._bersihkan()
         self._lay.addWidget(tema.label("RINCIAN ELEMEN", "bagian"))
-        judul = tema.label(r["nama_pekerjaan"], "judulPanel", wrap=True)
-        self._lay.addWidget(judul)
+        self._lay.addWidget(tema.label(r["nama_pekerjaan"], "judulPanel", wrap=True))
         kelas = r.get("kelas")
         label_kelas = LABEL.get(ElementType(kelas), kelas) if kelas in ElementType._value2member_map_ else (kelas or "-")
         info = QHBoxLayout()
         info.addWidget(tema.chip(r["kategori"] or "-", "netral"))
-        info.addWidget(tema.chip(label_kelas, "info"))
+        if r.get("item_tambahan"):
+            info.addWidget(tema.chip("Item tambahan", "info"))
+        elif kelas:
+            info.addWidget(tema.chip(label_kelas, "info"))
         if r["diedit_manual"]:
-            info.addWidget(tema.chip("Volume diedit manual", "peringatan"))
+            info.addWidget(tema.chip("Volume diedit", "peringatan"))
         if r.get("dimensi_manual"):
             info.addWidget(tema.chip("Dimensi diubah", "peringatan"))
         info.addStretch()
         self._lay.addLayout(info)
         self._baris_nilai("Elemen", r["nama_elemen"] or "-")
         self._baris_nilai("Lantai", r["lantai"] or "-")
-        self._baris_nilai("Entitas IFC", r.get("ifc_type") or "-")
-        if r.get("kode_tipe"):
-            self._baris_nilai("Tipe", label_tipe(
-                r["kelompok_tipe"], r["kode_tipe"], (r["tipe_b_cm"] or 0) / 100 or None, (r["tipe_h_cm"] or 0) / 100
-            ))
-        if r.get("uraian") and r.get("diameter"):
-            self._baris_nilai("Item", r["uraian"])
 
+        # ---- harga
         self._lay.addWidget(tema.garis())
-        self._lay.addWidget(tema.label("DIMENSI ELEMEN" if r.get("dimensi_manual") else "DIMENSI DARI MODEL", "bagian"))
-        try:
-            sumber = json.loads(r.get("sumber_dimensi") or "{}")
-        except ValueError:
-            sumber = {}
-        ada = False
-        for kunci, nama, sat in LABEL_DIMENSI:
-            nilai = r.get(kunci)
-            if not nilai:
-                continue
-            ada = True
-            asal = sumber.get("volume" if kunci == "volume_elemen" else kunci)
-            d = 1 if kunci == "kemiringan" else 3
-            self._baris_nilai(nama, f"{tema.format_angka(nilai, d)} {sat}", LABEL_SUMBER.get(asal))
-        if not ada:
-            self._lay.addWidget(tema.label("Tidak ada dimensi tersimpan untuk elemen ini.", "subjudul"))
-        if r.get("elemen_id") and kolom_dimensi_elemen(r)[0]:
-            btn = tema.tombol(
-                "Ubah Dimensi", "secondary", "ulang",
-                "Ubah dimensi elemen lalu hitung ulang kuantitas dan biayanya (KF-19)",
-            )
-            btn.clicked.connect(lambda _=False, eid=r["elemen_id"]: self.minta_ubah_dimensi.emit(eid))
-            self._lay.addSpacing(2)
-            self._lay.addWidget(btn)
-
-        self._lay.addWidget(tema.garis())
-        self._lay.addWidget(tema.label("RUMUS (RULE ENGINE)", "bagian"))
-        rumus = tema.label(r.get("rumus") or "Tidak ada uraian rumus (hasil estimasi versi lama).", "rumus", wrap=True)
-        rumus.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        rumus.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self._lay.addWidget(rumus)
-        if r["diedit_manual"]:
-            self._lay.addWidget(
-                tema.label(
-                    f"Volume saat ini {tema.format_angka(r['volume_pekerjaan'], 3)} {r['satuan']} "
-                    "adalah hasil edit manual, bukan hasil rumus di atas.",
-                    "peringatan", wrap=True,
-                )
-            )
-
-        self._lay.addWidget(tema.garis())
+        self._baris_nilai("Volume", f"{tema.format_angka(r['volume_pekerjaan'], 3)} {r['satuan']}")
         self._baris_nilai("Harga satuan", tema.format_rupiah(r["harga_satuan"]))
+        self._baris_nilai("Subtotal", tema.format_rupiah(r["subtotal_biaya"]))
         if r.get("harga_manual"):
             master = get_harga_satuan_pekerjaan(r["pekerjaan_id"])
             self._lay.addWidget(tema.label(
-                f"Harga khusus baris ini. Harga master (analisa): {tema.format_rupiah(master)}.", "peringatan", wrap=True,
+                f"Harga khusus baris ini. Harga normal (analisa): {tema.format_rupiah(master)}.", "peringatan", wrap=True,
             ))
-            btn = tema.tombol("Kembalikan Harga Master", "ghost", "ulang")
+            btn = tema.tombol("Kembalikan Harga Normal", "ghost", "ulang")
             btn.clicked.connect(lambda _=False, hid=r["hasil_id"]: self.minta_harga_baris.emit([hid], None))
             self._lay.addWidget(btn)
-        self._baris_nilai("Subtotal", tema.format_rupiah(r["subtotal_biaya"]))
 
-        # kebutuhan bahan: pekerjaan baris ini, lalu seluruh pekerjaan elemen (bata + plester + acian + cat ...)
-        self._daftar_kebutuhan(
-            f"KEBUTUHAN BAHAN · {tema.format_angka(r['volume_pekerjaan'], 2)} {r['satuan']}", [r], komponen)
-        baris_elemen = [x for x in (baris_elemen or []) if x.get("elemen_id") == r.get("elemen_id")]
-        if len(baris_elemen) > 1:
-            self._daftar_kebutuhan(f"KEBUTUHAN BAHAN SELURUH ELEMEN · {len(baris_elemen)} pekerjaan", baris_elemen, komponen)
-        if r.get("elemen_id") and any(kode_dasar(x.get("kode_ahsp")) in SLOT for x in baris_elemen or [r]):
-            btn = tema.tombol("Ganti Material Elemen...", "secondary", None,
-                              "Pilih bahan khusus elemen ini dan bandingkan kebutuhan bahan & biayanya "
-                              "(mis. bata merah vs bata ringan)")
+        # ---- bahan & kebutuhan bahan seluruh elemen (bata + plester + acian + cat ...)
+        baris_elemen = [x for x in (baris_elemen or []) if x.get("elemen_id") == r.get("elemen_id")] or [r]
+        slot, kunci = _bahan_baris(r)
+        if slot:
+            self._lay.addWidget(tema.garis())
+            self._baris_nilai("Bahan", SLOT[slot].cari(kunci).label)
+        judul = (f"KEBUTUHAN BAHAN ELEMEN INI ({len(baris_elemen)} pekerjaan)" if len(baris_elemen) > 1
+                 else f"KEBUTUHAN BAHAN · {tema.format_angka(r['volume_pekerjaan'], 2)} {r['satuan']}")
+        self._daftar_kebutuhan(judul, baris_elemen, komponen)
+        if r.get("elemen_id") and any(_bahan_baris(x)[0] for x in baris_elemen):
+            btn = tema.tombol("Bandingkan && Ganti Bahan...", "secondary", None,
+                              "Bandingkan biaya dan kebutuhan semua pilihan bahan untuk elemen ini "
+                              "(mis. bata merah vs bata ringan), lalu pilih")
             btn.clicked.connect(lambda _=False, eid=r["elemen_id"], nm=r.get("nama_elemen") or "":
                                 self.minta_material_elemen.emit(eid, nm))
             self._lay.addSpacing(2)
             self._lay.addWidget(btn)
 
         if r.get("item_tambahan"):
+            self._lay.addWidget(tema.garis())
             self._lay.addWidget(tema.label(
-                "Item tambahan dari katalog HSPK (tidak dihitung dari model). Ubah volumenya di kolom Volume; "
-                "item ini tetap ada saat estimasi dihitung ulang.", "infoKecil", wrap=True))
+                "Pekerjaan tambahan dari katalog HSPK (tidak dihitung dari model). Ubah volumenya di kolom Volume; "
+                "pekerjaan ini tetap ada saat estimasi dihitung ulang.", "infoKecil", wrap=True))
             hapus = tema.tombol("Hapus Item Tambahan", "danger")
             hapus.clicked.connect(lambda _=False, hid=r["hasil_id"]: self.minta_hapus_item.emit(hid))
             self._lay.addWidget(hapus)
+
+        # ---- detail perhitungan (dimensi dari model + rumus)
+        if r.get("elemen_id"):
+            self._lay.addWidget(tema.garis())
+            self._lay.addWidget(tema.label("DETAIL PERHITUNGAN", "bagian"))
+            self._baris_nilai("Entitas IFC", r.get("ifc_type") or "-")
+            if r.get("kode_tipe"):
+                self._baris_nilai("Tipe", label_tipe(
+                    r["kelompok_tipe"], r["kode_tipe"], (r["tipe_b_cm"] or 0) / 100 or None, (r["tipe_h_cm"] or 0) / 100
+                ))
+            if r.get("uraian") and r.get("diameter"):
+                self._baris_nilai("Item", r["uraian"])
+            try:
+                sumber = json.loads(r.get("sumber_dimensi") or "{}")
+            except ValueError:
+                sumber = {}
+            for kunci_d, nama, sat in LABEL_DIMENSI:
+                nilai = r.get(kunci_d)
+                if not nilai:
+                    continue
+                asal = sumber.get("volume" if kunci_d == "volume_elemen" else kunci_d)
+                d = 1 if kunci_d == "kemiringan" else 3
+                self._baris_nilai(nama, f"{tema.format_angka(nilai, d)} {sat}", LABEL_SUMBER.get(asal))
+            rumus = tema.label(r.get("rumus") or "Tidak ada uraian rumus (hasil estimasi versi lama).", "rumus", wrap=True)
+            rumus.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            rumus.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            self._lay.addWidget(rumus)
+            if r["diedit_manual"]:
+                self._lay.addWidget(tema.label(
+                    f"Volume saat ini {tema.format_angka(r['volume_pekerjaan'], 3)} {r['satuan']} adalah hasil edit "
+                    "manual, bukan hasil rumus di atas.", "peringatan", wrap=True))
+            if kolom_dimensi_elemen(r)[0]:
+                btn = tema.tombol("Ubah Dimensi", "secondary", "ulang",
+                                  "Ubah dimensi elemen lalu hitung ulang kuantitas dan biayanya (KF-19)")
+                btn.clicked.connect(lambda _=False, eid=r["elemen_id"]: self.minta_ubah_dimensi.emit(eid))
+                self._lay.addSpacing(2)
+                self._lay.addWidget(btn)
 
         self._lay.addWidget(tema.garis())
         self._lay.addWidget(tema.label("CATATAN", "bagian"))
@@ -1905,6 +1935,16 @@ def _nama_baris(r: dict) -> str:
     if r.get("uraian") and r.get("diameter"):
         return f"{r['nama_pekerjaan']} — {r['uraian']}"
     return r["nama_pekerjaan"]
+
+
+def _bahan_baris(r: dict):
+    """(slot, kunci pilihan) bila pekerjaan baris ini punya pilihan bahan, mis. ('DND.BATA', 'merah');
+    (None, None) bila tidak."""
+    kode = r.get("kode_ahsp") or ""
+    slot = kode_dasar(kode)
+    if slot not in SLOT:
+        return None, None
+    return slot, (kode.split("~", 1)[1] if "~" in kode else SLOT[slot].bawaan)
 
 
 def _label_elemen(r: dict) -> str:
