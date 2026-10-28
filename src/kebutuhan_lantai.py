@@ -23,6 +23,7 @@ from rab_rinci import TANPA_LANTAI, daftar_lantai, rekap_per_lantai, susun_rinci
 from rules.penulangan import NAMA_KELOMPOK, PANJANG_BATANG, URUTAN, berat_per_m, jenis_baja, label_d, label_tipe
 
 BERAT_ZAK_SEMEN = 50  # kg per zak
+BERAT_ZAK_MORTAR = 40  # kg per zak mortar instan (perekat bata ringan, plester, acian)
 # Rentang wajar rasio besi beton bertulang rumah tinggal (kg/m³). Di luar rentang ini angka ditandai
 # "periksa": biasanya dimensi elemen di model IFC tidak wajar atau konfigurasi tulangan perlu dicek.
 RASIO_WAJAR = (40.0, 350.0)
@@ -194,8 +195,10 @@ def komponen_pekerjaan(pekerjaan_ids) -> dict:
 
 def keterangan_sumber_daya(nama: str, satuan: str, jumlah: float) -> str:
     n = nama.lower()
-    if "semen" in n and satuan.lower() == "kg":
+    if "semen" in n and "warna" not in n and satuan.lower() == "kg":
         return f"≈ {math.ceil(jumlah / BERAT_ZAK_SEMEN - 1e-9):,} zak @ {BERAT_ZAK_SEMEN} kg".replace(",", ".")
+    if "mortar" in n and satuan.lower() == "kg":
+        return f"≈ {math.ceil(jumlah / BERAT_ZAK_MORTAR - 1e-9):,} zak @ {BERAT_ZAK_MORTAR} kg".replace(",", ".")
     if satuan.lower() == "oh":
         return "orang-hari"
     return ""
@@ -203,7 +206,9 @@ def keterangan_sumber_daya(nama: str, satuan: str, jumlah: float) -> str:
 
 def kebutuhan_sumber_daya(baris: list, komponen: dict) -> dict:
     """{'bahan': [...], 'upah': [...], 'alat': [...], 'tanpa_analisa': [nama pekerjaan]}.
-    Item: {'nama', 'satuan', 'jumlah', 'harga', 'biaya', 'keterangan'}; urut biaya terbesar dulu."""
+    Item: {'nama', 'satuan', 'jumlah', 'harga', 'biaya', 'keterangan', 'pekerjaan', 'lantai'}; urut biaya
+    terbesar dulu. 'pekerjaan' = {nama pekerjaan: {'volume', 'satuan', 'koefisien', 'jumlah'}} dan 'lantai' =
+    {lantai: jumlah}: asal kebutuhan itu (mis. semen dari pasangan bata, plesteran, dan acian)."""
     acc = {t: {} for t, _ in TIPE_SUMBER_DAYA}
     tanpa = set()
     for r in baris:
@@ -217,9 +222,16 @@ def kebutuhan_sumber_daya(baris: list, komponen: dict) -> dict:
             if k["tipe"] not in acc:
                 continue
             kunci = (k["nama"].lower(), k["satuan"].lower())
-            d = acc[k["tipe"]].setdefault(kunci, {"nama": k["nama"], "satuan": k["satuan"], "jumlah": 0.0, "biaya": 0.0})
+            d = acc[k["tipe"]].setdefault(kunci, {"nama": k["nama"], "satuan": k["satuan"], "jumlah": 0.0, "biaya": 0.0,
+                                                  "pekerjaan": {}, "lantai": {}})
             d["jumlah"] += v * k["koefisien"]
             d["biaya"] += v * k["koefisien"] * k["harga"]
+            p = d["pekerjaan"].setdefault(r["nama_pekerjaan"], {"volume": 0.0, "satuan": r.get("satuan") or "",
+                                                                "koefisien": k["koefisien"], "jumlah": 0.0})
+            p["volume"] += v
+            p["jumlah"] += v * k["koefisien"]
+            lt = r.get("lantai") or TANPA_LANTAI
+            d["lantai"][lt] = d["lantai"].get(lt, 0.0) + v * k["koefisien"]
     hasil = {"tanpa_analisa": sorted(tanpa)}
     for tipe, _ in TIPE_SUMBER_DAYA:
         items = [d for d in acc[tipe].values() if d["jumlah"] > 1e-9]

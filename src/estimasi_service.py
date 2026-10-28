@@ -11,7 +11,7 @@ from pathlib import Path
 from aktivitas import catat
 from database.estimasi_repository import BUK_RATE, _connect
 from database.init_db import pastikan_skema
-from database.material_repository import kode_proyek
+from database.material_repository import kode_elemen, kode_proyek
 from database.parameter_repository import muat_parameter
 from database.penulangan_repository import pasang_tipe, rapikan_tipe
 from database.seed_data import seed_pekerjaan
@@ -42,6 +42,7 @@ _KOLOM_ELEMEN = (
     "sumber_volume",
     "sumber_dimensi",
     "tipe_id",
+    "material",
 )
 RULES_PEMBESIAN = [r for r in RULES if r.kode.startswith("BSI.")]
 
@@ -57,13 +58,16 @@ def _harga_dan_kode(conn, proyek_id: int):
         )
     }
     kode_ke_id = {r["kode_ahsp"]: r["id"] for r in conn.execute("SELECT id, kode_ahsp FROM pekerjaan")}
-    return harga, kode_proyek(conn, proyek_id, kode_ke_id)
+    return harga, (kode_proyek(conn, proyek_id, kode_ke_id), kode_ke_id)
 
 
-def _simpan_hasil(conn, proyek_id, elemen_id, hasil, harga, kode_ke_id, peringatan) -> int:
+def _simpan_hasil(conn, proyek_id, elemen_id, hasil, harga, kode, peringatan, material=None) -> int:
+    """`kode` = (peta kode proyek, peta kode_ahsp -> id) dari _harga_dan_kode; `material` = pilihan
+    material khusus elemen (JSON elemen_proyek.material) yang menimpa pilihan proyek."""
+    peta = kode_elemen(*kode, material)
     n = 0
     for h in hasil:
-        pid = kode_ke_id.get(h.kode)
+        pid = peta.get(h.kode)
         if pid is None:
             peringatan.append(f"Kode pekerjaan '{h.kode}' belum ada di tabel pekerjaan (jalankan seed).")
             continue
@@ -109,6 +113,15 @@ def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=None)
 
         elemen, peringatan = ekstrak_elemen(model, progress)
         harga, kode_ke_id = _harga_dan_kode(conn, proyek_id)
+        # pilihan material khusus elemen tetap berlaku setelah IFC dibaca ulang (dicocokkan lewat GlobalId)
+        material_lama = {
+            r["global_id"]: r["material"] for r in conn.execute(
+                "SELECT global_id, material FROM elemen_proyek WHERE proyek_id = ? AND material IS NOT NULL",
+                (proyek_id,),
+            )
+        }
+        for el in elemen:
+            el["material"] = material_lama.get(el["global_id"])
 
         conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ?", (proyek_id,))
         conn.execute("DELETE FROM elemen_proyek WHERE proyek_id = ?", (proyek_id,))
@@ -129,7 +142,8 @@ def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=None)
                 f"INSERT INTO elemen_proyek (proyek_id, {kolom}) VALUES ({tanda})",
                 (proyek_id, *nilai),
             )
-            n_hasil += _simpan_hasil(conn, proyek_id, cur.lastrowid, hasil, harga, kode_ke_id, peringatan)
+            n_hasil += _simpan_hasil(conn, proyek_id, cur.lastrowid, hasil, harga, kode_ke_id, peringatan,
+                                    el.get("material"))
 
         rapikan_tipe(conn, proyek_id)
         conn.execute(
@@ -230,7 +244,7 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=None) -> dict:
         )
         khusus = _simpan_khusus(conn, "elemen_id = ?", (elemen_id,))  # KF-6: harga khusus & catatan tetap
         conn.execute("DELETE FROM hasil_estimasi WHERE elemen_id = ?", (elemen_id,))
-        n = _simpan_hasil(conn, el["proyek_id"], elemen_id, hasil, harga, kode_ke_id, dilewati)
+        n = _simpan_hasil(conn, el["proyek_id"], elemen_id, hasil, harga, kode_ke_id, dilewati, el.get("material"))
         _pulihkan_khusus(conn, khusus)
         rapikan_tipe(conn, el["proyek_id"])
         conn.execute(
@@ -298,7 +312,7 @@ def hitung_ulang_penulangan(proyek_id: int, parameter=None) -> dict:
         for el in semua:
             conn.execute("UPDATE elemen_proyek SET tipe_id = ? WHERE id = ?", (el["tipe_id"], el["id"]))
             hasil, _ = terapkan_rules(el, konteks, parameter, RULES_PEMBESIAN)
-            n += _simpan_hasil(conn, proyek_id, el["id"], hasil, harga, kode_ke_id, catatan)
+            n += _simpan_hasil(conn, proyek_id, el["id"], hasil, harga, kode_ke_id, catatan, el.get("material"))
             berat += sum(h.volume for h in hasil)
         _pulihkan_khusus(conn, khusus)
         rapikan_tipe(conn, proyek_id)
@@ -333,7 +347,7 @@ def hitung_ulang_dari_elemen(proyek_id: int, parameter=None) -> dict:
         n = 0
         for el, hasil in keluaran:
             conn.execute("UPDATE elemen_proyek SET tipe_id = ? WHERE id = ?", (el["tipe_id"], el["id"]))
-            n += _simpan_hasil(conn, proyek_id, el["id"], hasil, harga, kode_ke_id, peringatan)
+            n += _simpan_hasil(conn, proyek_id, el["id"], hasil, harga, kode_ke_id, peringatan, el.get("material"))
         _pulihkan_khusus(conn, simpan)
         rapikan_tipe(conn, proyek_id)
         conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (proyek_id,))
