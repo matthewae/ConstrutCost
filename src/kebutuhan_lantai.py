@@ -18,6 +18,7 @@ Lantai dikenali dari IfcBuildingStorey, berapa pun jumlahnya, urut elevasi (rab_
 import math
 import re
 
+from database.material import kode_dasar
 from rab_rinci import TANPA_LANTAI, daftar_lantai, rekap_per_lantai, susun_rinci
 from rules.penulangan import NAMA_KELOMPOK, PANJANG_BATANG, URUTAN, berat_per_m, jenis_baja, label_d, label_tipe
 
@@ -32,10 +33,11 @@ _MUTU = re.compile(r"f'c\s*([\d.,]+)\s*MPa", re.IGNORECASE)
 
 
 def _kelompok_kode(kode: str) -> str:
-    """'BTN.KOLOM' -> 'KOLOM', 'BSI.PELAT.U' -> 'PELAT', 'LTK.FONDASI' -> 'LANTAI_KERJA'."""
+    """'BTN.KOLOM' -> 'KOLOM', 'BSI.PELAT.U' -> 'PELAT', 'LTK.FONDASI' -> 'LANTAI_KERJA',
+    'BTN.KOLOM~rm25' (pilihan material) -> 'KOLOM'."""
     if kode.startswith("LTK."):
         return "LANTAI_KERJA"
-    bagian = kode.split(".")
+    bagian = kode_dasar(kode).split(".")
     return bagian[1] if len(bagian) > 1 else kode
 
 

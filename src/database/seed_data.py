@@ -18,10 +18,11 @@ harga F di dokumen HSPK (diuji di tests/test_hspk.py).
 """
 
 from database.estimasi_repository import _connect
-from database.hspk_bandung_2027 import AHSP, HSD, SUMBER
+from database.hspk_bandung_2027 import AHSP, HSD, SATUAN, SUMBER
 from database.init_db import pastikan_skema
+from database.material import SLOT, kode_varian
 
-SEED_VERSI = "10-hspk-bdg-2027-persiapan-timbunan"
+SEED_VERSI = "11-hspk-bdg-2027-katalog-pilihan-material"
 
 SUMBER_HSPK = "HSPK Kota Bandung 2027"
 
@@ -93,21 +94,25 @@ PEMETAAN = {
     # ---------------- Cat ----------------
     "CAT.DINDING": ("Pengecatan Tembok Baru Interior (1 Lapis Cat Dasar, 2 Lapis Cat Penutup)", "Cat", "m2",
                     "3.8.10.1"),
-    # Sisi luar dinding luar dipisah sebagai item sendiri. Harganya sementara memakai analisa 3.8.10.1:
-    # analisa eksterior HSPK 3.8.10.2 memakai harga dasar "Cat penutup (cat tembok eksterior)"
-    # Rp 1.624.000/kg (kemungkinan harga per pail), sehingga harga satuannya Rp 509.761/m² (6x interior).
+    # Sisi luar dinding luar dipisah sebagai item sendiri. Pilihan bawaan sementara memakai analisa 3.8.10.1
+    # (lihat catatan _CAT_EKSTERIOR di database/material.py).
     "CAT.EKSTERIOR": ("Pengecatan Tembok Baru Eksterior (1 Lapis Cat Dasar, 2 Lapis Cat Penutup)", "Cat", "m2",
                       "3.8.10.1"),
 }
 
-# Catatan tambahan pada pekerjaan (ditampilkan di Harga Satuan) bila pemetaan menyimpang dari item HSPK aslinya.
-CATATAN_PEMETAAN = {
-    "CAT.EKSTERIOR": (
-        "Sementara memakai analisa cat interior 3.8.10.1: harga dasar cat penutup eksterior di HSPK 2027 "
-        "(Rp 1.624.000/kg, item 3.8.10.2) tidak wajar. Ganti komponen di Analisa Pekerjaan bila harga cat "
-        "eksterior sudah diverifikasi."
-    ),
-}
+# Catatan tambahan pada pekerjaan (ditampilkan di Harga Satuan) bila pemetaan menyimpang dari item HSPK
+# aslinya atau harga dasarnya perlu diverifikasi. Diisi dari pilihan material di bawah.
+CATATAN_PEMETAAN = {}
+
+# Pilihan material (database/material.py): pilihan bawaan memakai kode slot, pilihan lain "slot~kunci".
+# Kategori dan satuan varian sama dengan pekerjaan slotnya.
+for _slot in SLOT.values():
+    _nama, _kategori, _satuan, _hspk = PEMETAAN[_slot.kode]
+    for _o in _slot.opsi:
+        _kode = kode_varian(_slot.kode, _o.kunci)
+        PEMETAAN[_kode] = (_o.nama, _kategori, _satuan, _o.kode_hspk)
+        if _o.catatan:
+            CATATAN_PEMETAAN[_kode] = _o.catatan
 
 # Pembesian rinci per jenis baja (rules/penulangan.py): Ø < 12 mm = baja polos BjTP, D >= 12 mm =
 # baja ulir/sirip BjTS. Kolom/balok/sloof memakai analisa penulangan kolom-balok, pelat/dak/fondasi
@@ -126,7 +131,7 @@ for _grup, _nama, _kategori, _hspk_p, _hspk_u in (
 # Bab 6.2 Sistem Air Limbah (data asli, di luar lingkup rule engine; tersedia untuk input manual)
 for _kode in [k for k in AHSP if k.startswith("6.2.")]:
     _sheet, _uraian, _f, _komp = AHSP[_kode]
-    _satuan = "set" if "set" in _uraian.lower() else ("buah" if "buah" in _uraian.lower() else "unit")
+    _satuan = SATUAN.get(_kode) or "unit"
     PEMETAAN[f"HSPK-{_kode}"] = (_uraian, "Air Limbah", _satuan, _kode)
 
 

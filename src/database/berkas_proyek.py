@@ -2,7 +2,7 @@
 KF-7 / UC-06: simpan & buka proyek sebagai file .coststruct.
 
 File .coststruct adalah arsip ZIP berisi:
-- proyek.json : info proyek, parameter aturan, elemen (termasuk dimensi yang diubah pengguna),
+- proyek.json : info proyek, parameter aturan, pilihan material, elemen (termasuk dimensi yang diubah pengguna),
                 tipe penulangan, biaya tidak langsung, hasil estimasi (volume, harga khusus,
                 catatan, rumus), dan potret harga satuan + komponen analisa setiap pekerjaan yang
                 dipakai (harga saat file disimpan).
@@ -28,7 +28,7 @@ from database.estimasi_repository import BUK_RATE, _connect
 FORMAT = "coststruct-proyek"
 VERSI = 1
 EKSTENSI = ".coststruct"
-_INFO = ("nama_proyek", "path_file_ifc", "lokasi", "pemilik", "tahun_anggaran", "parameter")
+_INFO = ("nama_proyek", "path_file_ifc", "lokasi", "pemilik", "tahun_anggaran", "parameter", "material")
 
 
 class BerkasTidakValid(ValueError):

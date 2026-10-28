@@ -59,7 +59,7 @@ def test_harga_khusus_baris_tidak_ditimpa_terapkan_harga(proyek):
     ubah_harga_baris([b["id"]], None)
     r = conn.execute("SELECT * FROM hasil_estimasi WHERE id = ?", (b["id"],)).fetchone()
     assert r["harga_manual"] is None
-    assert r["subtotal_biaya"] == pytest.approx(10.0 * 426435, rel=1e-4)  # HSPK 3.6.1.8
+    assert r["subtotal_biaya"] == pytest.approx(10.0 * 370956, rel=1e-4)  # HSPK 3.6.4.2 bata ringan 10 cm (bawaan)
 
     with pytest.raises(NilaiTidakValid, match="lebih besar dari nol"):
         ubah_harga_baris([b["id"]], 0)

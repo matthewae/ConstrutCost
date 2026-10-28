@@ -11,6 +11,7 @@ from pathlib import Path
 from aktivitas import catat
 from database.estimasi_repository import BUK_RATE, _connect
 from database.init_db import pastikan_skema
+from database.material_repository import kode_proyek
 from database.parameter_repository import muat_parameter
 from database.penulangan_repository import pasang_tipe, rapikan_tipe
 from database.seed_data import seed_pekerjaan
@@ -45,9 +46,10 @@ _KOLOM_ELEMEN = (
 RULES_PEMBESIAN = [r for r in RULES if r.kode.startswith("BSI.")]
 
 
-def _harga_dan_kode(conn):
+def _harga_dan_kode(conn, proyek_id: int):
     """harga satuan per pekerjaan_id (jumlah komponen x (1 + BUK), sama dengan
-    get_harga_satuan_pekerjaan()) dan peta kode_ahsp -> pekerjaan_id."""
+    get_harga_satuan_pekerjaan()) dan peta kode keluaran rule -> pekerjaan_id, dengan pilihan material
+    proyek (mis. DND.BATA -> pekerjaan 'DND.BATA~merah' bila proyek memilih bata merah)."""
     harga = {
         r["pekerjaan_id"]: r["h"] * (1 + BUK_RATE)
         for r in conn.execute(
@@ -55,7 +57,7 @@ def _harga_dan_kode(conn):
         )
     }
     kode_ke_id = {r["kode_ahsp"]: r["id"] for r in conn.execute("SELECT id, kode_ahsp FROM pekerjaan")}
-    return harga, kode_ke_id
+    return harga, kode_proyek(conn, proyek_id, kode_ke_id)
 
 
 def _simpan_hasil(conn, proyek_id, elemen_id, hasil, harga, kode_ke_id, peringatan) -> int:
@@ -106,7 +108,7 @@ def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=None)
             model = buka_dan_validasi(row["path_file_ifc"], terisolasi=True).model
 
         elemen, peringatan = ekstrak_elemen(model, progress)
-        harga, kode_ke_id = _harga_dan_kode(conn)
+        harga, kode_ke_id = _harga_dan_kode(conn, proyek_id)
 
         conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ?", (proyek_id,))
         conn.execute("DELETE FROM elemen_proyek WHERE proyek_id = ?", (proyek_id,))
@@ -217,7 +219,7 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=None) -> dict:
         pasang_tipe(conn, el["proyek_id"], [el], parameter.batas_kemiringan_dak)  # penampang bisa berubah
         hasil, dilewati = terapkan_rules(el, konteks, parameter)
 
-        harga, kode_ke_id = _harga_dan_kode(conn)
+        harga, kode_ke_id = _harga_dan_kode(conn, el["proyek_id"])
         kolom = [k for k in ("panjang", "lebar", "tinggi", "tebal", "luas", "volume", "keliling",
                              "kemiringan", "luas_bukaan") if k in gabung]
         conn.execute(
@@ -288,7 +290,7 @@ def hitung_ulang_penulangan(proyek_id: int, parameter=None) -> dict:
         )]
         konteks = siapkan_konteks(semua, parameter)
         pasang_tipe(conn, proyek_id, semua, parameter.batas_kemiringan_dak)
-        harga, kode_ke_id = _harga_dan_kode(conn)
+        harga, kode_ke_id = _harga_dan_kode(conn, proyek_id)
         syarat_bsi = "proyek_id = ? AND pekerjaan_id IN (SELECT id FROM pekerjaan WHERE kode_ahsp LIKE 'BSI.%')"
         khusus = _simpan_khusus(conn, syarat_bsi, (proyek_id,))  # KF-6: harga khusus & catatan tetap
         conn.execute(f"DELETE FROM hasil_estimasi WHERE {syarat_bsi}", (proyek_id,))
@@ -326,7 +328,7 @@ def hitung_ulang_dari_elemen(proyek_id: int, parameter=None) -> dict:
         siapkan_konteks(semua, parameter)
         pasang_tipe(conn, proyek_id, semua, parameter.batas_kemiringan_dak)
         konteks, keluaran, peringatan = proses_semua(semua, parameter)
-        harga, kode_ke_id = _harga_dan_kode(conn)
+        harga, kode_ke_id = _harga_dan_kode(conn, proyek_id)
         conn.execute("DELETE FROM hasil_estimasi WHERE proyek_id = ?", (proyek_id,))
         n = 0
         for el, hasil in keluaran:

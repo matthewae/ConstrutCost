@@ -5,8 +5,13 @@ Impor HSPK (Harga Satuan Pokok Kegiatan) dari workbook Excel menjadi modul data 
 
 Menghasilkan src/database/hspk_bandung_2027.py berisi:
 - HSD   : seluruh harga satuan dasar upah, material, dan peralatan (sheet "HSD (...)").
-- AHSP  : seluruh analisa harga satuan pekerjaan pada sheet bab yang relevan, lengkap dengan
+- AHSP  : seluruh analisa harga satuan pekerjaan bab 1-10 (katalog lengkap), lengkap dengan
           koefisien, harga komponen, dan harga satuan F dari dokumen (untuk verifikasi).
+- SATUAN: satuan setiap analisa, dari daftar induk sheet "HSPK".
+- BAB   : judul bab 1-10 dari daftar induk, untuk pengelompokan katalog.
+
+Sheet khusus rumah sakit (kode bab 11 ke atas, RSKGM, MOT, Radiologi, ...) bukan HSPK standar dan
+tidak diimpor.
 
 Kolom setiap analisa dibaca dari baris header "No | Uraian | ... | Koefisien | Harga Satuan |
 Jumlah Harga" milik item itu sendiri, karena susunan kolom antar sheet tidak sama.
@@ -21,7 +26,9 @@ from pathlib import Path
 import openpyxl
 
 SHEET_HSD = {"HSD (Upah)": "upah", "HSD (Material)": "bahan", "HSD (Peralatan)": "alat"}
-SHEET_AHSP = [
+# Sheet yang dibaca lebih dulu. Urutannya menentukan kode ganda: analisa dengan kode yang sama di sheet
+# berikutnya disimpan sebagai "kode@sheet", sehingga kode analisa yang sudah dipakai aplikasi tidak berubah.
+SHEET_UTAMA = [
     "Persiapan",
     "Galian Tanah",
     "Timbunan Pemadatan",
@@ -41,6 +48,15 @@ SHEET_AHSP = [
     "Besi dan Aluminium",
     "Sistem Air Limbah",
 ]
+# Sheet ringkasan / harga dasar / daftar khusus rumah sakit: bukan analisa HSPK standar.
+SHEET_LEWATI = {
+    "Status", "Status Pekerjaan", "Kertas Kerja SSH (TKDN)", "SBU 2027", "ASB", "HSPK",
+    "Daftar Harga Satuan Pekerjaan", "Upah Bahan", "HSD (Upah)", "HSD (Material)", "HSD (Peralatan)",
+    "LIST ITEM RSKGM BARU", "LIST ITEM YG TIDAK ADA DI REGUL", "Sheet5", "III. B2. AR RS NSTD",
+    "III.C.REKAP ME.RS", "RSKGM EL EK", "VI.A.SR.PARKIR", "RSKGM UTYL", "RSKGM MP", "RSKGM MP2",
+    "RSKGM HEAT PUMP", "MOT", "RADIOLOGI", "ASB Rumputisasi",
+}
+BAB_MAKS = 10
 KODE = re.compile(r"^\d+(\.\d+)+[a-zA-Z]?$")
 TIPE_BLOK = {"TENAGA KERJA": "upah", "BAHAN": "bahan", "PERALATAN": "alat"}
 TUJUAN = Path(__file__).resolve().parents[1] / "src" / "database" / "hspk_bandung_2027.py"
@@ -81,9 +97,14 @@ def baca_hsd(wb) -> list:
     return hasil
 
 
-def baca_ahsp(wb) -> list:
+def daftar_sheet(wb) -> list:
+    lain = [n for n in wb.sheetnames if n not in SHEET_UTAMA and n.strip() not in SHEET_LEWATI]
+    return SHEET_UTAMA + lain
+
+
+def baca_ahsp(wb, sheets) -> list:
     items = []
-    for sh in SHEET_AHSP:
+    for sh in sheets:
         if sh not in wb.sheetnames:
             print(f"  (lewati, sheet tidak ada: {sh})")
             continue
@@ -96,8 +117,9 @@ def baca_ahsp(wb) -> list:
             if idx is None:
                 continue
             cs, ds = t[idx], t[idx + 1]
-            if KODE.match(cs) and cs.count(".") >= 2 and ds and not ds.lower().startswith("jumlah"):
-                cur = {"sheet": sh, "kode": cs, "uraian": ds, "komponen": [], "F": None, "BUK": None}
+            kode = cs.rstrip(".")  # mis. "1.1.3.3." di dokumen
+            if KODE.match(kode) and kode.count(".") >= 2 and ds and not ds.lower().startswith("jumlah"):
+                cur = {"sheet": sh, "kode": kode, "uraian": ds, "komponen": [], "F": None, "BUK": None}
                 items.append(cur)
                 tipe, kol = None, None
                 continue
@@ -118,6 +140,8 @@ def baca_ahsp(wb) -> list:
                     "harga": cari(lambda v: "harga" in v and "satuan" in v and "jumlah" not in v),
                     "jumlah": cari(lambda v: v.startswith("jumlah harga") or v == "jumlah"),
                 }
+                if None in kol.values():  # header tidak lengkap: analisa ini tidak bisa dibaca
+                    kol, cur = None, None
                 continue
             if kol is None:
                 continue
@@ -141,7 +165,52 @@ def baca_ahsp(wb) -> list:
     return [i for i in items if i["komponen"] and i["F"]]
 
 
-def tulis_modul(hsd: list, ahsp: list, sumber: str) -> None:
+_SATUAN_URAIAN = re.compile(r"\b1\s*(m2|m3|m'|m’|kg|buah|unit|titik|set|ls|btg|bh|ttk)(?![a-z0-9])", re.IGNORECASE)
+# ejaan satuan di dokumen yang diseragamkan
+_SATUAN_SAMA = {"titk": "titik", "m;'": "m'", "m’": "m'", "bh": "buah", "ttk": "titik", "hari.m2": "hari/m2",
+                "hari.m4": "hari/m4", "hari.m5": "hari/m5", "hari.m6": "hari/m6", "m 2": "m2"}
+
+
+def satuan_baku(s: str) -> str:
+    s = _teks(s).replace("’", "'").lower()
+    return _SATUAN_SAMA.get(s, s)
+
+
+def baca_induk(wb) -> tuple:
+    """Daftar induk sheet "HSPK": ({kode: satuan} item berharga, {bab: judul} untuk bab 1-10)."""
+    satuan, bab = {}, {}
+    for row in wb["HSPK"].iter_rows(values_only=True):
+        row = list(row) + [None] * 10
+        no = _teks(row[1]).rstrip(".")
+        if not re.match(r"^\d+(\.\d+)*[a-zA-Z]?$", no):
+            continue
+        if isinstance(row[5], (int, float)) and row[5] > 0:
+            satuan[no] = satuan_baku(row[4])
+        elif "." not in no and not isinstance(row[1], float):
+            bab[no] = _teks(row[3]).title()
+    return satuan, {k: v for k, v in bab.items() if int(k) <= BAB_MAKS}
+
+
+def satuan_dari_uraian(uraian: str) -> str:
+    m = _SATUAN_URAIAN.search(uraian)
+    return satuan_baku(m.group(1)) if m else ""
+
+
+def saring_katalog(ahsp: list, satuan_induk: dict) -> list:
+    """Analisa sheet utama selalu disimpan (dipakai aplikasi). Analisa sheet lain hanya bila tercantum di
+    daftar induk bab 1-10 dan kodenya belum ada (tanpa duplikat "kode@sheet")."""
+    hasil, ada = [], set()
+    for i in ahsp:
+        if i["sheet"] not in SHEET_UTAMA:
+            bab = i["kode"].split(".")[0]
+            if i["kode"] in ada or i["kode"] not in satuan_induk or not bab.isdigit() or int(bab) > BAB_MAKS:
+                continue
+        hasil.append(i)
+        ada.add(i["kode"])
+    return hasil
+
+
+def tulis_modul(hsd: list, ahsp: list, sumber: str, satuan_induk: dict | None = None, bab: dict | None = None) -> None:
     baris = [
         '"""',
         f"Data HSPK hasil impor otomatis dari: {sumber}",
@@ -150,6 +219,8 @@ def tulis_modul(hsd: list, ahsp: list, sumber: str) -> None:
         "HSD  : (tipe, nama, satuan, harga) harga satuan dasar upah / bahan / alat.",
         "AHSP : kode HSPK -> (sheet, uraian, F, [(tipe, nama, satuan, koefisien, harga)])",
         "       F = harga satuan pekerjaan menurut dokumen (sudah termasuk BUK), untuk verifikasi.",
+        "SATUAN: kode HSPK -> satuan pekerjaan (daftar induk sheet HSPK).",
+        "BAB   : nomor bab -> judul bab (1-10).",
         '"""',
         "",
         f"SUMBER = {sumber!r}",
@@ -158,13 +229,18 @@ def tulis_modul(hsd: list, ahsp: list, sumber: str) -> None:
     ]
     baris += [f"    {h!r}," for h in hsd]
     baris += ["]", "", "AHSP = {"]
-    sudah = set()
+    sudah, satuan = set(), {}
     for i in ahsp:
         kode = i["kode"] if i["kode"] not in sudah else f"{i['kode']}@{i['sheet']}"
         sudah.add(kode)
+        satuan[kode] = (satuan_induk or {}).get(i["kode"]) or satuan_dari_uraian(i["uraian"])
         baris.append(f"    {kode!r}: ({i['sheet']!r}, {i['uraian']!r}, {round(i['F'], 4)!r}, [")
         baris += [f"        {k!r}," for k in i["komponen"]]
         baris.append("    ]),")
+    baris += ["}", "", "SATUAN = {"]
+    baris += [f"    {k!r}: {v!r}," for k, v in satuan.items()]
+    baris += ["}", "", "BAB = {"]
+    baris += [f"    {k!r}: {v!r}," for k, v in sorted((bab or {}).items(), key=lambda x: int(x[0]))]
     baris += ["}", ""]
     TUJUAN.write_text("\n".join(baris), encoding="utf-8")
 
@@ -178,7 +254,8 @@ def main():
     print("Membaca workbook ...")
     wb = openpyxl.load_workbook(a.xlsx, read_only=True, data_only=True)
     hsd = baca_hsd(wb)
-    ahsp = baca_ahsp(wb)
+    satuan_induk, bab = baca_induk(wb)
+    ahsp = saring_katalog(baca_ahsp(wb, daftar_sheet(wb)), satuan_induk)
 
     # verifikasi: koefisien x harga x (1 + BUK) harus sama dengan F di dokumen
     beda = []
@@ -187,7 +264,7 @@ def main():
         buk = i["BUK"] if i["BUK"] is not None else 0.1
         if abs(dasar * (1 + buk) - i["F"]) > max(1.0, 0.002 * i["F"]):
             beda.append(f"{i['sheet']} {i['kode']} {i['uraian'][:60]}")
-    tulis_modul(hsd, ahsp, a.sumber)
+    tulis_modul(hsd, ahsp, a.sumber, satuan_induk, bab)
     print(f"{len(hsd)} harga dasar, {len(ahsp)} analisa pekerjaan -> {TUJUAN}")
     if beda:
         print(f"{len(beda)} analisa tidak cocok dengan harga F dokumen (periksa sumbernya):")

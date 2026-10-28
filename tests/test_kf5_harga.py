@@ -43,12 +43,12 @@ def test_ubah_harga_berlaku_di_semua_pekerjaan(db_seed):
     from database.harga_repository import analisa_pekerjaan
 
     semen = _sd("Semen portland (PC)")
-    bata = _harga_pekerjaan("DND.BATA")
+    bata = _harga_pekerjaan("DND.BATA~merah")
     bata_lama = bata["harga_satuan"]
     koef_semen_bata = next(k["koefisien"] for k in analisa_pekerjaan(bata["id"]) if k["sumber_daya_id"] == semen["id"])
     ubah_sumber_daya(semen["id"], semen["harga"] * 2, merk="Tiga Roda")
 
-    bata_baru = _harga_pekerjaan("DND.BATA")["harga_satuan"]
+    bata_baru = _harga_pekerjaan("DND.BATA~merah")["harga_satuan"]
     assert bata_baru - bata_lama == pytest.approx(koef_semen_bata * semen["harga"] * 1.10)
     baru = _sd("Semen portland (PC)")
     assert baru["merk"] == "Tiga Roda" and baru["diubah_manual"] == 1

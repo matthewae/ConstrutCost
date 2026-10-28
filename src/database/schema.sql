@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS proyek (
     lokasi TEXT,                   -- KF-9 info proyek
     pemilik TEXT,
     tahun_anggaran INTEGER,
-    parameter TEXT                 -- KF-7: JSON parameter aturan yang berbeda dari bawaan
+    parameter TEXT,                -- KF-7: JSON parameter aturan yang berbeda dari bawaan
+    material TEXT                  -- JSON pilihan material {slot: kunci} yang berbeda dari bawaan
 );
 
 -- elemen_proyek: hasil ekstraksi IFC per proyek (output dari ifc_reader.py)
