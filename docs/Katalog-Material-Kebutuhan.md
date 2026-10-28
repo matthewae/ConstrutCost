@@ -144,7 +144,7 @@ Total bata ringan di atas juga sudah memakai analisa HSPK untuk pembersihan laha
 
 ## Pengujian
 
-`tests/test_material_katalog.py` (34 tes) menguji:
+`tests/test_material_katalog.py` (35 tes) menguji:
 - keberadaan dan satuan setiap pilihan;
 - penggantian material proyek dan elemen tanpa mengubah volume;
 - hitung ulang dan baca ulang IFC;

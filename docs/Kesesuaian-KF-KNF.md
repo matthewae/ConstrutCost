@@ -35,7 +35,7 @@ serta rincian kebutuhan bahan (keseluruhan, per lantai, per elemen) dijelaskan d
 | Kode | Kebutuhan | Implementasi / hasil ukur | Bukti uji | Status |
 |---|---|---|---|---|
 | KNF-1 | Parsing ≤ 30 detik (file rumah tinggal hingga 50 MB) | Geometri elemen tanpa Qto dihitung paralel di semua inti CPU; hasilnya identik dengan perhitungan satu per satu. Hasil ukur ada di tabel di bawah | `test_knf_kinerja_integritas.py`, `tools/ukur_kinerja.py` | Sesuai |
-| KNF-2 | Rule engine + RAB < 15 detik setelah parsing | 0,02–0,04 detik untuk 163–1.966 item RAB | `test_knf_kinerja_integritas.py` | Sesuai |
+| KNF-2 | Rule engine + RAB < 15 detik setelah parsing | 0,02–0,07 detik untuk 193–2.132 item RAB | `test_knf_kinerja_integritas.py` | Sesuai |
 | KNF-3 | Konsistensi hasil | Input dan database yang sama menghasilkan baris RAB, total, dan isi Excel yang identik pada setiap percobaan | `test_knf_kinerja_integritas.py` | Sesuai |
 | KNF-4 | Tidak crash saat ada galat | File rusak atau bukan .ifc dibaca di proses terpisah; `sys.excepthook` menampilkan peringatan tanpa menutup aplikasi | `test_kf1_validasi.py`, `test_knf8_kf14_kf15.py` | Sesuai |
 | KNF-5 | Indikator proses | Dialog progres "Memproses file IFC" dengan i/n elemen (termasuk tahap geometri paralel); splash dengan progress bar dan tahap pemuatan | `test_ui_modern.py` (splash) | Sesuai |
@@ -50,10 +50,10 @@ Diukur dengan `python tools/ukur_kinerja.py <file.ifc>` (4 inti CPU, Linux):
 
 | File | Ukuran | Elemen | Item RAB | Parsing (KNF-1) | Rule + RAB (KNF-2) |
 |---|---|---|---|---|---|
-| AC20-FZK-Haus.ifc | 2,5 MB | 44 | 163 | 1,3 s | 0,02 s |
-| Duplex_A_20110907.ifc | 2,4 MB | 165 | 484 | 1,6 s | 0,02 s |
-| SampleStructuralModel.ifc | 6,0 MB | 348 | 1.189 | 4,4 s | 0,03 s |
-| rumah_50mb.ifc (sintetis, `tools/buat_ifc_uji.py`) | 53,4 MB | 447 | 1.966 | 13,4 s | 0,04 s |
+| AC20-FZK-Haus.ifc | 2,5 MB | 47 | 193 | 2,2 s | 0,02 s |
+| Duplex_A_20110907.ifc | 2,4 MB | 171 | 453 | 2,1 s | 0,02 s |
+| SampleStructuralModel.ifc | 6,0 MB | 349 | 324 | 4,4 s | 0,04 s |
+| rumah_50mb.ifc (sintetis, `tools/buat_ifc_uji.py`) | 53,4 MB | 447 | 2.132 | 15,0 s | 0,07 s |
 
 Hasil ukur yang sama di **Windows** (CI GitHub Actions, Windows Server 2025, 4 inti CPU, Python 3.13):
 
