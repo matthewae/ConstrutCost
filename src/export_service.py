@@ -947,10 +947,22 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
         header(we, r, ["No", "Elemen / Pekerjaan / Bahan", "Volume / Kebutuhan", "Sat", "Setara", "Jumlah Harga (Rp)"])
         r += 1
         f_miring = Font(name="Arial", size=10, italic=True)
+        f_lantai = Font(name="Arial", size=11, bold=True)
+        lantai_kini = jenis_kini = None
         for n, e in enumerate(kebutuhan_per_elemen(data["baris"], komp), 1):
+            if e["lantai"] != lantai_kini:  # susunan sama dengan tab Per Elemen: lantai -> jenis -> elemen
+                lantai_kini, jenis_kini = e["lantai"], None
+                gaya_baris(we, r, 6, f_lantai, fill_head)
+                we.cell(r, 2, e["lantai"].upper())
+                r += 1
+            if e["jenis"] != jenis_kini:
+                jenis_kini = e["jenis"]
+                gaya_baris(we, r, 6, f_bold, fill_grup)
+                we.cell(r, 2, e["jenis"])
+                r += 1
             gaya_baris(we, r, 6, f_bold, fill_kat)
             we.cell(r, 1, n).alignment = Alignment(horizontal="center")
-            we.cell(r, 2, f"{e['elemen']}  ·  {e['lantai']}")
+            we.cell(r, 2, e["elemen"])
             we.cell(r, 6, e["total"]).number_format = ANGKA
             r += 1
             for p in e["pekerjaan"]:

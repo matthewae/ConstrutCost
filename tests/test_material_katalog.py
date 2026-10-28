@@ -380,8 +380,8 @@ def test_ganti_bahan_di_tabel_per_elemen_mengubah_total_dan_kebutuhan(db_sementa
     hal.grup_mode.button(hal.MODE_DETAIL).setChecked(True)
     hal._isi_ulang()
     t = hal.tabel
-    i = next(i for i in range(t.rowCount())
-             if hal._index[t.item(i, 0).data(0x0100)[1]]["kode_ahsp"] == "DND.BATA")
+    i = next(i for i in range(t.rowCount()) if t.item(i, 0).data(0x0100)[0] == "detail"
+             and hal._index[t.item(i, 0).data(0x0100)[1]]["kode_ahsp"] == "DND.BATA")
     r = hal._index[t.item(i, 0).data(0x0100)[1]]
     cb = t.cellWidget(i, 2)
     assert cb is not None and cb.currentData() == "ringan10" and _bahan_baris(r) == ("DND.BATA", "ringan10")
@@ -410,3 +410,36 @@ def test_ganti_bahan_di_tabel_per_elemen_mengubah_total_dan_kebutuhan(db_sementa
     # urungkan: kembali bata ringan dan total semula
     hal.riwayat.undo()
     assert ringkasan_biaya(pid)["langsung"] == pytest.approx(total_lama["langsung"])
+
+
+
+def test_per_elemen_dikelompokkan_per_lantai_dan_jenis(db_sementara, qapp):
+    from gui.estimasi_page import EstimasiPage, kelompok_lantai_jenis
+    from rab_rinci import daftar_lantai
+
+    pid = _proyek_ac20()
+    hal = EstimasiPage(pid, "AC20")
+    kel = kelompok_lantai_jenis(hal._data)
+    assert [g["lantai"] for g in kel] == daftar_lantai(hal._data)  # urut elevasi, sama dengan Per Lantai
+    assert sum(g["total"] for g in kel) == pytest.approx(sum(r["subtotal_biaya"] for r in hal._data))
+    dasar = kel[0]
+    jenis = [j["jenis"] for j in dasar["jenis"]]
+    assert "Dinding" in jenis
+    dinding = next(j for j in dasar["jenis"] if j["jenis"] == "Dinding")
+    assert dinding["jumlah_elemen"] == len({r["elemen_id"] for r in hal._data
+                                           if r["lantai"] == dasar["lantai"] and r["kelas"] == "WALL"})
+
+    hal.grup_mode.button(hal.MODE_DETAIL).setChecked(True)
+    hal._isi_ulang()
+    t = hal.tabel
+    data = [t.item(i, 0).data(0x0100) for i in range(t.rowCount())]
+    assert data[0] == ("lantai_el", dasar["lantai"]) and data[1][0] == "jenis_el"
+    assert sum(1 for d in data if d[0] == "detail") == len(hal._data)
+    # baris judul jenis -> panel ringkasan kelompok: jumlah elemen, volume pekerjaan, kebutuhan bahan
+    i = data.index(("jenis_el", (dasar["lantai"], "Dinding")))
+    t.selectRow(i)
+    teks = _teks_panel(hal.panel)
+    assert "RINGKASAN KELOMPOK" in teks and "Dinding" in teks and str(dinding["jumlah_elemen"]) in teks
+    assert "VOLUME PEKERJAAN" in teks and "KEBUTUHAN BAHAN" in teks and "Bata ringan" in teks
+    t.selectRow(0)
+    assert "PER JENIS ELEMEN" in _teks_panel(hal.panel)

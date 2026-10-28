@@ -441,11 +441,38 @@ def rab_lantai(x: dict) -> list:
 
 # ---------------------------------------------------------------- per elemen
 
+# Urutan jenis elemen di dalam satu lantai: dari bawah (fondasi) ke atas (atap), lalu pekerjaan tambahan katalog.
+JENIS_TAMBAHAN = "Pekerjaan tambahan (katalog)"
+
+
+def _urutan_kelas():
+    from klasifikasi import ElementType as T
+
+    return [T.FOOTING, T.PILE, T.COLUMN, T.BEAM, T.SLAB, T.WALL, T.DOOR, T.WINDOW, T.STAIR, T.RAILING, T.FLOOR,
+            T.SPACE, T.CEILING, T.ROOF]
+
+
+def jenis_elemen(r: dict) -> str:
+    """Label jenis elemen baris hasil ('Dinding', 'Kolom', ...); baris tanpa elemen = pekerjaan tambahan."""
+    from klasifikasi import LABEL, ElementType
+
+    if not r.get("elemen_id"):
+        return JENIS_TAMBAHAN
+    kelas = r.get("kelas")
+    return LABEL.get(ElementType(kelas), kelas) if kelas in ElementType._value2member_map_ else (kelas or "Lainnya")
+
+
+def urutan_jenis(jenis: str):
+    from klasifikasi import LABEL
+
+    urut = [LABEL.get(e, e.value) for e in _urutan_kelas()]
+    return (jenis == JENIS_TAMBAHAN, urut.index(jenis) if jenis in urut else len(urut), jenis)
+
 
 def kebutuhan_per_elemen(baris: list, komponen: dict) -> list:
     """Kebutuhan bahan setiap elemen IFC (mis. "Dinding A": bata, semen, pasir, acian, cat dasar, ...),
-    urut lantai lalu nama elemen. Item tambahan tanpa elemen dikumpulkan dalam satu kelompok.
-    Return [{'lantai', 'elemen', 'kelas', 'pekerjaan': [{'nama', 'volume', 'satuan', 'jumlah'}],
+    urut lantai, jenis elemen (fondasi → atap), lalu nama elemen. Item tambahan tanpa elemen dikumpulkan dalam satu kelompok.
+    Return [{'lantai', 'elemen', 'kelas', 'jenis', 'pekerjaan': [{'nama', 'volume', 'satuan', 'jumlah'}],
              'bahan': [...kebutuhan_sumber_daya bahan...], 'oh', 'total'}]."""
     urut_lantai = {nama: i for i, nama in enumerate(daftar_lantai(baris))}
     grup = {}
@@ -454,7 +481,7 @@ def kebutuhan_per_elemen(baris: list, komponen: dict) -> list:
         g = grup.setdefault(kunci, {
             "lantai": r.get("lantai") or TANPA_LANTAI,
             "elemen": r.get("nama_elemen") or ("Item tambahan (tanpa elemen model)" if not kunci else f"Elemen {kunci}"),
-            "kelas": r.get("kelas") or "", "baris": [],
+            "kelas": r.get("kelas") or "", "jenis": jenis_elemen(r), "baris": [],
         })
         g["baris"].append(r)
     hasil = []
@@ -467,10 +494,10 @@ def kebutuhan_per_elemen(baris: list, komponen: dict) -> list:
             p["jumlah"] += r["subtotal_biaya"] or 0.0
         kb = kebutuhan_sumber_daya(g["baris"], komponen)
         hasil.append({
-            "lantai": g["lantai"], "elemen": g["elemen"], "kelas": g["kelas"],
+            "lantai": g["lantai"], "elemen": g["elemen"], "kelas": g["kelas"], "jenis": g["jenis"],
             "pekerjaan": list(pek.values()), "bahan": kb["bahan"],
             "oh": sum(d["jumlah"] for d in kb["upah"] if d["satuan"].lower() == "oh"),
             "total": sum(p["jumlah"] for p in pek.values()),
         })
-    hasil.sort(key=lambda x: (urut_lantai.get(x["lantai"], len(urut_lantai)), x["elemen"] == "", x["elemen"].lower()))
+    hasil.sort(key=lambda x: (urut_lantai.get(x["lantai"], len(urut_lantai)), urutan_jenis(x["jenis"]), x["elemen"].lower()))
     return hasil

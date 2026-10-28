@@ -74,6 +74,8 @@ from gui.penulangan_dialog import PenulanganDialog
 from gui.proses_latar import jalankan_di_latar
 from klasifikasi import LABEL, ElementType
 from kebutuhan_lantai import (
+    jenis_elemen,
+    urutan_jenis,
     BERAT_ZAK_SEMEN,
     judul_kategori,
     rab_lantai,
@@ -101,8 +103,8 @@ KETERANGAN_MODE = (
     ("PER LANTAI",
      "Biaya dan kebutuhan setiap lantai. Pilih satu lantai di filter kanan atas untuk rincian lengkapnya."),
     ("PER ELEMEN",
-     "Setiap elemen dari model (dinding, kolom, ...). Ganti bahan, volume, atau harga di sini; total RAB langsung "
-     "ikut berubah. Kebutuhan bahan elemen terlihat di panel kanan."),
+     "Elemen per lantai lalu per jenis (kolom, dinding, ...). Ganti bahan, volume, atau harga di sini; total RAB "
+     "langsung ikut berubah. Klik judul lantai / jenis untuk ringkasan & kebutuhan bahannya."),
     ("KEBUTUHAN BAHAN",
      "Jumlah bahan yang perlu dibeli (bata, semen, pasir, cat, besi, ...), tenaga kerja, dan alat untuk seluruh "
      "bangunan atau satu lantai."),
@@ -1031,48 +1033,50 @@ class EstimasiPage(QWidget):
     # ---------------------------------------------------------------- mode detail
 
     def _isi_detail(self, baris) -> int:
+        """Per Elemen: dikelompokkan per lantai (urut elevasi) lalu per jenis elemen (fondasi, kolom, balok, pelat,
+        dinding, ...), masing-masing dengan baris judul berisi jumlah elemen dan biaya. Pengurutan kolom berlaku
+        di dalam setiap kelompok. Pilih baris judul untuk ringkasan & kebutuhan bahan kelompok itu."""
         t = self.tabel
         t.clearSpans()
         t.clear()
         tema.siapkan_tabel(
-            t, ["PEKERJAAN", "ELEMEN / LANTAI", "BAHAN ▾", "VOLUME ✎", "HARGA SATUAN ✎", "SUBTOTAL", "STATUS"],
+            t, ["PEKERJAAN", "ELEMEN", "BAHAN ▾", "VOLUME ✎", "HARGA SATUAN ✎", "SUBTOTAL", "STATUS"],
             rata_kanan=(3, 4, 5), tinggi_baris=46,
         )
-        baris = self._terurut(baris, {
-            0: lambda r: _nama_baris(r).lower(), 1: lambda r: ((r["lantai"] or ""), (r["nama_elemen"] or "").lower()),
+        kunci_urut = {
+            0: lambda r: _nama_baris(r).lower(), 1: lambda r: (r["nama_elemen"] or "").lower(),
             2: lambda r: _bahan_baris(r)[1] or "", 3: lambda r: r["volume_pekerjaan"], 4: lambda r: r["harga_satuan"],
             5: lambda r: r["subtotal_biaya"],
             6: lambda r: (bool(r["diedit_manual"] or r.get("harga_manual")), bool(r.get("dimensi_manual"))),
-        })
-        t.setRowCount(len(baris))
+        }
+        kelompok = kelompok_lantai_jenis(baris)
+        self._kelompok_detail = {}
+        n_judul = sum(1 + len(g["jenis"]) for g in kelompok)
+        t.setRowCount(len(baris) + n_judul)
         self._volume_terakhir = {}
         self._harga_terakhir = {}
-        for i, r in enumerate(baris):
-            hid = r["hasil_id"]
-            nama = _nama_baris(r)
-            t.setItem(i, 0, tema.sel(
-                nama, warna=self._warna_kategori.get(r["kategori"]),
-                tooltip=f"{r['kategori']} — {nama}", data=("detail", hid),
-            ))
-            t.setItem(i, 1, tema.sel(_label_elemen(r), warna=tema.W["teks_redup"], tooltip=_label_elemen(r)))
-            combo = self._combo_bahan(r)
-            if combo is not None:
-                t.setCellWidget(i, 2, combo)
-            else:
-                t.setItem(i, 2, tema.sel("–", "tengah", tema.W["teks_samar"],
-                                         tooltip="Pekerjaan ini tidak punya pilihan bahan"))
-            spin = SpinVolume(r["volume_pekerjaan"], r["satuan"])
-            self._volume_terakhir[hid] = spin.value()
-            spin.editingFinished.connect(
-                lambda hid=hid, pid=r["pekerjaan_id"], sp=spin: self._volume_diubah(hid, pid, sp.value())
-            )
-            t.setCellWidget(i, 3, spin)
-            harga = SpinHarga(r["harga_satuan"])
-            self._harga_terakhir[hid] = harga.value()
-            harga.editingFinished.connect(lambda hid=hid, sp=harga: self._harga_sel_diubah(hid, sp))
-            t.setCellWidget(i, 4, harga)
-            t.setItem(i, 5, tema.sel(tema.format_rupiah(r["subtotal_biaya"]), "kanan", tebal=True))
-            t.setItem(i, 6, _sel_status(r["diedit_manual"], r.get("dimensi_manual"), r.get("harga_manual")))
+        i = 0
+        for g in kelompok:
+            kunci_l = ("lantai_el", g["lantai"])
+            self._kelompok_detail[kunci_l] = (g["lantai"], g["baris"])
+            judul = (f"{g['lantai'].upper()}  —  {g['jumlah_elemen']} elemen  ·  "
+                     f"{tema.format_rupiah(g['total'])}")
+            t.setItem(i, 0, tema.sel(judul, warna=tema.W["aksen"], tebal=True, data=kunci_l,
+                                     tooltip="Pilih untuk ringkasan & kebutuhan bahan lantai ini"))
+            t.setSpan(i, 0, 1, 7)
+            i += 1
+            for j in g["jenis"]:
+                kunci_j = ("jenis_el", (g["lantai"], j["jenis"]))
+                self._kelompok_detail[kunci_j] = (f"{j['jenis']} · {g['lantai']}", j["baris"])
+                t.setItem(i, 0, tema.sel(
+                    f"    {j['jenis']}  —  {j['jumlah_elemen']} elemen  ·  {tema.format_rupiah(j['total'])}",
+                    warna=tema.W["teks"], tebal=True, data=kunci_j,
+                    tooltip=f"Pilih untuk ringkasan & kebutuhan bahan {j['jenis'].lower()} di {g['lantai']}"))
+                t.setSpan(i, 0, 1, 7)
+                i += 1
+                for r in self._terurut(j["baris"], kunci_urut):
+                    self._isi_baris_detail(i, r)
+                    i += 1
         tema.atur_lebar(t, 0, isi_konten=(5, 6))
         h = t.horizontalHeader()
         h.setSectionResizeMode(1, QHeaderView.Interactive)
@@ -1084,6 +1088,35 @@ class EstimasiPage(QWidget):
         h.setSectionResizeMode(4, QHeaderView.Fixed)
         t.setColumnWidth(4, 148)
         return len(baris)
+
+    def _isi_baris_detail(self, i: int, r: dict):
+        t = self.tabel
+        hid = r["hasil_id"]
+        nama = _nama_baris(r)
+        t.setItem(i, 0, tema.sel(
+            "      " + nama, warna=self._warna_kategori.get(r["kategori"]),
+            tooltip=f"{r['kategori']} — {nama}", data=("detail", hid),
+        ))
+        elemen = r["nama_elemen"] or ("Pekerjaan tambahan" if r.get("item_tambahan") else "-")
+        t.setItem(i, 1, tema.sel(elemen, warna=tema.W["teks_redup"], tooltip=_label_elemen(r)))
+        combo = self._combo_bahan(r)
+        if combo is not None:
+            t.setCellWidget(i, 2, combo)
+        else:
+            t.setItem(i, 2, tema.sel("–", "tengah", tema.W["teks_samar"],
+                                     tooltip="Pekerjaan ini tidak punya pilihan bahan"))
+        spin = SpinVolume(r["volume_pekerjaan"], r["satuan"])
+        self._volume_terakhir[hid] = spin.value()
+        spin.editingFinished.connect(
+            lambda hid=hid, pid=r["pekerjaan_id"], sp=spin: self._volume_diubah(hid, pid, sp.value())
+        )
+        t.setCellWidget(i, 3, spin)
+        harga = SpinHarga(r["harga_satuan"])
+        self._harga_terakhir[hid] = harga.value()
+        harga.editingFinished.connect(lambda hid=hid, sp=harga: self._harga_sel_diubah(hid, sp))
+        t.setCellWidget(i, 4, harga)
+        t.setItem(i, 5, tema.sel(tema.format_rupiah(r["subtotal_biaya"]), "kanan", tebal=True))
+        t.setItem(i, 6, _sel_status(r["diedit_manual"], r.get("dimensi_manual"), r.get("harga_manual")))
 
     def _combo_bahan(self, r: dict):
         """Combo box bahan untuk baris pekerjaan yang punya pilihan material (mis. pasangan dinding), atau None.
@@ -1252,6 +1285,9 @@ class EstimasiPage(QWidget):
                 self._panel_bawaan()
         elif jenis == "bahan" and kunci in getattr(self, "_bahan", {}):
             self.panel.tampilkan_bahan(self._bahan[kunci], self.combo_lantai.currentText())
+        elif jenis in ("lantai_el", "jenis_el") and (jenis, kunci) in getattr(self, "_kelompok_detail", {}):
+            judul, baris_g = self._kelompok_detail[(jenis, kunci)]
+            self.panel.tampilkan_kelompok(judul, baris_g, self.komponen(), per_jenis=jenis == "lantai_el")
         elif jenis == "detail" and kunci in self._index:
             r = self._index[kunci]
             self.panel.tampilkan_elemen(
@@ -1834,6 +1870,35 @@ class PanelRincian(QFrame):
         self._lay.addStretch()
         QTimer.singleShot(0, self._sesuaikan_tinggi)
 
+    def tampilkan_kelompok(self, judul: str, baris: list, komponen: dict | None, per_jenis: bool = False):
+        """Ringkasan satu lantai atau satu jenis elemen di satu lantai (tab Per Elemen): jumlah elemen, biaya,
+        volume tiap pekerjaan, dan kebutuhan bahannya (mis. Lantai 1 · Dinding: 12 elemen, 120 m² pasangan,
+        1.050 buah bata ringan, ...)."""
+        self._bersihkan()
+        self._lay.addWidget(tema.label("RINGKASAN KELOMPOK", "bagian"))
+        self._lay.addWidget(tema.label(judul, "judulPanel", wrap=True))
+        n_el = len({r["elemen_id"] for r in baris if r.get("elemen_id")})
+        if n_el:
+            self._baris_nilai("Jumlah elemen", f"{n_el}")
+        self._baris_nilai("Jumlah biaya", tema.format_rupiah(sum(r["subtotal_biaya"] for r in baris)))
+        if per_jenis:
+            self._lay.addWidget(tema.garis())
+            self._lay.addWidget(tema.label("PER JENIS ELEMEN", "bagian"))
+            for j in kelompok_lantai_jenis(baris)[0]["jenis"] if baris else []:
+                self._baris_kecil(f"{j['jenis']} ({j['jumlah_elemen']} elemen)", tema.format_rupiah(j["total"]))
+        self._lay.addWidget(tema.garis())
+        self._lay.addWidget(tema.label("VOLUME PEKERJAAN", "bagian"))
+        vol = {}
+        for r in baris:
+            v = vol.setdefault(r["nama_pekerjaan"], {"volume": 0.0, "satuan": r["satuan"], "jumlah": 0.0})
+            v["volume"] += r["volume_pekerjaan"] or 0.0
+            v["jumlah"] += r["subtotal_biaya"] or 0.0
+        for nama, v in sorted(vol.items(), key=lambda x: -x[1]["jumlah"]):
+            self._baris_kecil(nama, f"{tema.format_angka(v['volume'], 2)} {v['satuan']}",
+                              ket=tema.format_rupiah(v["jumlah"]))
+        self._daftar_kebutuhan("KEBUTUHAN BAHAN KELOMPOK INI", baris, komponen, maks=20)
+        self._lay.addStretch()
+
     def tampilkan_bahan(self, d: dict, lantai: str = ""):
         """Asal satu kebutuhan: pekerjaan (volume x koefisien) dan pembagian per lantai."""
         self._bersihkan()
@@ -1935,6 +2000,28 @@ def _nama_baris(r: dict) -> str:
     if r.get("uraian") and r.get("diameter"):
         return f"{r['nama_pekerjaan']} — {r['uraian']}"
     return r["nama_pekerjaan"]
+
+
+def kelompok_lantai_jenis(baris: list) -> list:
+    """[{'lantai', 'jumlah_elemen', 'total', 'baris', 'jenis': [{'jenis', 'jumlah_elemen', 'total', 'baris'}]}],
+    lantai urut elevasi (tanpa lantai di akhir), jenis urut fondasi → atap → pekerjaan tambahan."""
+    per_lantai = {}
+    for r in baris:
+        per_lantai.setdefault(r.get("lantai") or TANPA_LANTAI, []).append(r)
+    hasil = []
+    for nama in daftar_lantai(baris):
+        sub = per_lantai[nama]
+        per_jenis = {}
+        for r in sub:
+            per_jenis.setdefault(jenis_elemen(r), []).append(r)
+        jenis = []
+        for jn in sorted(per_jenis, key=urutan_jenis):
+            bj = sorted(per_jenis[jn], key=lambda r: ((r["nama_elemen"] or "").lower(), _nama_baris(r).lower()))
+            jenis.append({"jenis": jn, "baris": bj, "total": sum(r["subtotal_biaya"] for r in bj),
+                          "jumlah_elemen": len({r["elemen_id"] for r in bj if r.get("elemen_id")}) or len(bj)})
+        hasil.append({"lantai": nama, "baris": sub, "jenis": jenis, "total": sum(r["subtotal_biaya"] for r in sub),
+                      "jumlah_elemen": len({r["elemen_id"] for r in sub if r.get("elemen_id")})})
+    return hasil
 
 
 def _bahan_baris(r: dict):

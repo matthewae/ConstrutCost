@@ -47,14 +47,24 @@ def test_urut_detail_dan_rekap(db_sementara, qapp):
     kolom_subtotal = 5
 
     def subtotal():
-        return [hal._index[hal.tabel.item(i, 0).data(Qt.UserRole)[1]]["subtotal_biaya"] for i in range(hal.tabel.rowCount())]
+        """Subtotal per kelompok (lantai -> jenis elemen); baris judul kelompok memisahkan kelompok."""
+        grup, sekarang = [], []
+        for i in range(hal.tabel.rowCount()):
+            data = hal.tabel.item(i, 0).data(Qt.UserRole)
+            if data[0] == "detail":
+                sekarang.append(hal._index[data[1]]["subtotal_biaya"])
+            elif sekarang:
+                grup.append(sekarang)
+                sekarang = []
+        return grup + ([sekarang] if sekarang else [])
 
     asal = subtotal()
+    assert len(asal) > 1  # dikelompokkan per lantai & jenis
     hal._klik_judul(kolom_subtotal)
-    assert subtotal() == sorted(asal)
+    assert subtotal() == [sorted(g) for g in asal]
     assert hal.tabel.horizontalHeader().sortIndicatorOrder() == Qt.AscendingOrder
     hal._klik_judul(kolom_subtotal)
-    assert subtotal() == sorted(asal, reverse=True)
+    assert subtotal() == [sorted(g, reverse=True) for g in asal]
     hal._klik_judul(kolom_subtotal)  # klik ketiga: urutan asal
     assert subtotal() == asal
 

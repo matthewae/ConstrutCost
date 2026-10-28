@@ -115,7 +115,7 @@ kebutuhan selalu mengikuti pilihan material proyek dan elemen.
 |---|---|---|
 | **Keseluruhan** | Mode **Kebutuhan Bahan**: bahan, tenaga kerja, alat seluruh bangunan; semen dan mortar dikonversi ke zak (50 kg / 40 kg). Pilih satu bahan untuk melihat asalnya per pekerjaan dan per lantai | Sheet **Kebutuhan Bahan** (beserta daftar pilihan material proyek & elemen) |
 | **Per lantai** | Mode Kebutuhan Bahan dengan filter lantai, atau mode Per Lantai | Sheet **Kebutuhan per Lantai** (tabel silang bahan × lantai) dan satu sheet per lantai |
-| **Per elemen** | Mode Detail per Elemen → panel Rincian: kebutuhan bahan pekerjaan itu dan **seluruh elemen** (bata + plester + acian + cat) | Sheet **Kebutuhan per Elemen**: tiap elemen, pekerjaannya, lalu bahannya |
+| **Per elemen** | Tab **Per Elemen**, dikelompokkan per lantai lalu per jenis elemen. Judul kelompok (mis. Lantai 1 · Dinding) menampilkan jumlah elemen, volume, dan kebutuhan bahan kelompok. Baris elemen menampilkan kebutuhan bahan **seluruh elemen** (bata + plester + acian + cat) | Sheet **Kebutuhan per Elemen** dengan susunan sama: lantai → jenis → elemen → pekerjaan → bahan |
 
 Laporan PDF memuat kebutuhan seluruh proyek dan daftar pilihan material. Opsi export baru: **Kebutuhan bahan
 proyek & per elemen**.
