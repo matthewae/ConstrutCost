@@ -248,3 +248,30 @@ def test_mode_kebutuhan_bahan_keseluruhan_dan_per_lantai(db_sementara, qapp):
     bata1 = next((d for d in hal._bahan.values() if d["nama"] == bata["nama"]), None)
     assert bata1 is None or bata1["jumlah"] < bata["jumlah"]
     assert sum(semua.values()) > 0
+
+
+def test_export_kebutuhan_bahan_proyek_dan_per_elemen(db_sementara, tmp_path):
+    from openpyxl import load_workbook
+
+    from database.material_repository import simpan_material_elemen, simpan_pilihan
+    from export_service import OpsiExport, ambil_data_export, export_excel, export_pdf
+
+    pid = _proyek_ac20()
+    simpan_pilihan(pid, {"KRM.LANTAI": "gr60"})
+    eid = _baris(pid, "DND.BATA")[0]["elemen_id"]
+    simpan_material_elemen(eid, {"DND.BATA": "merah"})
+    data = ambil_data_export(pid)
+    meta = {"nama_proyek": "AC20"}
+    opsi = OpsiExport(rekap=False, rinci=False, besi=False, detail=False, lantai=False, per_lantai=False)
+    path = export_excel(tmp_path / "bahan.xlsx", data, meta, opsi)
+    wb = load_workbook(path)
+    assert wb.sheetnames == ["RAB", "Kebutuhan Bahan", "Kebutuhan per Elemen"]
+    teks = [str(c.value) for row in wb["Kebutuhan Bahan"].iter_rows() for c in row if c.value is not None]
+    assert "PILIHAN MATERIAL PROYEK" in teks and "Granit 60×60 cm" in teks and "diubah" in teks
+    assert "Bata merah ½ batu, 1SP : 4PP" in teks and "khusus elemen" in teks
+    assert any(t.startswith("Bata ringan tebal 10") for t in teks) and "Bata merah" in teks
+    per_el = [str(c.value) for row in wb["Kebutuhan per Elemen"].iter_rows() for c in row if c.value is not None]
+    assert any("– Bata merah" in t for t in per_el) and any("– Bata ringan" in t for t in per_el)
+    assert any("Pasangan Dinding Bata Merah" in t for t in per_el)
+    pdf = export_pdf(tmp_path / "bahan.pdf", data, meta, opsi)
+    assert (tmp_path / "bahan.pdf").stat().st_size > 2000 and pdf.endswith(".pdf")

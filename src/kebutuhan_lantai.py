@@ -437,3 +437,40 @@ def rab_lantai(x: dict) -> list:
             bagian["grup"].append(grup)
         hasil.append(bagian)
     return hasil
+
+
+# ---------------------------------------------------------------- per elemen
+
+
+def kebutuhan_per_elemen(baris: list, komponen: dict) -> list:
+    """Kebutuhan bahan setiap elemen IFC (mis. "Dinding A": bata, semen, pasir, acian, cat dasar, ...),
+    urut lantai lalu nama elemen. Item tambahan tanpa elemen dikumpulkan dalam satu kelompok.
+    Return [{'lantai', 'elemen', 'kelas', 'pekerjaan': [{'nama', 'volume', 'satuan', 'jumlah'}],
+             'bahan': [...kebutuhan_sumber_daya bahan...], 'oh', 'total'}]."""
+    urut_lantai = {nama: i for i, nama in enumerate(daftar_lantai(baris))}
+    grup = {}
+    for r in baris:
+        kunci = r.get("elemen_id") or 0
+        g = grup.setdefault(kunci, {
+            "lantai": r.get("lantai") or TANPA_LANTAI,
+            "elemen": r.get("nama_elemen") or ("Item tambahan (tanpa elemen model)" if not kunci else f"Elemen {kunci}"),
+            "kelas": r.get("kelas") or "", "baris": [],
+        })
+        g["baris"].append(r)
+    hasil = []
+    for g in grup.values():
+        pek = {}
+        for r in g["baris"]:
+            p = pek.setdefault(r["nama_pekerjaan"], {"nama": r["nama_pekerjaan"], "volume": 0.0,
+                                                     "satuan": r.get("satuan") or "", "jumlah": 0.0})
+            p["volume"] += r["volume_pekerjaan"] or 0.0
+            p["jumlah"] += r["subtotal_biaya"] or 0.0
+        kb = kebutuhan_sumber_daya(g["baris"], komponen)
+        hasil.append({
+            "lantai": g["lantai"], "elemen": g["elemen"], "kelas": g["kelas"],
+            "pekerjaan": list(pek.values()), "bahan": kb["bahan"],
+            "oh": sum(d["jumlah"] for d in kb["upah"] if d["satuan"].lower() == "oh"),
+            "total": sum(p["jumlah"] for p in pek.values()),
+        })
+    hasil.sort(key=lambda x: (urut_lantai.get(x["lantai"], len(urut_lantai)), x["elemen"] == "", x["elemen"].lower()))
+    return hasil

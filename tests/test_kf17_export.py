@@ -44,7 +44,7 @@ def test_kolom_dan_sheet_sesuai_pilihan(data_export, tmp_path):
     lantai = [n for n in wb.sheetnames if n.startswith("Lt")]
     assert lantai and wb.sheetnames == ["RAB", "Rekapitulasi", "RAB Rinci", "Kebutuhan Besi", "Rekap per Lantai",
                                         "Kebutuhan per Lantai", "Rincian Perhitungan Lantai", *lantai,
-                                        "Detail Elemen"]
+                                        "Kebutuhan Bahan", "Kebutuhan per Elemen", "Detail Elemen"]
     assert _header(wb["RAB"]) == [
         "No", "Kode Analisa", "Uraian Pekerjaan", "Volume", "Sat", "Harga Satuan (Rp)", "Jumlah Harga (Rp)", "Bobot",
     ]
@@ -52,7 +52,7 @@ def test_kolom_dan_sheet_sesuai_pilihan(data_export, tmp_path):
 
     minimal = tmp_path / "minimal.xlsx"
     export_excel(minimal, data_export, META, OpsiExport(kolom=(), rekap=False, rinci=False, besi=False, detail=False, lantai=False,
-                                                         per_lantai=False))
+                                                         per_lantai=False, bahan=False))
     wb = load_workbook(minimal)
     assert wb.sheetnames == ["RAB"]
     # kolom wajib selalu ada
