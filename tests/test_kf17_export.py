@@ -33,6 +33,17 @@ def _header(ws, teks="Uraian Pekerjaan"):
     raise AssertionError("header tidak ditemukan")
 
 
+def _terlihat(ws, teks="Uraian Pekerjaan"):
+    """Judul kolom yang tidak disembunyikan (KF-17: kolom tidak dipilih disembunyikan, rumus tetap utuh)."""
+    from openpyxl.utils import get_column_letter
+
+    for row in ws.iter_rows():
+        if teks in [c.value for c in row]:
+            return [c.value for c in row
+                    if c.value is not None and not ws.column_dimensions[get_column_letter(c.column)].hidden]
+    raise AssertionError("header tidak ditemukan")
+
+
 def test_kolom_dan_sheet_sesuai_pilihan(data_export, tmp_path):
     from openpyxl import load_workbook
 
@@ -42,21 +53,88 @@ def test_kolom_dan_sheet_sesuai_pilihan(data_export, tmp_path):
     export_excel(lengkap, data_export, META, OpsiExport(kolom=("no", "kode", "harga", "bobot", "rumus")))
     wb = load_workbook(lengkap)
     lantai = [n for n in wb.sheetnames if n.startswith("Lt")]
-    assert lantai and wb.sheetnames == ["RAB", "Rekapitulasi", "RAB Rinci", "Kebutuhan Besi", "Rekap per Lantai",
-                                        "Kebutuhan per Lantai", "Rincian Perhitungan Lantai", *lantai,
-                                        "Kebutuhan Bahan", "Kebutuhan per Elemen", "Detail Elemen"]
-    assert _header(wb["RAB"]) == [
-        "No", "Kode Analisa", "Uraian Pekerjaan", "Volume", "Sat", "Harga Satuan (Rp)", "Jumlah Harga (Rp)", "Bobot",
+    # format RAB konsultan di depan, lampiran aplikasi di tengah, rincian per elemen paling akhir
+    assert lantai and wb.sheetnames == ["REKAP", "RAB", "ANALISA", "HARGA", "ASUMSI", "Rekap_Volume", "Rekap_Besi",
+                                        "BBS", "RAB Rinci", "Rekap per Lantai", "Kebutuhan per Lantai",
+                                        "Rincian Perhitungan Lantai", *lantai, "Kebutuhan Bahan",
+                                        "Kebutuhan per Elemen", "Detail_Elemen"]
+    assert _terlihat(wb["RAB"]) == [
+        "No", "Uraian Pekerjaan", "Kode Analisa", "Volume", "Sat.", "HS Upah (Rp)", "HS Bahan (Rp)", "HS Alat (Rp)",
+        "Harga Satuan (Rp)", "Jumlah Harga (Rp)", "Bobot", "Sumber Volume",
     ]
-    assert "Uraian Rumus" in _header(wb["Detail Elemen"])
+    assert "Uraian Rumus" in _header(wb["Detail_Elemen"])
 
     minimal = tmp_path / "minimal.xlsx"
     export_excel(minimal, data_export, META, OpsiExport(kolom=(), rekap=False, rinci=False, besi=False, detail=False, lantai=False,
                                                          per_lantai=False, bahan=False))
     wb = load_workbook(minimal)
-    assert wb.sheetnames == ["RAB"]
-    # kolom wajib selalu ada
-    assert _header(wb["RAB"]) == ["Uraian Pekerjaan", "Volume", "Sat", "Jumlah Harga (Rp)"]
+    # RAB selalu bersama analisa, harga dasar, dan asumsi yang menjadi sumber rumusnya
+    assert wb.sheetnames == ["RAB", "ANALISA", "HARGA", "ASUMSI"]
+    # kolom wajib selalu terlihat; No, Kode, dan harga satuan disembunyikan
+    assert _terlihat(wb["RAB"]) == ["Uraian Pekerjaan", "Volume", "Sat.", "Jumlah Harga (Rp)", "Sumber Volume"]
+    teks = [c.value for row in wb["RAB"].iter_rows() for c in row if isinstance(c.value, str)]
+    assert "TOTAL DIBULATKAN" in teks and any(t.startswith("Terbilang: ") for t in teks)
+
+
+def test_format_rab_rumus_saling_terhubung(data_export, tmp_path):
+    """REKAP -> RAB -> ANALISA -> HARGA, dengan biaya umum & keuntungan serta PPN dari ASUMSI."""
+    from openpyxl import load_workbook
+
+    from export_service import OpsiExport, export_excel
+
+    path = tmp_path / "rab.xlsx"
+    export_excel(path, data_export, META, OpsiExport())
+    wb = load_workbook(path)
+    ws = wb["RAB"]
+    kepala = [c.value for c in ws[4]]
+    k = {t: i for i, t in enumerate(kepala)}
+    item = next(r for r in ws.iter_rows(min_row=5) if isinstance(r[k["Kode Analisa"]].value, str))
+    assert item[k["Kode Analisa"]].value == "A001"
+    assert item[k["HS Upah (Rp)"]].value.startswith("=SUMIFS(ANALISA!$G$5:")
+    assert '"Bahan")' in item[k["HS Bahan (Rp)"]].value
+    assert "ASUMSI!$C$5" in item[k["Harga Satuan (Rp)"]].value
+    assert ws.freeze_panes == "C5" and wb["ANALISA"].freeze_panes == "C5" and wb["HARGA"].freeze_panes == "C5"
+    an = wb["ANALISA"]
+    komp = next(r for r in an.iter_rows(min_row=5) if r[3].value)
+    assert komp[0].value == "A001" and komp[5].value.startswith("=VLOOKUP(D") and komp[7].value in ("Upah", "Bahan", "Alat")
+    assert komp[4].font.color.rgb.endswith("0000FF")  # koefisien = input biru
+    kode_harga = {r[0].value for r in wb["HARGA"].iter_rows(min_row=5) if r[0].value}
+    assert {r[3].value for r in an.iter_rows(min_row=5) if r[3].value} <= kode_harga
+    assert {k[0] for k in kode_harga} <= {"U", "B", "P"}
+    rekap = wb["REKAP"]
+    rumus = [c.value for row in rekap.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith("=")]
+    assert any(f.startswith("=SUMPRODUCT(RAB!") for f in rumus) and any("ASUMSI!$C$6" in f for f in rumus)
+    assert wb["ASUMSI"]["C5"].value == 0.10 and wb["ASUMSI"]["C6"].value == 0.11
+    teks = [c.value for row in wb["ASUMSI"].iter_rows() for c in row if isinstance(c.value, str)]
+    assert any("Sloof turunan" in t for t in teks) and "Pilihan material proyek (ubah di aplikasi: Ganti Bahan)" in teks
+
+
+def test_harga_khusus_dan_item_tambahan(data_export, tmp_path):
+    """Harga khusus pengguna ditulis sebagai nilai (biru); item dari katalog masuk sheet VOLUME_TAMBAHAN."""
+    from openpyxl import load_workbook
+
+    from database.estimasi_repository import ubah_harga_baris
+    from database.katalog import tambah_item
+    from export_service import OpsiExport, ambil_data_export, export_excel
+
+    pid = data_export["proyek_id"]
+    baris = next(r for r in data_export["baris"] if r["kode_ahsp"] == "DND.BATA")
+    ubah_harga_baris([baris["hasil_id"]], 123_456.0)
+    tambah_item(pid, "1.1.1.1", 2.0)
+    data = ambil_data_export(pid)
+    path = tmp_path / "rab.xlsx"
+    export_excel(path, data, META, OpsiExport())
+    wb = load_workbook(path)
+    ws = wb["RAB"]
+    kepala = [c.value for c in ws[4]]
+    k = {t: i for i, t in enumerate(kepala)}
+    bata = next(r for r in ws.iter_rows(min_row=5) if r[k["Uraian Pekerjaan"]].value == baris["nama_pekerjaan"])
+    hs = bata[k["Harga Satuan (Rp)"]]
+    assert isinstance(hs.value, float) and hs.font.color.rgb.endswith("0000FF")
+    assert bata[k["HS Upah (Rp)"]].value is None
+    assert "VOLUME_TAMBAHAN" in wb.sheetnames
+    tambahan = [r for r in wb["VOLUME_TAMBAHAN"].iter_rows(min_row=5, values_only=True) if r[0]]
+    assert len(tambahan) == 1 and tambahan[0][3] == 2.0
 
 
 def test_rab_rinci_per_tipe_elemen(data_export, tmp_path):
@@ -74,8 +152,11 @@ def test_rab_rinci_per_tipe_elemen(data_export, tmp_path):
     assert any("Tulangan D13-150 dua arah, 1 lapis (bawah)" in t for t in teks)
     assert any("Tulangan Ø8-150 dua arah, 1 lapis (bawah)" in t for t in teks)
     assert not any(t.startswith("Balok B") for t in teks)
-    besi = [c.value for row in load_workbook(path)["Kebutuhan Besi"].iter_rows() for c in row]
-    assert {"Ø8", "D13"} <= set(besi)
+    wb = load_workbook(path)
+    besi = [c.value for row in wb["Rekap_Besi"].iter_rows() for c in row]
+    assert {"Ø8", "D13", "Batang 12 m"} <= set(besi)
+    bbs = [r for r in wb["BBS"].iter_rows(min_row=5, values_only=True) if isinstance(r[0], int)]
+    assert bbs and {r[4] for r in bbs} >= {"Ø8", "D13"}
 
 
 def test_rekap_biaya_tidak_langsung_dan_terbilang(data_export, tmp_path):
@@ -85,7 +166,7 @@ def test_rekap_biaya_tidak_langsung_dan_terbilang(data_export, tmp_path):
 
     path = tmp_path / "rab.xlsx"
     export_excel(path, data_export, META, OpsiExport())
-    teks = [c.value for row in load_workbook(path)["Rekapitulasi"].iter_rows() for c in row if isinstance(c.value, str)]
+    teks = [c.value for row in load_workbook(path)["REKAP"].iter_rows() for c in row if isinstance(c.value, str)]
     assert "BIAYA TIDAK LANGSUNG" in teks
     assert "Biaya perencanaan teknis (3% × A)" in teks
     assert "TOTAL DIBULATKAN" in teks
@@ -119,6 +200,42 @@ def test_rumus_excel_dihitung_tanpa_galat(data_export, tmp_path):
                 assert angka[-1] == ring["dibulatkan"]
             if label.startswith("Selisih terhadap sheet RAB"):
                 assert angka[-1] == pytest.approx(0, abs=0.01)
+            if label == "Jumlah A":  # REKAP: upah + bahan + alat = biaya langsung (tanpa harga khusus)
+                assert angka[0] == pytest.approx(ring["langsung"], abs=0.5)
+                assert sum(angka[1:4]) == pytest.approx(angka[0], abs=0.5)
+
+
+@pytest.mark.skipif(shutil.which("soffice") is None, reason="LibreOffice tidak tersedia")
+def test_ubah_harga_dasar_mengalir_ke_rab(data_export, tmp_path):
+    """Harga dasar di sheet HARGA dinaikkan -> ANALISA, RAB, REKAP, dan Detail_Elemen ikut berubah."""
+    from openpyxl import load_workbook
+
+    from export_service import OpsiExport, export_excel
+
+    sumber = tmp_path / "rab.xlsx"
+    export_excel(sumber, data_export, META, OpsiExport(rinci=False, lantai=False, per_lantai=False, bahan=False))
+    wb = load_workbook(sumber)
+    wh = wb["HARGA"]
+    upah = [r for r in wh.iter_rows(min_row=5) if r[4].value == "Upah"]
+    for r in upah:
+        r[3].value = r[3].value * 2
+    ubah = tmp_path / "ubah.xlsx"
+    wb.save(ubah)
+    keluar = tmp_path / "hitung"
+    subprocess.run(["soffice", "--headless", "--calc", "--convert-to", "xlsx", "--outdir", str(keluar), str(ubah)],
+                   check=True, capture_output=True, timeout=180)
+    wb = load_workbook(keluar / "ubah.xlsx", data_only=True)
+    nilai = {}
+    for ws in (wb["REKAP"], wb["Detail_Elemen"]):
+        for row in ws.iter_rows():
+            label = next((c.value for c in row if isinstance(c.value, str)), "")
+            angka = [c.value for c in row if isinstance(c.value, (int, float))]
+            if label in ("Jumlah A",) or label.startswith("Selisih"):
+                nilai[label] = angka
+    a, upah_a = nilai["Jumlah A"][0], nilai["Jumlah A"][1]
+    lama = data_export["ringkasan"]["langsung"]
+    assert a > lama and a - lama == pytest.approx(upah_a / 2, rel=1e-6)
+    assert nilai["Selisih terhadap sheet RAB (harus 0)"][-1] == pytest.approx(0, abs=0.01)
 
 
 def test_pdf_portrait_dan_landscape(data_export, tmp_path):

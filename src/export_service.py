@@ -1,24 +1,23 @@
 """
 Export hasil estimasi RAB ke Excel (.xlsx) dan PDF (KF-8, KF-13, KF-17).
 
-Isi dokumen:
-- RAB              : bagian per kategori (I, II, ...), item per pekerjaan, jumlah tiap bagian, lalu
-                     biaya langsung (A), biaya tidak langsung (B), PPN, total, dan pembulatan.
-- Rekapitulasi     : ringkasan biaya (KF-13): A per kategori, rincian B, PPN, total, terbilang.
+Excel mengikuti susunan RAB konsultan (export_rab.py), rumus saling terhubung:
+- REKAP            : jumlah per bagian dipecah upah / bahan / alat, bobot, biaya tidak langsung, PPN, total,
+                     pembulatan, terbilang.
+- RAB              : volume × harga satuan; HS upah / bahan / alat dari ANALISA (SUMIFS), harga satuan =
+                     (upah + bahan + alat) × (1 + biaya umum & keuntungan di ASUMSI); kolom Sumber Volume.
+- ANALISA, HARGA   : koefisien analisa HSPK dan harga dasar (input biru, VLOOKUP ke HARGA).
+- VOLUME_TAMBAHAN  : item dari katalog HSPK yang diisi pengguna (bila ada).
+- ASUMSI           : biaya umum & keuntungan, PPN, parameter aturan proyek, pilihan material.
+- Rekap_Volume, Rekap_Besi, BBS : kuantitas per item, pembesian per kelompok & diameter, daftar tulangan.
+Lampiran aplikasi:
 - RAB Rinci        : beton, bekisting, dan tulangan per tipe elemen (Kolom K1 20/25: 6 D13, ...).
-- Kebutuhan Besi   : berat, panjang, dan jumlah batang 12 m per diameter.
-- Rekap per Lantai : biaya, beton, bekisting, dan besi tiap lantai dirinci per kategori (KF-12).
-- Kebutuhan per Lantai : tabel silang besi per diameter, beton per mutu, bahan, tenaga kerja, dan alat
-                     untuk setiap lantai (kolom lantai sebanyak lantai di model).
-- Rincian Perhitungan Lantai : berurutan dari lantai terbawah sampai penutup bangunan (atap / dak /
-                     plafon): volume pekerjaan, beton, bekisting, besi per diameter (berat ÷ berat/m' =
-                     panjang -> batang 12 m), dan bahan per lantai.
-- Lt01 ... LtNN    : satu sheet / bagian per lantai: biaya per kategori, struktur beton per tipe, besi per
-                     diameter, bahan, tenaga kerja, alat (koefisien AHSP), dan RAB rinci lantai.
-- Detail Elemen    : volume tiap elemen dan lantai (KF-12), opsional dengan uraian rumus (KF-18).
+- Rekap per Lantai, Kebutuhan per Lantai, Rincian Perhitungan Lantai, Lt01 ... LtNN (KF-12).
+- Kebutuhan Bahan, Kebutuhan per Elemen : bahan, tenaga, alat (koefisien AHSP) + pilihan material.
+- Detail_Elemen    : volume tiap elemen dan lantai (KF-12), opsional uraian rumus (KF-18); selalu sheet terakhir.
 
-KF-17: kolom No, Kode Analisa, Harga Satuan, Bobot (%), dan Rumus dapat dipilih; Uraian, Volume,
-Satuan, dan Jumlah Harga selalu ada. Excel memakai rumus aktif (jumlah = volume x harga satuan).
+KF-17: kolom No, Kode Analisa, Harga Satuan, Bobot (%), dan Rumus dapat dipilih. Di Excel kolom yang tidak dipilih
+disembunyikan (rumus tetap utuh); Uraian, Volume, Satuan, Jumlah Harga, dan Sumber Volume selalu terlihat.
 """
 
 import logging
@@ -34,6 +33,7 @@ from aktivitas import catat
 from database.biaya_repository import ringkasan_biaya
 from database.estimasi_repository import BUK_RATE, PPN_RATE, _connect, get_hasil_estimasi_by_proyek
 from database.penulangan_repository import daftar_tipe, kebutuhan_besi
+from export_rab import HEADER, PUTIH, SEKSI, tulis_rab_lengkap
 from kebutuhan_lantai import (
     BERAT_ZAK_SEMEN,
     TIPE_SUMBER_DAYA,
@@ -111,7 +111,26 @@ def ambil_data_export(proyek_id: int) -> dict:
         "tipe": daftar_tipe(proyek_id),
         "komponen": komponen_pekerjaan(r["pekerjaan_id"] for r in baris),  # analisa AHSP: kebutuhan bahan
         "material": daftar_material(proyek_id),
+        "parameter": daftar_parameter(proyek_id),
     }
+
+
+def daftar_parameter(proyek_id: int) -> list:
+    """Parameter aturan proyek untuk sheet ASUMSI: [(grup, label, nilai, satuan, bawaan?)]."""
+    from database.parameter_repository import PARAMETER_EDIT, PILIHAN, muat_parameter
+    from rules.parameter import PARAMETER_DEFAULT
+
+    p = muat_parameter(proyek_id)
+    hasil = []
+    for grup, isi in PARAMETER_EDIT.items():
+        for kunci, label, satuan, _lo, _hi, desimal in isi:
+            v = getattr(p, kunci)
+            if kunci in PILIHAN:
+                teks = PILIHAN[kunci].get(int(v), str(v))
+            else:
+                teks = f"{v:.{desimal}f}".replace(".", ",") if isinstance(v, float) else str(v)
+            hasil.append((grup, label, teks, satuan, v == getattr(PARAMETER_DEFAULT, kunci)))
+    return hasil
 
 
 def daftar_material(proyek_id: int) -> dict:
@@ -336,7 +355,8 @@ def _label_btl(b: dict) -> str:
 CATATAN = [
     "Volume dihitung otomatis dari model IFC (quantity take-off) dan dapat diedit manual pada aplikasi.",
     f"Harga satuan = analisa harga satuan (bahan + upah + alat) ditambah Biaya Umum & Keuntungan {BUK_RATE:.0%}.",
-    "Pembesian dihitung per diameter dari tipe penulangan: W = Σ(π d²/4 × 7850 × L_eff × n) × 1,05.",
+    "Pembesian per diameter dari tulangan yang dimodelkan (IfcReinforcingBar) bila ada, selain itu dari tipe "
+    "penulangan: W = Σ(π d²/4 × 7850 × L_eff × n) × 1,05.",
     f"PPN {PPN_RATE:.0%} dihitung dari jumlah biaya langsung dan biaya tidak langsung.",
 ]
 
@@ -375,18 +395,19 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
     from openpyxl.utils import get_column_letter as L
 
     opsi = opsi or OpsiExport()
-    f_norm = Font(name="Arial", size=10)
-    f_bold = Font(name="Arial", size=10, bold=True)
-    f_judul = Font(name="Arial", size=14, bold=True)
-    f_input = Font(name="Arial", size=10, color="0000FF")
-    f_catatan = Font(name="Arial", size=9, italic=True)
+    # gaya sama dengan format RAB konsultan (export_rab.py): Arial 9, kepala tabel biru tua, bagian biru muda
+    f_norm = Font(name="Arial", size=9)
+    f_bold = Font(name="Arial", size=9, bold=True)
+    f_judul = Font(name="Arial", size=13, bold=True)
+    f_kepala = Font(name="Arial", size=9, bold=True, color=PUTIH)
+    f_catatan = Font(name="Arial", size=9, italic=True, color="595959")
+    fill_kepala = PatternFill("solid", fgColor=HEADER)
     fill_head = PatternFill("solid", fgColor="D9D9D9")
-    fill_kat = PatternFill("solid", fgColor="EEF3F8")
-    fill_grup = PatternFill("solid", fgColor="F7F9FB")
-    sisi = Side(style="thin", color="808080")
+    fill_kat = PatternFill("solid", fgColor=SEKSI)
+    fill_grup = PatternFill("solid", fgColor="F2F5F9")
+    sisi = Side(style="thin", color="A6A6A6")
     kotak = Border(left=sisi, right=sisi, top=sisi, bottom=sisi)
     ANGKA, ANGKA3, PERSEN = "#,##0.00", "#,##0.000", "0.00%"
-    ring = data["ringkasan"]
     wb = Workbook()
 
     def judul_sheet(ws, teks, n_kolom):
@@ -403,7 +424,7 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
     def header(ws, r, judul):
         for c, teks in enumerate(judul, 1):
             s = ws.cell(r, c, teks)
-            s.font, s.fill, s.border = f_bold, fill_head, kotak
+            s.font, s.fill, s.border = f_kepala, fill_kepala, kotak
             s.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     def gaya_baris(ws, r, n, font=f_norm, fill=None):
@@ -476,118 +497,12 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
             s = ws.cell(r, ci["bobot"], f"=IF({ref_total}=0,0,{L(ci['jumlah'])}{r}/{ref_total})")
             s.number_format = PERSEN
 
-    # ---------- Sheet RAB ----------
-    ws = wb.active
-    ws.title = "RAB"
+    # ---------- Format RAB konsultan: REKAP, RAB, ANALISA, HARGA, VOLUME_TAMBAHAN, ASUMSI, Rekap_Volume,
+    # Rekap_Besi, BBS, Detail_Elemen (export_rab.py). Sheet lain di bawah melengkapi.
+    ref_A = tulis_rab_lengkap(wb, data, opsi, _info_dokumen(data, meta))
     kolom = _kolom_tabel(opsi)
-    for i, k in enumerate(kolom, 1):
-        ws.column_dimensions[L(i)].width = k[2]
-    r = judul_sheet(ws, "RENCANA ANGGARAN BIAYA (RAB)", len(kolom))
-    ws.cell(r - 1, 1, KET_RAB).font = f_catatan
-    hdr = r
-    header(ws, r, [k[1] for k in kolom])
-    r, sub_rab, item_rab = tulis_tabel(ws, r + 1, kolom, _entri_rab(data["baris"]))
     ci = {k[0]: i + 1 for i, k in enumerate(kolom)}
     cu, cj = ci["uraian"], L(ci["jumlah"])
-    r += 1
-
-    def baris_total(ws, r, teks, rumus, fmt=ANGKA, n=len(kolom)):
-        gaya_baris(ws, r, n, f_bold)
-        ws.cell(r, cu, teks).alignment = Alignment(horizontal="right")
-        ws.cell(r, ci["jumlah"], rumus).number_format = fmt
-        return r
-
-    rA = baris_total(ws, r, "A. JUMLAH BIAYA LANGSUNG", "=" + "+".join(f"{cj}{x}" for x in sub_rab))
-    baris_A = rA
-    pct = sum(b["nilai"] for b in ring["item_tidak_langsung"] if b["jenis"] == "persen") / 100
-    tetap = sum(b["nilai"] for b in ring["item_tidak_langsung"] if b["jenis"] == "nilai")
-    rB = baris_total(ws, r + 1, "B. BIAYA TIDAK LANGSUNG (rincian di sheet Rekapitulasi)",
-                     f"={cj}{rA}*{pct!r}+{tetap!r}")
-    rJ = baris_total(ws, r + 2, "JUMLAH (A + B)", f"={cj}{rA}+{cj}{rB}")
-    rP = baris_total(ws, r + 3, f"PPN {PPN_RATE:.0%}", f"={cj}{rJ}*{PPN_RATE!r}")
-    rT = baris_total(ws, r + 4, "TOTAL", f"={cj}{rJ}+{cj}{rP}")
-    baris_total(ws, r + 5, "TOTAL DIBULATKAN", f"=ROUNDDOWN({cj}{rT},-3)")
-    isi_bobot(ws, kolom, item_rab + sub_rab, f"${cj}${rA}")
-    r += 7
-    ws.cell(r, 1, f"Terbilang: {ring['terbilang']}").font = Font(name="Arial", size=10, italic=True, bold=True)
-    r += 2
-    ws.cell(r, 1, "Catatan:").font = f_catatan
-    for teks in CATATAN:
-        r += 1
-        ws.cell(r, 1, f"- {teks}").font = f_catatan
-    atur_cetak(ws, hdr)
-    ref_kat = {e["uraian"]: f"RAB!{cj}{x}" for e, x in zip([e for e in _entri_rab(data["baris"]) if e["jenis"] == "subtotal"], sub_rab)}
-
-    # ---------- Sheet Rekapitulasi (KF-13) ----------
-    if opsi.rekap:
-        wr = wb.create_sheet("Rekapitulasi")
-        for kol, lebar in zip("ABCD", (7, 60, 24, 12)):
-            wr.column_dimensions[kol].width = lebar
-        r = judul_sheet(wr, "REKAPITULASI RENCANA ANGGARAN BIAYA", 4)
-        hdr = r
-        header(wr, r, ["No", "Uraian", "Jumlah (Rp)", "Bobot"])
-        r += 1
-        gaya_baris(wr, r, 4, f_bold, fill_kat)
-        wr.cell(r, 1, "A")
-        wr.cell(r, 2, "BIAYA LANGSUNG")
-        r += 1
-        awalA = r
-        for i, nama in enumerate(ref_kat, 1):
-            gaya_baris(wr, r, 4)
-            wr.cell(r, 1, _romawi(i)).alignment = Alignment(horizontal="center")
-            wr.cell(r, 2, nama.split(". ", 1)[1])
-            wr.cell(r, 3, f"={ref_kat[nama]}").number_format = ANGKA
-            r += 1
-        rA = r
-        gaya_baris(wr, r, 4, f_bold)
-        wr.cell(r, 2, "Jumlah A").alignment = Alignment(horizontal="right")
-        wr.cell(r, 3, f"=SUM(C{awalA}:C{r - 1})").number_format = ANGKA
-        for x in range(awalA, r + 1):
-            wr.cell(x, 4, f"=IF($C${rA}=0,0,C{x}/$C${rA})").number_format = PERSEN
-        r += 1
-        gaya_baris(wr, r, 4, f_bold, fill_kat)
-        wr.cell(r, 1, "B")
-        wr.cell(r, 2, "BIAYA TIDAK LANGSUNG")
-        r += 1
-        awalB = r
-        for i, b in enumerate(ring["item_tidak_langsung"], 1):
-            gaya_baris(wr, r, 4)
-            wr.cell(r, 1, i).alignment = Alignment(horizontal="center")
-            wr.cell(r, 2, _label_btl(b))
-            if b["jenis"] == "persen":
-                wr.cell(r, 4, b["nilai"] / 100).number_format = PERSEN
-                wr.cell(r, 4).font = f_input  # sel biru = nilai input
-                wr.cell(r, 3, f"=C${rA}*D{r}")
-            else:
-                wr.cell(r, 3, b["nilai"]).font = f_input
-            wr.cell(r, 3).number_format = ANGKA
-            r += 1
-        if not ring["item_tidak_langsung"]:
-            gaya_baris(wr, r, 4)
-            wr.cell(r, 2, "Tidak ada (diperhitungkan terpisah oleh pengguna)").font = f_catatan
-            wr.cell(r, 3, 0).number_format = ANGKA
-            r += 1
-        rB = r
-        gaya_baris(wr, r, 4, f_bold)
-        wr.cell(r, 2, "Jumlah B").alignment = Alignment(horizontal="right")
-        wr.cell(r, 3, f"=SUM(C{awalB}:C{r - 1})").number_format = ANGKA
-        r += 2
-        for teks, rumus in (
-            ("JUMLAH (A + B)", f"=C{rA}+C{rB}"),
-            (f"PPN {PPN_RATE:.0%}", f"=C{r}*{PPN_RATE!r}"),
-            ("TOTAL", f"=C{r}+C{r + 1}"),
-            ("TOTAL DIBULATKAN", f"=ROUNDDOWN(C{r + 2},-3)"),
-        ):
-            gaya_baris(wr, r, 4, f_bold)
-            wr.cell(r, 2, teks).alignment = Alignment(horizontal="right")
-            wr.cell(r, 3, rumus).number_format = ANGKA
-            r += 1
-        r += 1
-        wr.cell(r, 1, f"Terbilang: {ring['terbilang']}").font = Font(name="Arial", size=10, italic=True, bold=True)
-        r += 1
-        wr.cell(r, 1, f"Biaya umum & keuntungan {BUK_RATE:.0%} sudah termasuk dalam harga satuan "
-                      f"(± Rp {_rp(ring['buk'], 0)} dari biaya langsung).").font = f_catatan
-        atur_cetak(wr, hdr)
 
     # ---------- Sheet RAB Rinci ----------
     if opsi.rinci:
@@ -606,41 +521,10 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
         isi_bobot(wi, kolom, items + sub, f"${cj}${r}")
         r += 2
         wi.cell(r, 1, "Selisih terhadap sheet RAB (harus 0):").font = f_catatan
-        wi.cell(r, ci["jumlah"], f"={cj}{r - 2}-RAB!{cj}{baris_A}")
+        wi.cell(r, ci["jumlah"], f"={cj}{r - 2}-{ref_A}")
         wi.cell(r, ci["jumlah"]).number_format = ANGKA
         wi.cell(r, ci["jumlah"]).font = f_catatan
         atur_cetak(wi, hdr)
-
-    # ---------- Sheet Kebutuhan Besi ----------
-    if opsi.besi and data["besi"]:
-        wb_ = wb.create_sheet("Kebutuhan Besi")
-        for kol, lebar in zip("ABCDEFG", (6, 12, 16, 14, 16, 16, 14)):
-            wb_.column_dimensions[kol].width = lebar
-        r = judul_sheet(wb_, "KEBUTUHAN BESI TULANGAN PER DIAMETER", 7)
-        hdr = r
-        header(wb_, r, ["No", "Diameter", "Jenis Baja", "Berat (kg/m')", "Panjang Total (m)", "Berat Total (kg)", "Batang 12 m"])
-        r += 1
-        awal = r
-        for i, k in enumerate(data["besi"], 1):
-            gaya_baris(wb_, r, 7)
-            wb_.cell(r, 1, i).alignment = Alignment(horizontal="center")
-            wb_.cell(r, 2, k["label"])
-            wb_.cell(r, 3, k["jenis"])
-            wb_.cell(r, 4, f"=PI()*{k['diameter']!r}^2/4*7850/1000000").number_format = ANGKA3
-            wb_.cell(r, 6, k["berat"]).number_format = ANGKA
-            wb_.cell(r, 5, f"=F{r}/D{r}").number_format = ANGKA
-            wb_.cell(r, 7, f"=ROUNDUP(E{r}/12,0)")
-            r += 1
-        gaya_baris(wb_, r, 7, f_bold)
-        wb_.cell(r, 3, "JUMLAH")
-        wb_.cell(r, 6, f"=SUM(F{awal}:F{r - 1})").number_format = ANGKA
-        wb_.cell(r, 7, f"=SUM(G{awal}:G{r - 1})")
-        r += 2
-        wb_.cell(r, 1, "Berat termasuk sisa potongan 5% (Rumus 2.33). Rincian tipe penulangan:").font = f_catatan
-        for t in data["tipe"]:
-            r += 1
-            wb_.cell(r, 2, f"{t['label']} — {t['jumlah_elemen']} buah: {t['ringkas']}").font = f_norm
-        atur_cetak(wb_, hdr)
 
     # ---------- Sheet Rekap per Lantai (KF-12) ----------
     rincian = _rincian_lantai(data) if (opsi.lantai or opsi.per_lantai) else []
@@ -684,7 +568,7 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
             if wl.cell(x, 7).value is not None:
                 wl.cell(x, 8, f"=IF($G${r}=0,0,G{x}/$G${r})").number_format = PERSEN
         wl.cell(r + 2, 2, "Selisih terhadap sheet RAB (harus 0)").font = f_catatan
-        wl.cell(r + 2, 7, f"=G{r}-RAB!{cj}{baris_A}").number_format = ANGKA
+        wl.cell(r + 2, 7, f"=G{r}-{ref_A}").number_format = ANGKA
         wl.cell(r + 2, 7).font = f_catatan
         atur_cetak(wl, hdr, "landscape")
 
@@ -987,44 +871,8 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
                 r += 1
         atur_cetak(we, hdr_e)
 
-    # ---------- Sheet Detail Elemen ----------
-    if opsi.detail:
-        wd = wb.create_sheet("Detail Elemen")
-        kd = _kolom_tabel(opsi, "detail", any(r.get("catatan") for r in data["baris"]))
-        cd = {k[0]: i + 1 for i, k in enumerate(kd)}
-        for i, k in enumerate(kd, 1):
-            wd.column_dimensions[L(i)].width = k[2]
-        r = judul_sheet(wd, "DETAIL VOLUME PER ELEMEN & LANTAI", len(kd))
-        hdr = r
-        header(wd, r, [k[1] for k in kd])
-        r += 1
-        awal = r
-        for n, d in enumerate(baris_detail(data["baris"]), 1):
-            gaya_baris(wd, r, len(kd))
-            nilai = {**d, "no": n, "uraian": d["pekerjaan"]}
-            for kunci, idx in cd.items():
-                if kunci == "jumlah":
-                    continue
-                s = wd.cell(r, idx, nilai[kunci])
-                if kunci in ("volume", "harga"):
-                    s.number_format = ANGKA
-                if kunci in ("uraian", "rumus", "catatan"):
-                    s.alignment = Alignment(wrap_text=True, vertical="top")
-            if "harga" in cd:
-                wd.cell(r, cd["jumlah"], f"={L(cd['volume'])}{r}*{L(cd['harga'])}{r}")
-            else:
-                wd.cell(r, cd["jumlah"], d["jumlah"])
-            wd.cell(r, cd["jumlah"]).number_format = ANGKA
-            r += 1
-        gaya_baris(wd, r, len(kd), f_bold)
-        wd.cell(r, cd["uraian"], "JUMLAH").alignment = Alignment(horizontal="right")
-        cdj = L(cd["jumlah"])
-        wd.cell(r, cd["jumlah"], f"=SUM({cdj}{awal}:{cdj}{r - 1})").number_format = ANGKA
-        r += 2
-        wd.cell(r, cd["uraian"], "Selisih terhadap sheet RAB (harus 0)").font = f_catatan
-        wd.cell(r, cd["jumlah"], f"={cdj}{r - 2}-RAB!{cj}{baris_A}").number_format = ANGKA
-        wd.cell(r, cd["jumlah"]).font = f_catatan
-        atur_cetak(wd, hdr, "landscape")
+    if "Detail_Elemen" in wb.sheetnames:  # rincian per elemen selalu sheet terakhir
+        wb.move_sheet("Detail_Elemen", len(wb.sheetnames) - 1 - wb.sheetnames.index("Detail_Elemen"))
 
     path = tulis_aman(path, lambda tmp: wb.save(tmp))
     catat("export", f"Export Excel: {path} (isi: {_isi(opsi)}; kolom: {', '.join(opsi.kolom) or '-'})", data.get("proyek_id"))

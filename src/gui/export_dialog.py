@@ -186,7 +186,7 @@ class ExportDialog(QDialog):
         kolom_format = self._kolom_opsi(
             "FORMAT FILE",
             [
-                (self.cek_excel, "Rumus aktif, bisa diedit"),
+                (self.cek_excel, "RAB, analisa, harga dasar, asumsi: rumus aktif"),
                 (self.cek_pdf, "Siap cetak"),
                 (self.combo_orientasi, "Orientasi halaman PDF"),
             ],
@@ -194,12 +194,12 @@ class ExportDialog(QDialog):
         kolom_isi = self._kolom_opsi(
             "ISI DOKUMEN",
             [
-                (self.cek_rekap, "A, B, PPN, total, terbilang"),
+                (self.cek_rekap, "Upah / bahan / alat, B, PPN, total"),
                 (self.cek_rinci, "Beton, bekisting, tulangan per tipe"),
-                (self.cek_besi, "Berat & batang 12 m per Ø/D"),
+                (self.cek_besi, "Per kelompok & Ø/D, daftar tulangan (BBS)"),
                 (self.cek_lantai, "Biaya, beton, besi & bahan tiap lantai"),
                 (self.cek_per_lantai, "Satu sheet per lantai: struktur, besi Ø, bahan"),
-                (self.cek_detail, "Volume tiap elemen dan lantai"),
+                (self.cek_detail, "Rekap volume + rincian tiap elemen"),
                 (self.cek_bahan, "Bata, semen, pasir, cat ... + pilihan material"),
             ],
         )
@@ -208,7 +208,7 @@ class ExportDialog(QDialog):
             [
                 (self.cek_kolom["no"], ""),
                 (self.cek_kolom["kode"], "Kode analisa HSPK"),
-                (self.cek_kolom["harga"], "Jumlah = volume × harga"),
+                (self.cek_kolom["harga"], "HS upah, bahan, alat & harga satuan"),
                 (self.cek_kolom["bobot"], "Persentase terhadap biaya A"),
                 (self.cek_kolom["rumus"], "Jejak rumus (KF-18)"),
             ],

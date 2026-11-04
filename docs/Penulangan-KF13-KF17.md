@@ -104,13 +104,45 @@ Di dialog **Export RAB**:
 | Pilihan | Isi |
 |---|---|
 | Format | Excel (rumus aktif) / PDF tegak atau mendatar |
-| Isi dokumen | Rekapitulasi biaya, RAB rinci per tipe elemen, kebutuhan besi, detail per elemen & lantai |
+| Isi dokumen | Rekapitulasi (REKAP), RAB rinci per tipe elemen, pembesian (Rekap_Besi & BBS), rekap per lantai, rincian per lantai, kebutuhan bahan, detail per elemen (Rekap_Volume & Detail_Elemen) |
 | Kolom laporan | No, Kode Analisa, Harga Satuan, Bobot (%), Uraian Rumus (detail). Uraian, Volume, Satuan, dan Jumlah Harga selalu ada |
 | Informasi dokumen | Nama pekerjaan, lokasi, pemilik/instansi, tahun anggaran |
 
 Pilihan terakhir diingat sebagai bawaan export berikutnya. Bawaan ini juga bisa diatur di halaman Pengaturan.
-Pada file Excel, jumlah = volume × harga satuan dan semua total memakai rumus. Sheet *RAB Rinci* dan
-*Detail Elemen* memuat baris "Selisih terhadap sheet RAB" yang harus bernilai 0.
+
+### Susunan file Excel (format RAB konsultan, berlaku untuk semua proyek)
+
+```
+REKAP ──> RAB ──SUMIFS──> ANALISA ──VLOOKUP──> HARGA
+            └── biaya umum & keuntungan, PPN dari ASUMSI
+```
+
+| Sheet | Isi | Rumus utama |
+|---|---|---|
+| REKAP | Per bagian pekerjaan: jumlah, upah, bahan, alat, bobot; biaya tidak langsung, PPN, total, dibulatkan, terbilang | `C = RAB!J{jumlah bagian}`, `D/E/F = SUMPRODUCT(RAB!volume, RAB!HS)×(1+ASUMSI!C5)`, `PPN = (A+B)×ASUMSI!C6` |
+| RAB | No, Uraian, Kode Analisa (A001…), Volume, Sat., HS Upah, HS Bahan, HS Alat, Harga Satuan, Jumlah, (Bobot), Sumber Volume | `HS Upah = SUMIFS(ANALISA!G, ANALISA!A, kode, ANALISA!H, "Upah")`, `Harga Satuan = (upah+bahan+alat)×(1+ASUMSI!C5)`, `Jumlah = volume × harga satuan` |
+| ANALISA | Komponen tiap analisa (kode harga, koefisien biru, harga, jumlah, jenis, acuan HSPK); jumlah upah/bahan/alat, biaya umum & keuntungan, HARGA SATUAN PEKERJAAN | `Harga = VLOOKUP(kode harga, HARGA!A:D, 4, FALSE)`, `Jumlah = koefisien × harga` |
+| HARGA | Harga dasar upah (U001…), bahan (B001…), alat (P001…) yang dipakai proyek (input biru) | — |
+| VOLUME_TAMBAHAN | Item katalog HSPK yang diisi pengguna (bila ada) | — |
+| ASUMSI | Biaya umum & keuntungan 10%, PPN 11% (input biru), parameter aturan proyek, pilihan material, catatan metode | — |
+| Rekap_Volume | Volume tiap item, jumlah elemen, sumber volume | — |
+| Rekap_Besi | Berat per kelompok/tipe elemen × diameter, beton, rasio kg/m³, sumber; kebutuhan per diameter + batang 12 m | `SUM`, `ROUNDUP(panjang/12)` |
+| BBS | Tulangan per elemen induk: diameter, panjang bersih, berat/m, berat total, sumber (model IFC / tipe penulangan) | `panjang = berat ÷ 1,05 ÷ berat/m` |
+| Lampiran | RAB Rinci, Rekap per Lantai, Kebutuhan per Lantai, Rincian Perhitungan Lantai, Lt01…, Kebutuhan Bahan, Kebutuhan per Elemen | — |
+| Detail_Elemen | Setiap item dari setiap elemen (lantai, kelas IFC, kode analisa, volume, harga, status, sumber volume, rumus, GlobalId); selalu sheet terakhir | `harga = INDEX/MATCH ke RAB`, baris "Selisih terhadap sheet RAB" = 0 |
+
+Gaya: Arial 9; kepala tabel biru tua (1F3B57) huruf putih; baris bagian biru muda (DCE6F0); harga satuan
+pekerjaan kuning muda (FFF2CC); **angka biru = input**, **hijau = rujukan ke sheet lain**, hitam = rumus.
+Format angka `#,##0;(#,##0);-` dan volume 3 desimal. Freeze pane C5 (RAB, ANALISA, HARGA), A4 tegak,
+lebar menyesuaikan halaman.
+
+- Mengubah harga dasar di HARGA atau koefisien di ANALISA langsung mengubah RAB, REKAP, dan Detail_Elemen.
+- Pekerjaan dengan harga khusus pengguna (atau harga yang belum diterapkan ulang) ditulis sebagai nilai biru di
+  RAB, bukan rumus analisa.
+- Kolom yang tidak dipilih (No, Kode, Harga) disembunyikan, tidak dihapus, sehingga rumus tetap utuh.
+- Tanpa REKAP, total B, PPN, total, dan terbilang ditulis di bawah sheet RAB. RAB, ANALISA, HARGA, dan ASUMSI
+  selalu disertakan karena menjadi sumber rumus.
+- Sheet *RAB Rinci*, *Rekap per Lantai*, dan *Detail_Elemen* memuat baris "Selisih terhadap sheet RAB" yang harus 0.
 
 ## Pengujian
 
@@ -118,4 +150,4 @@ Pada file Excel, jumlah = volume × harga satuan dan semua total memakai rumus. 
 |---|---|
 | `tests/test_penulangan.py` | berat per meter sesuai tabel besi, kolom (utama + sengkang), lewatan > 12 m, pelat persegi/tidak reguler, tipe bawaan, fallback rasio, validasi, tipe per penampang (AC20), ubah tipe → hitung ulang, kebutuhan besi, harga polos/ulir sesuai HSPK |
 | `tests/test_kf13_biaya.py` | terbilang, ringkasan A/B/PPN/pembulatan, CRUD + validasi, total proyek termasuk biaya tidak langsung |
-| `tests/test_kf17_export.py` | kolom & sheet sesuai pilihan, RAB rinci & kebutuhan besi, rekap biaya tidak langsung, rumus Excel dihitung ulang LibreOffice tanpa galat dengan selisih 0, PDF tegak/mendatar, pilihan export diingat |
+| `tests/test_kf17_export.py` | kolom & sheet sesuai pilihan, rumus REKAP → RAB → ANALISA → HARGA saling terhubung, harga khusus & volume tambahan, RAB rinci & pembesian, rekap biaya tidak langsung, rumus Excel dihitung ulang LibreOffice tanpa galat dengan selisih 0 dan upah + bahan + alat = biaya langsung, ubah harga dasar mengalir ke RAB, PDF tegak/mendatar, pilihan export diingat |

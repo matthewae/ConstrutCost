@@ -17,7 +17,7 @@ serta rincian kebutuhan bahan (keseluruhan, per lantai, per elemen) dijelaskan d
 | KF-5 | Manajemen Harga Satuan | Ubah harga dan merk bahan, upah, serta alat; tambah material; harga bawaan HSPK (katalog lengkap 2.802 analisa bab 1–10); pilihan material per pekerjaan dan per elemen | `test_kf5_harga.py`, `test_hspk.py`, `test_material_katalog.py` | Sesuai |
 | KF-6 | Edit Hasil Estimasi | Edit volume, harga khusus, dan catatan; tambah/hapus item dari katalog HSPK; undo/redo; pratinjau PDF | `test_kf6_edit.py`, `test_material_katalog.py` | Sesuai |
 | KF-7 | Penyimpanan Proyek | File `.coststruct` berisi elemen, aturan (parameter), harga, dan hasil estimasi; bisa disimpan dan dibuka | `test_kf7_kf9_proyek.py`, `test_ketahanan.py` | Sesuai |
-| KF-8 | Export Excel & PDF | Laporan RAB `.xlsx` (rumus aktif) dan `.pdf` | `test_kf17_export.py`, `test_kf12_lantai.py`, `test_kebutuhan_lantai.py` | Sesuai |
+| KF-8 | Export Excel & PDF | Laporan RAB `.xlsx` format konsultan (REKAP, RAB, ANALISA, HARGA, ASUMSI, rekap volume & besi, BBS, detail elemen; rumus saling terhubung) dan `.pdf` | `test_kf17_export.py`, `test_kf12_lantai.py`, `test_kebutuhan_lantai.py` | Sesuai |
 | KF-9 | Multi-Project | Daftar proyek, info proyek, ganti nama, duplikat, ganti file IFC, hapus | `test_kf7_kf9_proyek.py` | Sesuai |
 | KF-10 | User Preference | Tema (4 pilihan), direktori default, format laporan, dan isi dokumen bawaan (termasuk kebutuhan bahan proyek & per elemen), tersimpan di database | `test_kf10_preferensi.py`, `test_ui_modern.py` | Sesuai |
 | KF-11 | Pajak & Markup | PPN 11% dan biaya umum & keuntungan 10% otomatis; konstanta, tidak bisa diubah pengguna | `test_kf13_biaya.py`, `test_pipeline.py` | Sesuai |

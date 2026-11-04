@@ -269,7 +269,7 @@ def test_export_kebutuhan_bahan_proyek_dan_per_elemen(db_sementara, tmp_path):
     opsi = OpsiExport(rekap=False, rinci=False, besi=False, detail=False, lantai=False, per_lantai=False)
     path = export_excel(tmp_path / "bahan.xlsx", data, meta, opsi)
     wb = load_workbook(path)
-    assert wb.sheetnames == ["RAB", "Kebutuhan Bahan", "Kebutuhan per Elemen"]
+    assert wb.sheetnames == ["RAB", "ANALISA", "HARGA", "ASUMSI", "Kebutuhan Bahan", "Kebutuhan per Elemen"]
     teks = [str(c.value) for row in wb["Kebutuhan Bahan"].iter_rows() for c in row if c.value is not None]
     assert "PILIHAN MATERIAL PROYEK" in teks and "Granit 60×60 cm" in teks and "diubah" in teks
     assert "Bata merah ½ batu, 1SP : 4PP" in teks and "khusus elemen" in teks
