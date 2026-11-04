@@ -115,9 +115,10 @@ class PengaturanPage(QWidget):
         self.cek_lantai = QCheckBox("Rekap per lantai")
         self.cek_per_lantai = QCheckBox("Rincian per lantai")
         self.cek_detail = QCheckBox("Detail per elemen && lantai")
+        self.cek_bahan = QCheckBox("Kebutuhan bahan proyek && per elemen")
         self.cek_kolom = {k: QCheckBox(LABEL_KOLOM[k]) for k in KOLOM_LAPORAN}
         semua_cek = (self.cek_excel, self.cek_pdf, self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_per_lantai,
-                     self.cek_detail, *self.cek_kolom.values())
+                     self.cek_detail, self.cek_bahan, *self.cek_kolom.values())
         for cek in semua_cek:
             cek.setCursor(Qt.PointingHandCursor)
             cek.toggled.connect(self._berubah)
@@ -139,7 +140,7 @@ class PengaturanPage(QWidget):
         isi_grid.setHorizontalSpacing(24)
         isi_grid.setVerticalSpacing(10)
         for i, cek in enumerate((self.cek_rekap, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_per_lantai,
-                                 self.cek_detail)):
+                                 self.cek_detail, self.cek_bahan)):
             isi_grid.addWidget(cek, i // 3, i % 3)
         isi_grid.setColumnStretch(3, 1)
         f.addRow(tema.label("Isi dokumen", "formLabel"), isi_grid)
@@ -246,14 +247,15 @@ class PengaturanPage(QWidget):
             isi_besi=self.cek_besi.isChecked(),
             isi_lantai=self.cek_lantai.isChecked(),
             isi_per_lantai=self.cek_per_lantai.isChecked(),
+            isi_bahan=self.cek_bahan.isChecked(),
             kolom_laporan=",".join(k for k, c in self.cek_kolom.items() if c.isChecked()),
             orientasi_pdf=self.combo_orientasi.currentData(),
         )
 
     def _ke_form(self, p: Preferensi):
         widget = (self.grup_tema, self.edit_ifc, self.edit_export, self.cek_excel, self.cek_pdf, self.cek_rekap,
-                  self.cek_detail, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_per_lantai, self.combo_orientasi,
-                  *self.cek_kolom.values())
+                  self.cek_detail, self.cek_rinci, self.cek_besi, self.cek_lantai, self.cek_per_lantai, self.cek_bahan,
+                  self.combo_orientasi, *self.cek_kolom.values())
         for w in widget:
             w.blockSignals(True)
         self.grup_tema.button(TEMA.index(p.tema)).setChecked(True)
@@ -268,6 +270,7 @@ class PengaturanPage(QWidget):
         self.cek_besi.setChecked(p.isi_besi)
         self.cek_lantai.setChecked(p.isi_lantai)
         self.cek_per_lantai.setChecked(p.isi_per_lantai)
+        self.cek_bahan.setChecked(p.isi_bahan)
         for k, c in self.cek_kolom.items():
             c.setChecked(k in p.kolom)
         self.combo_orientasi.setCurrentIndex(1 if p.orientasi_pdf == "landscape" else 0)

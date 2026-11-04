@@ -64,7 +64,7 @@ Penandanya `versi_tema` di preferensi.
 **Sidebar**
 - Menu utama dengan item lebih lega.
 - Zona **Import file IFC** yang bisa diklik atau dijadikan tempat menyeret file.
-- Status *Offline · data lokal* dan nomor versi.
+- Status *Luring · data lokal* dan nomor versi (KNF-6: bahasa Indonesia).
 
 **Komponen bersama** (`src/gui/tema.py`)
 - `LencanaIkon` / `kepala_dialog()`: lencana ikon, judul, dan keterangan. Dipakai seragam di dialog Export, Import,

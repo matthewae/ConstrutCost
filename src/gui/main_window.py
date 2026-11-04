@@ -141,7 +141,7 @@ class MainWindow(QMainWindow):
 
         kaki = QHBoxLayout()
         kaki.setContentsMargins(4, 0, 4, 0)
-        kaki.addWidget(tema.label("● Offline · data lokal", "chipOffline"))
+        kaki.addWidget(tema.label("● Luring · data lokal", "chipOffline"))
         kaki.addStretch()
         kaki.addWidget(tema.label(VERSI_APLIKASI, "versiAplikasi"))
         lay.addLayout(kaki)

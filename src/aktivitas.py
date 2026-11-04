@@ -24,6 +24,7 @@ JENIS = {
     "import": "Import IFC",
     "estimasi": "Hitung QTO",
     "edit": "Edit hasil",
+    "material": "Ganti bahan",
     "dimensi": "Ubah dimensi",
     "penulangan": "Penulangan",
     "parameter": "Parameter aturan",

@@ -105,6 +105,37 @@ def test_pengaturan_status_perubahan(app, db_sementara):
     h.deleteLater()
 
 
+def test_pengaturan_isi_kebutuhan_bahan(app, db_sementara):
+    """KF-10/KF-17: bawaan isi dokumen 'Kebutuhan bahan proyek & per elemen' diatur dari halaman Pengaturan,
+    tersimpan, dipakai dialog Export, dan kembali dicentang saat Reset ke Default."""
+    from database.preferensi_repository import muat_preferensi, reset_preferensi
+    from database.proyek_repository import create_proyek
+    from gui.export_dialog import ExportDialog
+    from gui.pengaturan_page import PengaturanPage
+
+    h = PengaturanPage()
+    assert h.cek_bahan.isChecked()
+    h.cek_bahan.setChecked(False)
+    assert "belum disimpan" in h.label_status.text()
+    h._simpan()
+    assert muat_preferensi().isi_bahan is False
+
+    h2 = PengaturanPage()  # dibuka ulang: nilai tersimpan tampil
+    assert not h2.cek_bahan.isChecked()
+    h2.cek_rekap.setChecked(not h2.cek_rekap.isChecked())  # simpan pengaturan lain tidak mengubah isi_bahan
+    h2._simpan()
+    assert muat_preferensi().isi_bahan is False
+    d = ExportDialog(create_proyek("Uji", None), "Uji")  # pilihan awal dialog Export mengikuti Pengaturan
+    assert not d.cek_bahan.isChecked()
+    d.deleteLater()
+
+    reset_preferensi()
+    h3 = PengaturanPage()
+    assert h3.cek_bahan.isChecked()
+    for w in (h, h2, h3):
+        w.deleteLater()
+
+
 def test_splash_indikator_tahap(app):
     from gui.splash_screen import SplashScreen
 

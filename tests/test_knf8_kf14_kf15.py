@@ -219,6 +219,47 @@ def test_halaman_riwayat_aktivitas(db_sementara, qapp):
     assert hal.tabel.rowCount() == 1 and hal.label_jumlah.text() == "1 aktivitas"
 
 
+def test_setiap_jenis_log_punya_label_dan_filter():
+    """Jenis yang dipakai catat(...) di kode sumber muncul sebagai label & pilihan filter di Riwayat Aktivitas."""
+    import re
+
+    from aktivitas import JENIS
+
+    dipakai = set()
+    for f in (AKAR / "src").rglob("*.py"):
+        dipakai |= set(re.findall(r"""\bcatat\(\s*["']([a-z_]+)["']""", f.read_text(encoding="utf-8")))
+    assert "material" in dipakai
+    assert dipakai <= set(JENIS), f"jenis log tanpa label: {sorted(dipakai - set(JENIS))}"
+
+
+def test_riwayat_filter_jenis_ganti_bahan(db_sementara, qapp):
+    from aktivitas import catat
+    from gui.aktivitas_page import AktivitasPage
+
+    catat("material", "Material elemen Dinding A diubah: Pasangan dinding: Bata merah ½ batu")
+    catat("import", "File diterima: rumah.ifc")
+    hal = AktivitasPage()
+    idx = hal.combo_jenis.findData("material")
+    assert idx > 0 and hal.combo_jenis.itemText(idx) == "Ganti bahan"
+    hal.combo_jenis.setCurrentIndex(idx)
+    assert hal.tabel.rowCount() == 1
+    assert hal.tabel.item(0, 2).text() == "Ganti bahan" and "Dinding A" in hal.tabel.item(0, 4).text()
+
+
+def test_sidebar_berbahasa_indonesia(db_sementara, qapp):
+    """KNF-6: penanda mode luring di menu samping memakai bahasa Indonesia."""
+    from PySide6.QtWidgets import QLabel
+
+    from gui.main_window import MainWindow
+
+    w = MainWindow()
+    teks = [lb.text() for lb in w.findChildren(QLabel)]
+    assert any("Luring" in t for t in teks)
+    assert not any("Offline" in t for t in teks)
+    w.close()
+    w.deleteLater()
+
+
 # ---------------------------------------------------------------- KF-14 pesan galat & notifikasi
 
 
