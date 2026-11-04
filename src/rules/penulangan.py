@@ -149,6 +149,8 @@ def ukuran_elemen(e: dict, batas_kemiringan_dak: float = 5.0):
         return SLOOF, e.get("lebar"), e.get("tebal"), e.get("panjang")
     if kelas == "FOOTING" and (pre != "STRIP_FOOTING" or e.get("menerus_beton")):
         return FONDASI, None, e.get("tebal"), None
+    if kelas == "SLAB" and e.get("rabat"):
+        return None  # rabat beton / lantai kerja tidak bertulang
     if kelas == "SLAB":
         # pelat di atas tanah: BASESLAB atau pelat pada lantai dasar (ditandai preprocessor konteks)
         dasar = pre == "BASESLAB" or e.get("di_lantai_dasar", False)
@@ -342,6 +344,28 @@ def _bidang(kelompok, e, h, p: Penulangan) -> list:
         f"{_rumus_wm(d)}; panjang total {uraian_l}; W = {_n(panjang)} × {_n(wm)} × 1,05 = {_n(berat, 2)} kg",
         f"Tulangan {label_d(d)}-{s * 1000:.0f} dua arah, {NAMA_LAPIS[p.lapis]}", d,
     )]
+
+
+def dari_model(e: dict, kode_tetap: str | None = None, batas_kemiringan_dak: float = 5.0) -> list:
+    """Tulangan yang dimodelkan (IfcReinforcingBar, e["besi_model"]): satu ItemBesi per diameter.
+    Berat model × 1,05 sisa potongan, sama dengan Rumus 2.33. Kode pekerjaan mengikuti kelompok elemen
+    (polos/ulir), atau `kode_tetap` untuk elemen tanpa kelompok penulangan (mis. tangga)."""
+    data = e.get("besi_model") or {}
+    u = ukuran_elemen(e, batas_kemiringan_dak)
+    out = []
+    for kunci, v in sorted(data.items(), key=lambda x: float(x[0])):
+        d = float(kunci)
+        berat = v["berat"] * FAKTOR_SISA
+        kode = kode_tetap or (kode_pekerjaan(u[0], d) if u else None)
+        if kode is None:
+            continue
+        out.append(ItemBesi(
+            kode, berat,
+            f"Tulangan dari model IFC: {v['n']} batang {label_d(d)}, panjang total {_n(v['panjang'], 2)} m; "
+            f"W = {_n(v['panjang'], 2)} × {_n(berat_per_m(d))} × 1,05 = {_n(berat, 2)} kg",
+            f"Tulangan model {v['n']} btg {label_d(d)}", d,
+        ))
+    return out
 
 
 def hitung(e: dict, penulangan: Penulangan | None = None, batas_kemiringan_dak: float = 5.0) -> list:

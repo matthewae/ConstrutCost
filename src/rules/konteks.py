@@ -13,13 +13,13 @@ pengelompokan tipe penulangan: `di_lantai_dasar`, `menerus_beton`, `balok_sloof`
 `tebal_pelat_monolit`, `porsi_bowplank`.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from statistics import median
 
 from klasifikasi import ElementType
 
 from .parameter import MENERUS_BATU_KALI, MENERUS_BETON, PARAMETER_DEFAULT, ukuran_sloof
-from .sifat import balok_sloof, beton, dinding_pasangan, menerus_beton_dari_nama
+from .sifat import balok_sloof, beton, bordes, dinding_pasangan, menerus_beton_dari_nama, pekerjaan_tanah, rabat
 
 # Lantai dengan elevasi di bawah batas ini dianggap level fondasi, bukan lantai dasar.
 BATAS_ELEVASI_FONDASI = -0.5  # m
@@ -41,6 +41,9 @@ class Konteks:
     tebal_pelat_monolit: float | None = None  # m, tebal tipikal pelat/dak beton yang dicor bersama balok
     keliling_luar_dasar: float = 0.0  # m, panjang dinding luar lantai dasar
     ada_info_dinding_luar: bool = False  # model menandai dinding luar (Pset_WallCommon.IsExternal)
+    # Pekerjaan yang dimodelkan langsung menggantikan versi turunannya (conflict resolution: model > turunan):
+    # kode pekerjaan -> kelas elemen sumber model. Item berkode ini dari kelas lain tidak dihitung.
+    kode_dari_model: dict = field(default_factory=dict)
 
 
 def _ada(elemen, kelas: ElementType) -> bool:
@@ -84,7 +87,9 @@ def siapkan_konteks(elemen: list, parameter=None) -> Konteks:
             elev_dasar is not None
             and e["elevasi_lantai"] is not None
             and abs(e["elevasi_lantai"] - elev_dasar) < 1e-6
+            and not bordes(e)  # bordes menggantung di atas tanah: perlu bekisting & tulangan pelat
         )
+        e["rabat"] = rabat(e)
 
     ada_ruang = _ada(elemen, ElementType.SPACE)
     # lapisan finishing yang dimodelkan sebagai IfcSlab bukan sumber luas lantai/plafon
@@ -168,6 +173,17 @@ def siapkan_konteks(elemen: list, parameter=None) -> Konteks:
                 if id(e) in id_luar and keliling else None
             )
 
+    # ---- pekerjaan yang dimodelkan (urugan pasir, lantai kerja, keramik dinding) menggantikan versi turunan
+    kode_dari_model = {}
+    for e in elemen:
+        kode = pekerjaan_tanah(e)
+        if kode:
+            kode_dari_model[kode] = {ElementType.EARTHWORK.value}
+    if _ada(elemen, ElementType.WALL_TILE):
+        kode_dari_model["KRM.DINDING"] = {ElementType.WALL_TILE.value}
+    if "LTK.LANTAI" in kode_dari_model:  # rabat beton yang dimodelkan sebagai pelat juga sumber model
+        kode_dari_model["LTK.LANTAI"].add(ElementType.SLAB.value)
+
     return Konteks(
         ada_fondasi_model=ada_fondasi_model,
         elevasi_lantai_dasar=elev_dasar,
@@ -185,6 +201,7 @@ def siapkan_konteks(elemen: list, parameter=None) -> Konteks:
         sloof_di_atas_batu_kali=not ada_fondasi_model or ada_menerus_batu,
         tebal_pelat_monolit=t_monolit,
         keliling_luar_dasar=keliling,
+        kode_dari_model=kode_dari_model,
         ada_info_dinding_luar=any(
             e.get("eksternal") is not None for e in elemen if e["kelas"] == ElementType.WALL.value
         ),

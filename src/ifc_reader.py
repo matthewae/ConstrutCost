@@ -741,6 +741,22 @@ def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
             d.isi("luas", g.tapak, "geometri")
             d.isi("keliling", g.keliling_tapak, "geometri")
 
+    elif kelas == ElementType.WALL_TILE:
+        # keramik dinding (bidang tegak): luas dari quantity set, atau sisi terbesar geometri
+        d.isi("luas", p.luas(q, "NetArea", "GrossArea", "NetSurfaceArea", "Area"), "qto")
+        if d.kurang("luas"):
+            g = p.geometri(entity)
+            d.isi("luas", max(g.sisi_x, g.sisi_y), "geometri")
+
+    elif kelas == ElementType.EARTHWORK:
+        # urugan pasir / lantai kerja / aanstamping: volume dan luas tapak
+        d.isi("volume", p.volume(q, *vol), "qto")
+        d.isi("luas", p.luas(q, "NetSurfaceArea", "NetArea", "GrossArea", "Area"), "qto")
+        if d.kurang("volume") or d.kurang("luas"):
+            g = p.geometri(entity)
+            d.isi("volume", g.volume, "geometri")
+            d.isi("luas", g.tapak, "geometri")
+
     elif kelas == ElementType.SPACE:
         d.isi("luas", p.luas(q, "NetFloorArea", "GrossFloorArea", "Area"), "qto")
         d.isi("keliling", p.panjang(q, "NetPerimeter", "GrossPerimeter", "Perimeter"), "qto")
@@ -769,6 +785,73 @@ def _nama(entity, kelas):
         bagian = [x for x in (entity.Name, getattr(entity, "LongName", None)) if x]
         return " - ".join(dict.fromkeys(bagian)) or None
     return entity.Name
+
+
+def _jenis(entity, kelas):
+    """PredefinedType; untuk elemen generik bertipe USERDEFINED dipakai ObjectType (mis. URUGAN_PASIR)."""
+    pre = predefined_type(entity)
+    if kelas == ElementType.EARTHWORK and pre in (None, "USERDEFINED", "NOTDEFINED") and entity.ObjectType:
+        return entity.ObjectType.strip().upper()
+    return pre
+
+
+def _host_tulangan(bar, model):
+    """Elemen induk sebuah IfcReinforcingBar: relasi agregasi/nesting IFC, atau properti HostGlobalId
+    (dipakai sebagian eksportir). Rakitan tulangan (IfcElementAssembly) ditelusuri sampai elemen di atasnya."""
+    host = None
+    for atribut in ("Decomposes", "Nests"):
+        for rel in getattr(bar, atribut, None) or ():
+            host = rel.RelatingObject
+    if host is None:
+        for props in element_util.get_psets(bar).values():
+            gid = next((v for k, v in props.items() if k.lower() == "hostglobalid" and isinstance(v, str)), None)
+            if gid:
+                try:
+                    host = model.by_guid(gid)
+                except RuntimeError:
+                    host = None
+                break
+    while host is not None and host.is_a("IfcElementAssembly") and getattr(host, "Decomposes", None):
+        host = host.Decomposes[0].RelatingObject
+    return host
+
+
+def baca_tulangan(model, s_panjang: float):
+    """Tulangan yang dimodelkan (IfcReinforcingBar), dikelompokkan per elemen induk dan diameter.
+
+    Return (per_host, lepas): per_host = {GlobalId induk: {"13": {"berat", "panjang", "n"}, ...}},
+    lepas = (jumlah batang, berat kg) tulangan yang induknya tidak diketahui. Berat dihitung dari diameter
+    dan panjang batang (W_m = π d²/4 × 7850), sehingga tidak bergantung satuan massa file."""
+    per_host, lepas_n, lepas_berat = {}, 0, 0.0
+    try:
+        bars = model.by_type("IfcReinforcingBar")
+    except RuntimeError:
+        return per_host, (0, 0.0)
+    for bar in bars:
+        d = getattr(bar, "NominalDiameter", None)
+        panjang = getattr(bar, "BarLength", None)
+        tipe = element_util.get_type(bar)
+        if d is None and tipe is not None:
+            d = getattr(tipe, "NominalDiameter", None)
+        if panjang is None:
+            q = element_util.get_psets(bar, qtos_only=True)
+            panjang = next((v.get("Length") for v in q.values() if v.get("Length")), None)
+        if not d or not panjang:
+            continue
+        d_mm = round(d * s_panjang * 1000, 1)
+        p_m = panjang * s_panjang
+        berat = math.pi * (d_mm / 1000) ** 2 / 4 * 7850 * p_m
+        host = _host_tulangan(bar, model)
+        if host is None or not getattr(host, "GlobalId", None):
+            lepas_n += 1
+            lepas_berat += berat
+            continue
+        kunci = f"{d_mm:g}"
+        x = per_host.setdefault(host.GlobalId, {}).setdefault(kunci, {"berat": 0.0, "panjang": 0.0, "n": 0})
+        x["berat"] += berat
+        x["panjang"] += p_m
+        x["n"] += 1
+    return per_host, (lepas_n, lepas_berat)
 
 
 def ekstrak_elemen(model, progress=None):
@@ -823,7 +906,7 @@ def ekstrak_elemen(model, progress=None):
                 "global_id": entity.GlobalId,
                 "ifc_type": entity.is_a(),
                 "kelas": kelas.value,
-                "predefined_type": predefined_type(entity),
+                "predefined_type": _jenis(entity, kelas),
                 "nama": nama,
                 "lantai": lantai,
                 "elevasi_lantai": elevasi,
@@ -834,6 +917,21 @@ def ekstrak_elemen(model, progress=None):
                 "sumber_volume": sumber_volume,
                 "sumber_dimensi": dict(d.sumber),
             }
+        )
+
+    # Tulangan yang dimodelkan menggantikan asumsi tipe penulangan untuk elemen induknya (model > asumsi).
+    per_host, (lepas_n, lepas_berat) = baca_tulangan(model, p.s_panjang)
+    gid_elemen = set()
+    for e in elemen:
+        gid_elemen.add(e["global_id"])
+        e["besi_model"] = per_host.get(e["global_id"])
+    tanpa_elemen = [v for gid, v in per_host.items() if gid not in gid_elemen]
+    lepas_n += sum(x["n"] for v in tanpa_elemen for x in v.values())
+    lepas_berat += sum(x["berat"] for v in tanpa_elemen for x in v.values())
+    if lepas_n:
+        peringatan.append(
+            f"{lepas_n} batang tulangan model ({lepas_berat:,.0f} kg) tidak dihitung karena elemen induknya tidak "
+            "diketahui atau bukan elemen beton yang dihitung. Periksa relasi tulangan di aplikasi BIM.".replace(",", ".")
         )
 
     tidak = hitung_tidak_dihitung(model)

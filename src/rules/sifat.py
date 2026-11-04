@@ -106,6 +106,52 @@ def beton(e: dict) -> bool:
     return bukan_beton(e) is None
 
 
+# Rabat beton / lantai kerja: pelat tipis tak bertulang di atas tanah. Volumenya dihitung sebagai rabat beton
+# (LTK.LANTAI), bukan pelat beton struktural f'c 20 MPa beserta besi dan bekistingnya.
+_RABAT = re.compile(r"rabat|lantai\s*kerja|lean\s*concrete|blinding|mud\s*slab", re.IGNORECASE)
+_BERTULANG = re.compile(r"bertulang|wire\s*-?\s*mesh|tulangan|reinforced", re.IGNORECASE)
+TEBAL_RABAT_MAKS = 0.10  # m
+# Bordes tangga: pelat yang menggantung di antara dua lantai walau disimpan di lantai bawahnya.
+_BORDES = re.compile(r"bordes|landing", re.IGNORECASE)
+
+
+def rabat(e: dict) -> bool:
+    if e.get("kelas") != "SLAB":
+        return False
+    nama = e.get("nama") or ""
+    if not _RABAT.search(nama) or _BERTULANG.search(nama):
+        return False
+    t = e.get("tebal")
+    return t is None or t <= TEBAL_RABAT_MAKS + 1e-9
+
+
+_AANSTAMPING = re.compile(r"aanstamping|anstamping|batu[\s_]*kosong|hardcore", re.IGNORECASE)
+_LANTAI_KERJA = re.compile(r"lantai[\s_]*kerja|lean[\s_]*concrete|blinding", re.IGNORECASE)
+_DI_BAWAH_LANTAI = re.compile(r"(bawah|under)[\s_]*(lantai|floor|slab)|carport|teras|court|selasar|jalan", re.IGNORECASE)
+_DI_BAWAH_SLOOF = re.compile(r"sloof|tie[\s_]*beam|ground[\s_]*beam", re.IGNORECASE)
+
+
+def pekerjaan_tanah(e: dict) -> str | None:
+    """Kode pekerjaan untuk urugan / lantai kerja / aanstamping yang dimodelkan (kelas EARTHWORK)."""
+    if e.get("kelas") != "EARTHWORK":
+        return None
+    teks = f"{e.get('predefined_type') or ''} {e.get('nama') or ''}"
+    if _AANSTAMPING.search(teks):
+        return "FDN.AANSTAMPING"
+    lantai = bool(_DI_BAWAH_LANTAI.search(teks))
+    if _LANTAI_KERJA.search(teks):
+        return "LTK.LANTAI" if lantai else "LTK.FONDASI"
+    if _DI_BAWAH_SLOOF.search(teks):
+        return "TNH.PASIR.SLOOF"
+    return "TNH.PASIR.LANTAI" if lantai else "TNH.PASIR.FONDASI"
+
+
+def bordes(e: dict) -> bool:
+    return e.get("kelas") == "SLAB" and (
+        (e.get("predefined_type") or "") == "LANDING" or bool(_BORDES.search(e.get("nama") or ""))
+    )
+
+
 def kolom_struktur(e: dict) -> bool:
     """Kolom yang memikul beban ke fondasi. Kolom praktis (sisi terkecil ≤ 15 cm, di dalam pasangan
     dinding) berdiri di atas sloof/fondasi menerus sehingga tidak mendapat fondasi sumuran sendiri.

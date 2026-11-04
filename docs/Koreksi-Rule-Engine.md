@@ -9,7 +9,7 @@ Mesin aturannya sudah benar sejak awal:
 - satuan yang sama dengan analisa HSPK.
 
 Audit pada tiga model uji menemukan beberapa **asumsi konstruksi** yang membuat RAB menyimpang. Dokumen ini
-mencatat setiap koreksi, alasannya, dan dampaknya. Jumlah aturan bertambah dari 52 menjadi 69.
+mencatat setiap koreksi, alasannya, dan dampaknya. Jumlah aturan bertambah dari 52 menjadi 69, lalu 77 setelah uji model Rumah Tipe 120 (16 kelas elemen).
 
 ## Ringkasan koreksi
 
@@ -44,6 +44,25 @@ Perbaikan pendukung:
 | **Regresi:** hampir semua sloof, balok, ring balok, balok latei, dan balok praktis beton ditolak sebagai "penampang berongga (kemungkinan profil baja)" | Model menggambar balok sebagai **denah** L × b yang diekstrusi setinggi h (Depth = tinggi), bukan penampang b × h yang diekstrusi sepanjang L. Pembaca profil dulu selalu menganggap XDim = lebar, sehingga lebar = panjang bentang (Sloof 25/40 bentang 2,67 m → isi 0,40 / 2,67 = 15%). Sekarang sisi yang mewakili panjang dipilih dulu (panjang dari quantity set, atau sisi terpanjang), dan dua sisi lainnya menjadi penampang. **Pengaman:** bila b × h × L tidak cocok dengan volume tetapi ukuran di nama ("25/40") cocok, ukuran nama yang dipakai | `ifc_reader.py` |
 | Tangga beton "Anak Tangga 1A (1-10)" ditolak (isi 15%) | Batas isi tangga diturunkan dari 25% menjadi **6%**. Tangga beton (pelat miring 10–15 cm + anak tangga) mengisi ± 11–20% kotak L × B × H. Tangga kayu/baja hanya ± 0,5–3% | `rules/sifat.py` |
 | Catatan "tidak dihitung" untuk proxy *Lantai Kerja FP…* dan penutup *Keramik Dinding* | Catatan menurut nama: lantai kerja sudah dihitung dari ukuran fondasi telapak, sehingga tidak perlu ditambah lagi. Keramik dinding ruang basah dihitung dari ruang (IfcSpace) bila ada | `klasifikasi.py` |
+
+## Koreksi dari uji model Rumah Tipe 120 (1 lantai kupu-kupu & 2 lantai courtyard)
+
+Kedua model memodelkan lebih banyak pekerjaan secara langsung: tulangan (IfcReinforcingBar), urugan pasir,
+lantai kerja, aanstamping (IfcBuildingElementProxy), dan keramik dinding (IfcCovering). Prinsip baru:
+**yang dimodelkan menang atas yang diturunkan** (`Konteks.kode_dari_model`), supaya tidak terhitung ganda.
+
+| Masalah | Koreksi | Kode |
+|---|---|---|
+| Tulangan yang dimodelkan (IfcReinforcingBar) diabaikan; besi tetap dari tipe penulangan | Tulangan dibaca per **elemen induk** (relasi Decomposes/Nests, atau properti `HostGlobalId`; rakitan IfcElementAssembly ditelusuri ke atas). Berat = π d²/4 × 7850 × L per diameter, × 1,05 sisa potongan. Bila elemen punya tulangan model, tipe penulangan tidak dipakai untuk elemen itu. Tulangan tanpa induk dilaporkan. Tulangan model gugur bila pengguna mengubah dimensi elemen | `ifc_reader.py`, `rules/penulangan.py`, `rules/definitions.py`, `estimasi_service.py` |
+| Rabat / lantai kerja yang dimodelkan sebagai IfcSlab dihitung pelat struktur (beton f'c 20 + besi + bekisting) | Pelat bernama rabat/lantai kerja, tidak bertulang/wiremesh, tebal ≤ 10 cm = **rabat beton f'c 7,5 MPa** (LTK.LANTAI) tanpa besi dan bekisting | `rules/sifat.py`, `rules/definitions.py` |
+| Bordes tangga (IfcSlab LANDING) dianggap pelat di atas tanah (tanpa bekisting, tulangan 1 lapis) | Bordes bukan pelat lantai dasar: mendapat bekisting dan tulangan pelat | `rules/sifat.py`, `rules/konteks.py` |
+| Urugan pasir, lantai kerja, aanstamping yang dimodelkan tidak dihitung, sementara versi turunannya dihitung | Kelas baru **EARTHWORK** (IfcBuildingElementProxy menurut nama/ObjectType): urugan pasir bawah fondasi/sloof/lantai, lantai kerja fondasi/lantai, aanstamping (HSPK baru FDN.AANSTAMPING). Item turunan dengan kode sama dari kelas lain tidak dihitung lagi | `klasifikasi.py`, `rules/definitions.py`, `database/seed_data.py` |
+| Keramik dinding yang dimodelkan (IfcCovering) hanya dicatat | Kelas baru **WALL_TILE**: luas dari quantity set (atau geometri) menjadi KRM.DINDING; keramik dinding dari ruang tidak dihitung lagi | `klasifikasi.py`, `ifc_reader.py`, `rules/definitions.py` |
+| Peringatan "tidak dihitung" hanya untuk beberapa jenis IFC | **Semua IfcElement** yang tidak dihitung dilaporkan (talang, roster, cladding, perabot, MEP, …) beserta contoh nama; tidak termasuk lubang, elemen virtual, tulangan, rakitan, dan elemen yang dipecah | `klasifikasi.py` |
+
+Hasil Rumah Tipe 120 2 lantai courtyard setelah koreksi (cocok dengan quantity model): beton struktur 47,19 m³;
+besi 5.709 kg (= tulangan model 5.240 kg × 1,05 + wiremesh pelat dasar); aanstamping 4,53 m³; urugan pasir
+12,10 m³; lantai kerja fondasi 0,85 m³; keramik dinding 36,21 m². Biaya langsung Rp 1.023.700.010.
 
 ## Analisa pekerjaan persiapan
 

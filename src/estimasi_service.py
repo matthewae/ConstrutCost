@@ -43,7 +43,9 @@ _KOLOM_ELEMEN = (
     "sumber_dimensi",
     "tipe_id",
     "material",
+    "besi_model",
 )
+_KOLOM_JSON = ("sumber_dimensi", "besi_model")
 RULES_PEMBESIAN = [r for r in RULES if r.kode.startswith("BSI.")]
 
 
@@ -136,7 +138,7 @@ def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=None)
         n_hasil = 0
         for el, hasil in keluaran:
             nilai = [
-                json.dumps(el[k], ensure_ascii=False) if k == "sumber_dimensi" else el[k]
+                json.dumps(el[k], ensure_ascii=False) if k in _KOLOM_JSON and el.get(k) is not None else el.get(k)
                 for k in _KOLOM_ELEMEN
             ]
             cur = conn.execute(
@@ -169,6 +171,10 @@ def _baris_ke_elemen(row) -> dict:
         el["sumber_dimensi"] = json.loads(el.get("sumber_dimensi") or "{}")
     except ValueError:
         el["sumber_dimensi"] = {}
+    try:
+        el["besi_model"] = json.loads(el["besi_model"]) if el.get("besi_model") else None
+    except ValueError:
+        el["besi_model"] = None
     return el
 
 
@@ -224,6 +230,8 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=None) -> dict:
             el["sumber_dimensi"][k] = "manual"
         if "volume" in berubah:
             el["sumber_volume"] = "manual"
+        if berubah:
+            el["besi_model"] = None  # tulangan model tidak lagi cocok dengan dimensi baru: pakai tipe penulangan
 
         # konteks bangunan (lantai dasar, sumber lantai/plafon) dari seluruh elemen proyek
         semua = [
@@ -239,9 +247,10 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=None) -> dict:
                              "kemiringan", "luas_bukaan") if k in gabung]
         conn.execute(
             f"UPDATE elemen_proyek SET {', '.join(f'{k} = ?' for k in kolom)}, sumber_volume = ?, "
-            "sumber_dimensi = ?, dimensi_manual = 1, tipe_id = ? WHERE id = ?",
+            "sumber_dimensi = ?, dimensi_manual = 1, tipe_id = ?, besi_model = ? WHERE id = ?",
             (*[el[k] for k in kolom], el.get("sumber_volume"),
-             json.dumps(el["sumber_dimensi"], ensure_ascii=False), el["tipe_id"], elemen_id),
+             json.dumps(el["sumber_dimensi"], ensure_ascii=False), el["tipe_id"],
+             json.dumps(el["besi_model"]) if el.get("besi_model") else None, elemen_id),
         )
         khusus = _simpan_khusus(conn, "elemen_id = ?", (elemen_id,))  # KF-6: harga khusus & catatan tetap
         conn.execute("DELETE FROM hasil_estimasi WHERE elemen_id = ?", (elemen_id,))

@@ -245,8 +245,9 @@ def test_dinding_luar_dibaca_dan_elemen_tidak_dihitung_dilaporkan(ekstrak_cache)
     luar = [e for e in elemen if e["kelas"] == "WALL" and e["eksternal"]]
     dalam = [e for e in elemen if e["kelas"] == "WALL" and e["eksternal"] is False]
     assert luar and dalam
-    # tangga & railing Duplex sekarang dihitung; yang tersisa batang rangka (stringer tangga kayu)
-    assert list(info.tidak_dihitung) == ["batang rangka (IfcMember)"]
+    # tangga & railing Duplex sekarang dihitung; yang tersisa batang rangka (stringer tangga kayu) dan perabot
+    # (semua IfcElement yang tidak dihitung dilaporkan supaya pengguna bisa menilai sendiri)
+    assert list(info.tidak_dihitung) == ["batang rangka (IfcMember)", "perabot (IfcFurnishingElement)"]
     assert {"STAIR", "RAILING"} <= {e["kelas"] for e in elemen}
     assert any(p.startswith("Tidak dihitung otomatis") for p in peringatan)
 
@@ -512,7 +513,8 @@ def test_catatan_nama_untuk_pekerjaan_yang_sudah_dihitung():
         def __init__(self, n):
             self.Name = n
 
-    assert "fondasi telapak" in _catatan("IfcBuildingElementProxy", [E("Lantai Kerja FP2 A1")])
-    c = _catatan("IfcCovering", [E("Keramik Dinding 30x60 (H=1,50) - WC Lt.1"), E("Cladding Bata Tempel")])
-    assert "IfcSpace" in c
+    # lantai kerja & keramik dinding yang dimodelkan kini dihitung (test_elemen_dimodelkan.py); catatan nama
+    # tersisa untuk pekerjaan yang bisa ditambahkan dari katalog HSPK
+    assert "katalog HSPK (3.3.x)" in _catatan("IfcPipeSegment", [E("Talang Box Galvalum")])
+    assert "katalog HSPK (3.4.x)" in _catatan("IfcCovering", [E("Waterproofing Coating Atas Kanopi")])
     assert _catatan("IfcPlate", [E("Listplank WPC")]) is None

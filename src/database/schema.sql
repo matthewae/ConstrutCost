@@ -87,7 +87,8 @@ CREATE TABLE IF NOT EXISTS elemen_proyek (
     dimensi_manual INTEGER DEFAULT 0, -- KF-19: dimensi diubah pengguna lalu QTO dihitung ulang
     tipe_id INTEGER,               -- tipe_penulangan.id (kolom/balok/sloof/pelat/dak/fondasi)
     eksternal INTEGER,             -- dinding luar (Pset_WallCommon.IsExternal): 1/0, NULL = tidak diisi model
-    material TEXT                  -- JSON pilihan material khusus elemen ini {slot: kunci}, menimpa pilihan proyek
+    material TEXT,                 -- JSON pilihan material khusus elemen ini {slot: kunci}, menimpa pilihan proyek
+    besi_model TEXT                -- JSON tulangan yang dimodelkan (IfcReinforcingBar) per diameter, bila ada
 );
 
 -- hasil_estimasi: output rule-engine, per elemen per pekerjaan

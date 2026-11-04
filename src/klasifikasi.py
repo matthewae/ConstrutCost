@@ -9,6 +9,9 @@ Satu entitas IFC hanya masuk ke satu kelas. Aturan khusus:
 - IfcSpace EXTERNAL / GFA diabaikan karena bukan ruang dalam bangunan.
 - IfcStairFlight -> STAIR; IfcStair hanya bila tidak dipecah menjadi bagian (bagian dihitung sendiri).
 - IfcRailing -> RAILING.
+- IfcBuildingElementProxy urugan pasir / lantai kerja / aanstamping -> EARTHWORK (pekerjaan yang dimodelkan
+  menggantikan versi turunan); proxy lain dilaporkan sebagai tidak dihitung.
+- IfcCovering keramik dinding (CLADDING bernama keramik dinding / backsplash) -> WALL_TILE.
 """
 
 import re
@@ -32,6 +35,8 @@ class ElementType(str, Enum):
     SPACE = "SPACE"
     STAIR = "STAIR"
     RAILING = "RAILING"
+    EARTHWORK = "EARTHWORK"  # urugan pasir, lantai kerja, aanstamping yang dimodelkan
+    WALL_TILE = "WALL_TILE"  # keramik dinding yang dimodelkan sebagai IfcCovering
     UNKNOWN = "UNKNOWN"
 
 
@@ -50,6 +55,8 @@ LABEL = {
     ElementType.SPACE: "Ruang",
     ElementType.STAIR: "Tangga",
     ElementType.RAILING: "Railing",
+    ElementType.EARTHWORK: "Urugan & lantai kerja",
+    ElementType.WALL_TILE: "Keramik dinding",
     ElementType.UNKNOWN: "Tidak dikenal",
 }
 
@@ -69,27 +76,39 @@ TIPE_IFC_DIBACA = [
     "IfcStairFlight",
     "IfcStair",
     "IfcRailing",
+    "IfcBuildingElementProxy",
 ]
 
 # Entitas bangunan yang tidak dihitung rule engine: dilaporkan ke pengguna (ringkasan import & peringatan)
 # beserta contoh namanya, supaya pengguna bisa menilai apakah pekerjaannya perlu ditambahkan manual.
+# Semua IfcElement yang tidak dihitung dilaporkan; label menurut kelas IFC (kelas induk dicocokkan berurutan).
 TIPE_TIDAK_DIHITUNG = {
     "IfcMember": "batang rangka",
     "IfcPlate": "plat / panel",
     "IfcCurtainWall": "dinding tirai",
     "IfcRamp": "ramp",
     "IfcBuildingElementProxy": "elemen generik",
+    "IfcCovering": "penutup lain",
+    "IfcShadingDevice": "peneduh / roster",
+    "IfcReinforcingMesh": "jaring tulangan (wiremesh)",
+    "IfcPipeSegment": "pipa / talang",
+    "IfcFlowSegment": "pipa / saluran",
+    "IfcFlowTerminal": "perlengkapan MEP / sanitair",
+    "IfcDistributionElement": "elemen MEP",
+    "IfcFurnishingElement": "perabot",
+    "IfcBuildingElement": "elemen bangunan lain",
+    "IfcElement": "elemen lain",
 }
+# Bukan pekerjaan fisik tersendiri: lubang/tonjolan, elemen virtual, tulangan (dibaca terpisah), rakitan.
+_TIDAK_DILAPORKAN = ("IfcFeatureElement", "IfcVirtualElement", "IfcReinforcingBar", "IfcElementAssembly")
 # Keterangan tambahan supaya pengguna tidak menghitung ganda.
 _CATATAN_TIDAK_DIHITUNG = {
     "IfcMember": "rangka atap baja ringan sudah dihitung per m² luas atap",
 }
 # Catatan menurut nama elemen: pekerjaan yang sebenarnya sudah dihitung dari elemen lain (jangan ditambah lagi).
 _CATATAN_NAMA = [
-    (re.compile(r"lantai\s*kerja|lean\s*concrete|blinding", re.IGNORECASE),
-     "lantai kerja bawah fondasi sudah dihitung dari ukuran fondasi telapak"),
-    (re.compile(r"keramik\s*dinding|backsplash|wall\s*til", re.IGNORECASE),
-     "keramik dinding ruang basah dihitung dari ruang (IfcSpace) bila ada, selain itu tambah manual"),
+    (re.compile(r"talang|gutter", re.IGNORECASE), "talang dapat ditambahkan dari katalog HSPK (3.3.x)"),
+    (re.compile(r"waterproof|membran", re.IGNORECASE), "waterproofing dapat ditambahkan dari katalog HSPK (3.4.x)"),
 ]
 
 
@@ -124,14 +143,17 @@ def hitung_tidak_dihitung(model) -> dict:
                 "jumlah": len(entitas), "contoh": _contoh(entitas), "catatan": _catatan(tipe, entitas),
             }
 
+    dihitung = {entity.id() for entity, _t, _k in kumpulkan_elemen(model)}
+    per_tipe = {}
+    for e in model.by_type("IfcElement"):
+        if e.id() in dihitung or any(e.is_a(t) for t in _TIDAK_DILAPORKAN):
+            continue
+        if any(rel.RelatedObjects for rel in getattr(e, "IsDecomposedBy", None) or ()):
+            continue  # dihitung/dilaporkan dari bagiannya (mis. IfcRoof dipecah menjadi IfcSlab)
+        tipe = next(t for t in TIPE_TIDAK_DIHITUNG if e.is_a(t))
+        per_tipe.setdefault(tipe, []).append(e)
     for tipe, label in TIPE_TIDAK_DIHITUNG.items():
-        try:
-            entitas = model.by_type(tipe)
-        except Exception:  # tipe tidak ada di skema file
-            entitas = []
-        tambah(label, tipe, entitas)
-    tambah("penutup lain", "IfcCovering",
-           [c for c in model.by_type("IfcCovering") if predefined_type(c) not in _COVERING])
+        tambah(label, tipe, per_tipe.get(tipe, []))
     return hasil
 
 
@@ -159,6 +181,13 @@ _LANGSUNG = {
     "IfcWindow": ElementType.WINDOW,
 }
 _COVERING = {"CEILING": ElementType.CEILING, "FLOORING": ElementType.FLOOR}
+# Pekerjaan tanah / fondasi yang dimodelkan sebagai elemen generik (dikenali dari ObjectType atau nama).
+POLA_TANAH = re.compile(
+    r"urug\w*[\s_]*pasir|pasir[\s_]*urug|sand[\s_]*(bed|fill)|lantai[\s_]*kerja|lean[\s_]*concrete|blinding"
+    r"|aanstamping|anstamping|batu[\s_]*kosong|hardcore",
+    re.IGNORECASE,
+)
+POLA_KERAMIK_DINDING = re.compile(r"keramik[\s_]*dinding|dinding[\s_]*keramik|backsplash|wall[\s_]*til", re.IGNORECASE)
 _SPACE_DIABAIKAN = {"EXTERNAL", "GFA"}
 
 
@@ -196,7 +225,13 @@ def klasifikasi(entity, tipe_ifc: str):
             return None
         return ElementType.ROOF
     if tipe_ifc == "IfcCovering":
-        return _COVERING.get(pre)
+        if pre in _COVERING:
+            return _COVERING[pre]
+        teks = f"{getattr(entity, 'ObjectType', None) or ''} {entity.Name or ''}"
+        return ElementType.WALL_TILE if POLA_KERAMIK_DINDING.search(teks) else None
+    if tipe_ifc == "IfcBuildingElementProxy":
+        teks = f"{getattr(entity, 'ObjectType', None) or ''} {entity.Name or ''}"
+        return ElementType.EARTHWORK if POLA_TANAH.search(teks) else None
     if tipe_ifc == "IfcSpace":
         return None if pre in _SPACE_DIABAIKAN else ElementType.SPACE
     if tipe_ifc == "IfcStairFlight":

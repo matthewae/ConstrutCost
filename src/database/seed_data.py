@@ -22,7 +22,7 @@ from database.hspk_bandung_2027 import AHSP, HSD, SATUAN, SUMBER
 from database.init_db import pastikan_skema
 from database.material import SLOT, kode_varian
 
-SEED_VERSI = "11-hspk-bdg-2027-katalog-pilihan-material"
+SEED_VERSI = "12-hspk-bdg-2027-aanstamping"
 
 SUMBER_HSPK = "HSPK Kota Bandung 2027"
 
@@ -46,6 +46,7 @@ PEMETAAN = {
     "LTK.LANTAI": ("Rabat Beton f'c 7,5 MPa Bawah Lantai", "Lantai", "m3", "2.2.1.4.1"),
     # ---------------- Fondasi ----------------
     "FDN.BATUKALI": ("Pasangan Fondasi Batu Belah 1SP : 4PP", "Fondasi", "m3", "2.2.2.1.6"),
+    "FDN.AANSTAMPING": ("Pasangan Batu Kosong (Aanstamping)", "Fondasi", "m3", "2.2.2.1.1"),
     "BTN.SUMURAN": ("Fondasi Sumuran Beton Masif", "Fondasi", "m3", "2.2.2.2.6"),
     "BTN.FONDASI": ("Beton Fondasi Telapak / Menerus f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
     "BSI.FONDASI": ("Pembesian Fondasi Beton (Asumsi Rasio kg/m³)", "Fondasi", "kg", "2.2.1.1.1a"),
@@ -76,7 +77,7 @@ PEMETAAN = {
     # ---------------- Tangga & railing ----------------
     "BTN.TANGGA": ("Beton Tangga f'c 20 MPa", "Tangga & Railing", "m3", "2.2.1.4.5"),
     "BSK.TANGGA": ("Bekisting Tangga", "Tangga & Railing", "m2", "2.2.1.3.7"),
-    "BSI.TANGGA": ("Pembesian Tangga (Asumsi Rasio kg/m³)", "Tangga & Railing", "kg", "2.2.1.1.1a"),
+    "BSI.TANGGA": ("Pembesian Tangga", "Tangga & Railing", "kg", "2.2.1.1.1a"),
     "RLG.TANGGA": ("Railing Tangga / Hand Rail Besi", "Tangga & Railing", "m'", "3.13.5"),
     "RLG.PENGAMAN": ("Railing Besi Pengaman Tinggi 1,2 m (Balkon / Void)", "Tangga & Railing", "m'", "3.13.4"),
     # ---------------- Pintu & jendela ----------------

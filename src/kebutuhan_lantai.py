@@ -54,6 +54,29 @@ def mutu_beton(nama_pekerjaan: str) -> str:
 # ---------------------------------------------------------------- struktur per tipe
 
 
+def label_grup_struktur(r: dict) -> tuple:
+    """(kunci, label, urutan) kelompok struktur satu baris hasil: per tipe penulangan (Kolom K1 (20/25))
+    atau per kelompok elemen bila tanpa tipe (Lantai Kerja, Fondasi Sumuran, Tangga Beton, ...)."""
+    kode = r.get("kode_ahsp") or ""
+    kel = _kelompok_kode(kode)
+    if r.get("tipe_id") and r.get("kelompok_tipe") and kode != "BTN.SUMURAN" and not kode.startswith("LTK."):
+        label = label_tipe(r["kelompok_tipe"], r["kode_tipe"], (r.get("tipe_b_cm") or 0) / 100 or None,
+                           (r.get("tipe_h_cm") or 0) / 100)
+        urut = (URUTAN.index(r["kelompok_tipe"]) if r["kelompok_tipe"] in URUTAN else 9,
+                0, int((r.get("kode_tipe") or "X0")[1:] or 0))
+        return ("tipe", r["tipe_id"]), label, urut
+    if kel == "LANTAI_KERJA":
+        label = "Lantai Kerja / Rabat (f'c 7,5 MPa)"
+    elif kel == "SUMURAN":
+        label = "Fondasi Sumuran"
+    elif kel == "TANGGA":
+        label = "Tangga Beton"
+    else:
+        label = f"{NAMA_KELOMPOK.get(kel, kel.title())} (tanpa tipe penulangan)"
+    urut = (URUTAN.index(kel) if kel in URUTAN else -1 if kel == "LANTAI_KERJA" else 9, 1, 0)
+    return ("kelompok", kel), label, urut
+
+
 def struktur_per_tipe(baris: list) -> list:
     """Beton, bekisting, dan besi per tipe elemen (atau per kelompok bila elemen tanpa tipe).
     Return [{'label', 'jumlah_elemen', 'beton', 'mutu', 'bekisting', 'besi', 'rasio', 'biaya'}]."""
@@ -62,24 +85,7 @@ def struktur_per_tipe(baris: list) -> list:
         kode = r.get("kode_ahsp") or ""
         if not kode.startswith(AWALAN_STRUKTUR):
             continue
-        kel = _kelompok_kode(kode)
-        if r.get("tipe_id") and r.get("kelompok_tipe") and kode != "BTN.SUMURAN" and not kode.startswith("LTK."):
-            kunci = ("tipe", r["tipe_id"])
-            label = label_tipe(r["kelompok_tipe"], r["kode_tipe"], (r["tipe_b_cm"] or 0) / 100 or None,
-                               (r["tipe_h_cm"] or 0) / 100)
-            urut = (URUTAN.index(r["kelompok_tipe"]) if r["kelompok_tipe"] in URUTAN else 9,
-                    0, int((r.get("kode_tipe") or "X0")[1:] or 0))
-        else:
-            kunci = ("kelompok", kel)
-            if kel == "LANTAI_KERJA":
-                label = "Lantai Kerja (bawah fondasi)"
-            elif kel == "SUMURAN":
-                label = "Fondasi Sumuran"
-            elif kel == "TANGGA":
-                label = "Tangga Beton"
-            else:
-                label = f"{NAMA_KELOMPOK.get(kel, kel.title())} (tanpa tipe penulangan)"
-            urut = (URUTAN.index(kel) if kel in URUTAN else -1 if kel == "LANTAI_KERJA" else 9, 1, 0)
+        kunci, label, urut = label_grup_struktur(r)
         g = grup.setdefault(kunci, {"label": label, "urut": urut, "elemen": set(), "beton": 0.0, "bekisting": 0.0,
                                    "besi": 0.0, "biaya": 0.0, "mutu": {}})
         if r.get("elemen_id"):
@@ -448,8 +454,8 @@ JENIS_TAMBAHAN = "Pekerjaan tambahan (katalog)"
 def _urutan_kelas():
     from klasifikasi import ElementType as T
 
-    return [T.FOOTING, T.PILE, T.COLUMN, T.BEAM, T.SLAB, T.WALL, T.DOOR, T.WINDOW, T.STAIR, T.RAILING, T.FLOOR,
-            T.SPACE, T.CEILING, T.ROOF]
+    return [T.EARTHWORK, T.FOOTING, T.PILE, T.COLUMN, T.BEAM, T.SLAB, T.WALL, T.WALL_TILE, T.DOOR, T.WINDOW, T.STAIR,
+            T.RAILING, T.FLOOR, T.SPACE, T.CEILING, T.ROOF]
 
 
 def jenis_elemen(r: dict) -> str:

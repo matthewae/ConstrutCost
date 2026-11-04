@@ -29,7 +29,7 @@ from klasifikasi import ElementType as T
 from . import penulangan, tanah
 from .konteks import Konteks
 from .parameter import ParameterEstimasi
-from .sifat import balok_sloof, bukan_beton, dinding_pasangan, kolom_struktur
+from .sifat import balok_sloof, bukan_beton, dinding_pasangan, kolom_struktur, pekerjaan_tanah
 
 
 @dataclass(frozen=True)
@@ -74,6 +74,9 @@ def _pembesian(nama_rasio):
     Bila penampang/panjang elemen tidak diketahui, kembali ke asumsi rasio kg/m³."""
 
     def f(e, p):
+        items = penulangan.dari_model(e, None, p.batas_kemiringan_dak)  # tulangan yang dimodelkan didahulukan
+        if items:
+            return items
         items = penulangan.hitung(e, e.get("penulangan"), p.batas_kemiringan_dak)
         if items:
             return items
@@ -90,6 +93,11 @@ def _pembesian(nama_rasio):
         )]
 
     return f
+
+
+def _pembesian_tangga(e, p):
+    items = penulangan.dari_model(e, "BSI.TANGGA", p.batas_kemiringan_dak)
+    return items or _besi("rasio_besi_tangga")(e, p)
 
 
 def _bekisting_kolom(e, p):
@@ -369,6 +377,38 @@ def _beton(e, k, p):
     return bukan_beton(e) is None
 
 
+def _pelat_struktur(e, k, p):
+    # pelat beton bertulang; rabat beton / lantai kerja dihitung terpisah (LTK.LANTAI)
+    return bukan_beton(e) is None and not e.get("rabat")
+
+
+def _rabat(e, k, p):
+    return bool(e.get("rabat"))
+
+
+def _tanah_model(kode):
+    return lambda e, k, p: pekerjaan_tanah(e) == kode
+
+
+def _volume_model(uraian):
+    def f(e, p):
+        return e["volume"], f"V = volume {uraian} dari model = {_n(e['volume'])} m³"
+
+    return f
+
+
+def _luas_keramik_dinding(e, p):
+    return e["luas"], f"A = luas keramik dinding dari model = {_n(e['luas'])} m²"
+
+
+def _volume_rabat(e, p):
+    if e.get("volume"):
+        return e["volume"], f"V = volume rabat dari model = {_n(e['volume'])} m³"
+    t = e.get("tebal") or p.tebal_lantai_kerja
+    v = e["luas"] * t
+    return v, f"V = A × t = {_n(e['luas'])} × {_n(t, 2)} = {_n(v)} m³"
+
+
 def _kolom_struktur(e, k, p):
     return kolom_struktur(e)
 
@@ -545,9 +585,25 @@ RULES = [
     Rule("BSI.SLOOF", T.BEAM, _pembesian("rasio_besi_sloof"), ("volume",), syarat=_dan(_beton, _sloof)),
     Rule("BSK.SLOOF", T.BEAM, _bekisting_sloof_balok, ("tinggi", "panjang"), syarat=_dan(_beton, _sloof)),
     # ===== Pelat lantai (Rumus 2.11 / 2.37) =====
-    Rule("BTN.PELAT", T.SLAB, _volume(), ("volume",), syarat=_beton),
-    Rule("BSI.PELAT", T.SLAB, _pembesian("rasio_besi_pelat"), ("volume",), syarat=_beton),
-    Rule("BSK.PELAT", T.SLAB, _luas("luas bidang bawah pelat"), ("luas",), syarat=_dan(_beton, _pelat_melayang)),
+    Rule("BTN.PELAT", T.SLAB, _volume(), ("volume",), syarat=_pelat_struktur),
+    Rule("BSI.PELAT", T.SLAB, _pembesian("rasio_besi_pelat"), ("volume",), syarat=_pelat_struktur),
+    Rule("BSK.PELAT", T.SLAB, _luas("luas bidang bawah pelat"), ("luas",), syarat=_dan(_pelat_struktur, _pelat_melayang)),
+    Rule("LTK.LANTAI", T.SLAB, _volume_rabat, ("luas",), syarat=_rabat,
+         keterangan="Rabat beton / lantai kerja (pelat tidak bertulang)"),
+    # ===== Urugan, lantai kerja, aanstamping & keramik dinding yang dimodelkan (menggantikan versi turunan) =====
+    *[
+        Rule(kode, T.EARTHWORK, _volume_model(uraian), ("volume",), syarat=_tanah_model(kode),
+             keterangan=f"{uraian.capitalize()} (dimodelkan)")
+        for kode, uraian in (
+            ("TNH.PASIR.FONDASI", "urugan pasir bawah fondasi"),
+            ("TNH.PASIR.SLOOF", "urugan pasir bawah sloof"),
+            ("TNH.PASIR.LANTAI", "urugan pasir bawah lantai"),
+            ("LTK.FONDASI", "lantai kerja bawah fondasi"),
+            ("LTK.LANTAI", "lantai kerja / rabat bawah lantai"),
+            ("FDN.AANSTAMPING", "pasangan batu kosong (aanstamping)"),
+        )
+    ],
+    Rule("KRM.DINDING", T.WALL_TILE, _luas_keramik_dinding, ("luas",), keterangan="Keramik dinding (dimodelkan)"),
     # ===== Atap miring: rangka baja ringan + genteng (Rumus 2.22 / 2.23 / 2.42) =====
     Rule("ATP.RANGKA", T.ROOF, _luas_atap, ("luas",), syarat=_atap_miring, keterangan="Rangka atap baja ringan per m² luas atap"),
     Rule("ATP.PENUTUP", T.ROOF, _luas_atap, ("luas",), syarat=_atap_miring, keterangan="Penutup atap genteng"),
@@ -620,7 +676,7 @@ RULES = [
     # ===== Tangga beton & railing =====
     Rule("BTN.TANGGA", T.STAIR, _volume(), ("volume",), syarat=_beton, keterangan="Beton tangga"),
     Rule("BSK.TANGGA", T.STAIR, _bekisting_tangga, ("panjang", "lebar", "tinggi"), syarat=_beton),
-    Rule("BSI.TANGGA", T.STAIR, _besi("rasio_besi_tangga"), ("volume",), syarat=_beton),
+    Rule("BSI.TANGGA", T.STAIR, _pembesian_tangga, ("volume",), syarat=_beton),
     Rule("RLG.TANGGA", T.RAILING, _panjang_railing, ("panjang",), syarat=_railing_tangga, keterangan="Railing tangga"),
     Rule("RLG.PENGAMAN", T.RAILING, _panjang_railing, ("panjang",), syarat=_railing_pengaman,
          keterangan="Railing pengaman balkon / void"),

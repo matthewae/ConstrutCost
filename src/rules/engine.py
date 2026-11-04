@@ -48,17 +48,25 @@ def terapkan_rules(elemen: dict, konteks: Konteks = None, parameter=PARAMETER_DE
             )
             continue
         keluaran = rule.hitung(elemen, parameter)
+        model = konteks.kode_dari_model
         if isinstance(keluaran, list):  # satu aturan -> beberapa item (pembesian per diameter)
             for it in keluaran:  # ItemBesi (berat) atau ItemHasil (nilai)
                 nilai = it.berat if hasattr(it, "berat") else it.nilai
-                if nilai and nilai > 0:
+                if nilai and nilai > 0 and not _diganti_model(it.kode, elemen, model):
                     hasil.append(HasilRule(it.kode, nilai, it.rumus, rule.keterangan, it.uraian, it.diameter))
             continue
         nilai, uraian = keluaran
-        if nilai is None or nilai <= 0:
+        if nilai is None or nilai <= 0 or _diganti_model(rule.kode, elemen, model):
             continue
         hasil.append(HasilRule(rule.kode, nilai, uraian, rule.keterangan))
     return hasil, dilewati
+
+
+def _diganti_model(kode: str, elemen: dict, model: dict) -> bool:
+    """True bila pekerjaan ini juga dimodelkan langsung (mis. urugan pasir, lantai kerja, keramik dinding)
+    dan item ini berasal dari elemen lain sebagai turunan: yang dihitung adalah versi model."""
+    sumber = model.get(kode)
+    return sumber is not None and elemen["kelas"] not in sumber
 
 
 def proses_semua(elemen: list, parameter=PARAMETER_DEFAULT, rules=RULES):
