@@ -6,7 +6,8 @@ Uji mandiri hasil build .exe (KNF-8):
 Menjalankan seluruh alur utama di folder data SEMENTARA (database pengguna tidak tersentuh):
 siapkan database + harga HSPK -> validasi IFC di proses anak (KNF-4) -> parsing & rule engine ->
 export Excel & PDF -> simpan & buka file .coststruct -> buka jendela utama & halaman estimasi
-(memastikan plugin Qt ikut terbundel; tangkapan layar `uji_mandiri_layar.png`). Laporan ditulis ke
+(memastikan plugin Qt ikut terbundel; tangkapan layar `uji_mandiri_layar.png`) -> buka penampil Model 3D
+(modul QML Qt Quick 3D ikut terbundel; `uji_mandiri_3d.png`). Laporan ditulis ke
 `uji_mandiri.txt` di folder keluaran; kode keluar 0 bila semua tahap berhasil.
 Tanpa file IFC, dipakai model kecil buatan (dinding, pelat, kolom, pintu) yang dibuat di tempat.
 """
@@ -138,9 +139,51 @@ def jalankan(path_ifc: str | None = None, folder_keluar: str | None = None) -> d
             raise RuntimeError(f"gaya Qt Fusion tidak terpasang (gaya dasar: {gaya!r})")
         return f"platform {app.platformName()}, gaya {gaya}, {layar.name}"
 
+    def model_3d():
+        """Modul QML QtQuick & QtQuick3D serta gui/penampil3d.qml ikut terbundel: penampil 3D terbuka tanpa galat
+        QML dan panel biaya terisi. Gambar 3D diperiksa bila Qt Quick memakai API grafis 3D (Direct3D di Windows);
+        platform tanpa API grafis (mis. QT_QPA_PLATFORM=offscreen di Linux) hanya diperiksa pemuatannya."""
+        from PySide6.QtWidgets import QApplication
+
+        from gui.penampil3d import Penampil3D, muat_model
+
+        app = QApplication.instance() or QApplication(["CostStruct"])
+        if getattr(app, "_terjemahan_qt", None) is None:  # seperti aplikasi sungguhan (splash_screen)
+            from gui.galat import pasang_terjemahan
+
+            pasang_terjemahan(app)
+        model = muat_model(str(konteks["ifc"]))
+        d = Penampil3D(konteks["pid"], "Uji Mandiri", model)
+        if d.galat_qml:
+            raise RuntimeError("galat QML: " + "; ".join(d.galat_qml[:3]))
+        d.resize(1280, 800)
+        d.show()
+        t0 = time.perf_counter()
+        while time.perf_counter() - t0 < 1.5:
+            app.processEvents()
+        gid = next(g for g, x in d._peta.items() if x["baris"] and g in d._e3d)
+        d.pilih(gid)
+        app.processEvents()
+        if d.panel.stack.currentIndex() != 1:
+            raise RuntimeError("panel kebutuhan biaya tidak terisi setelah elemen dipilih")
+        aktif = d.render_3d_aktif()
+        ket = f"{len(model.elemen)} elemen 3D"
+        if aktif:
+            img = d.quick.grabFramebuffer()
+            warna = {img.pixel(x, y) for x in range(0, img.width(), 23) for y in range(0, img.height(), 19)}
+            if len(warna) < 4:
+                raise RuntimeError("tampilan 3D kosong (model tidak tergambar)")
+            ket += f", digambar ({len(warna)} warna)"
+        else:
+            ket += ", tidak digambar: platform tanpa API grafis 3D"
+        layar = keluar / "uji_mandiri_3d.png"
+        d.grab().save(str(layar))
+        d.close()
+        return f"{ket}, {layar.name}"
+
     urutan = (("Database & harga HSPK", db), ("Validasi IFC (proses anak)", ifc),
               ("Parsing & rule engine", estimasi), ("Export Excel & PDF", export),
-              ("Simpan & buka file proyek", berkas), ("Antarmuka (Qt)", antarmuka))
+              ("Simpan & buka file proyek", berkas), ("Antarmuka (Qt)", antarmuka), ("Model 3D (Qt Quick 3D)", model_3d))
     for nama, fungsi in urutan:
         if not langkah(nama, fungsi):
             break

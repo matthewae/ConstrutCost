@@ -96,6 +96,7 @@ def test_spec_pyinstaller_membawa_berkas_wajib():
     assert "ifcopenshell.express.rules" in spec  # atribut turunan IFC (gagal tanpa ini saat dibundel)
     assert "express/express_parser.py" in spec
     assert "console=False" in spec
+    assert "penampil3d.qml" in spec and "PySide6.QtQuick3D" in spec  # penampil Model 3D (QML ikut dibundel)
     assert (AKAR / "assets" / "coststruct.ico").is_file()
 
 
@@ -109,7 +110,7 @@ def test_uji_mandiri_semua_tahap_berhasil(tmp_path):
     )
     laporan = (tmp_path / "uji_mandiri.txt").read_text(encoding="utf-8")
     assert r.returncode == 0, laporan
-    assert laporan.count("[OK]") == 6 and "SEMUA TAHAP BERHASIL" in laporan
+    assert laporan.count("[OK]") == 7 and "SEMUA TAHAP BERHASIL" in laporan
     assert (tmp_path / "uji_mandiri_layar.png").stat().st_size > 0  # antarmuka Qt dapat dibuka
     assert (tmp_path / "uji_mandiri.xlsx").stat().st_size > 0
     assert (tmp_path / "uji_mandiri.pdf").read_bytes().startswith(b"%PDF")

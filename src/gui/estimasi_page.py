@@ -212,6 +212,7 @@ class EstimasiPage(QWidget):
         self._harga_terakhir = {}
         self.riwayat = QUndoStack(self)
         self.riwayat.setUndoLimit(50)
+        self._dialog_3d = None  # jendela Model 3D (gui/penampil3d.py), dibuat saat pertama dibuka
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 22, 32, 20)
@@ -253,6 +254,11 @@ class EstimasiPage(QWidget):
         self.btn_katalog.clicked.connect(self._buka_katalog)
         self.btn_export = tema.tombol("Export RAB", "primary", "unduh", "Export ke Excel / PDF (Ctrl+E)")
         self.btn_export.clicked.connect(self._buka_export)
+        self.btn_3d = tema.tombol(
+            "Model 3D", "secondary", "kubus",
+            "Lihat bangunan dalam 3D; klik kolom, dinding, fondasi, ... untuk melihat kebutuhan biayanya (Ctrl+3)",
+        )
+        self.btn_3d.clicked.connect(self._buka_3d)
         # KF-7 / KF-9: menu proyek
         self.btn_proyek = QToolButton()
         self.btn_proyek.setText("Proyek  ▾")
@@ -261,6 +267,8 @@ class EstimasiPage(QWidget):
         self.btn_proyek.setPopupMode(QToolButton.InstantPopup)
         self.btn_proyek.setToolButtonStyle(Qt.ToolButtonTextOnly)
         menu = QMenu(self.btn_proyek)
+        menu.addSection("Tampilan")
+        menu.addAction("Model 3D Bangunan...\tCtrl+3", self._buka_3d)
         menu.addSection("Bahan & pekerjaan")
         menu.addAction("Ganti Bahan Proyek...", self._buka_material)
         menu.addAction("Tambah Pekerjaan dari Katalog HSPK...", self._buka_katalog)
@@ -277,6 +285,7 @@ class EstimasiPage(QWidget):
         # Header ringkas: hanya aksi yang sering dipakai. Hitung ulang, penulangan, dan biaya tidak langsung ada di
         # menu Proyek ▾ (biaya tidak langsung juga lewat kartu B di bawah).
         kepala.addWidget(self.btn_proyek, alignment=Qt.AlignTop)
+        kepala.addWidget(self.btn_3d, alignment=Qt.AlignTop)
         kepala.addWidget(self.btn_material, alignment=Qt.AlignTop)
         kepala.addWidget(self.btn_katalog, alignment=Qt.AlignTop)
         kepala.addWidget(self.btn_export, alignment=Qt.AlignTop)
@@ -439,6 +448,7 @@ class EstimasiPage(QWidget):
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self._fokus_cari)
         QShortcut(QKeySequence("Ctrl+B"), self, activated=self.btn_panel.toggle)
         QShortcut(QKeySequence("Ctrl+E"), self, activated=self._pintasan_export)
+        QShortcut(QKeySequence("Ctrl+3"), self, activated=lambda: self.btn_3d.isEnabled() and self._buka_3d())
         QShortcut(QKeySequence.Undo, self, activated=self.riwayat.undo)
         QShortcut(QKeySequence.Save, self, activated=self._simpan_file)
         QShortcut(QKeySequence("Ctrl+Y"), self, activated=self.riwayat.redo)
@@ -472,8 +482,9 @@ class EstimasiPage(QWidget):
         for w in (self.baris_kartu, self.baris_alat, self.label_mode, self.baris_bawah):
             w.setVisible(ada)
         self.btn_export.setEnabled(ada)
-        for b in (self.btn_material, self.btn_katalog):
+        for b in (self.btn_material, self.btn_katalog, self.btn_3d):
             b.setEnabled(ada)
+        self._segarkan_3d()
         if not ada:
             self.banner_harga.hide()
             self.banner_nol.hide()
@@ -1155,14 +1166,17 @@ class EstimasiPage(QWidget):
         self._pilih_kunci(kunci_baris)
         self._umpan_balik_total(lama, f"{SLOT[slot].judul} {nama} → {label}")
 
-    def _umpan_balik_total(self, lama: dict, apa: str):
+    def _pesan_total(self, lama: dict, apa: str) -> str:
         """Pesan setelah bahan diganti: total RAB sebelum → sesudah, agar jelas perubahan ikut ke RAB."""
         baru = ringkasan_biaya(self.proyek_id)
         d = baru["dibulatkan"] - lama["dibulatkan"]
         arah = "naik" if d > 0 else "turun" if d < 0 else "tetap"
         selisih = f" ({arah} {tema.format_rupiah(abs(d))})" if d else ""
-        tema.toast(self, f"{apa}. Total RAB {tema.format_rupiah(lama['dibulatkan'])} → "
-                         f"{tema.format_rupiah(baru['dibulatkan'])}{selisih}")
+        return (f"{apa}. Total RAB {tema.format_rupiah(lama['dibulatkan'])} → "
+                f"{tema.format_rupiah(baru['dibulatkan'])}{selisih}")
+
+    def _umpan_balik_total(self, lama: dict, apa: str):
+        tema.toast(self, self._pesan_total(lama, apa))
 
     def _baris_dari_id(self, hasil_id: int) -> int:
         for i in range(self.tabel.rowCount()):
@@ -1490,6 +1504,63 @@ class EstimasiPage(QWidget):
         self.muat()
         self._pilih_kunci(kunci)
         self._umpan_balik_total(lama, f"Bahan {nama} diganti".replace("  ", " "))
+
+    # ---------------------------------------------------------------- Model 3D
+
+    def _buka_3d(self):
+        """Jendela Model 3D: klik elemen untuk melihat kebutuhan biayanya (gui/penampil3d.py)."""
+        if self._dialog_3d is not None:
+            self._dialog_3d.segarkan()
+            self._dialog_3d.showNormal() if self._dialog_3d.isMinimized() else self._dialog_3d.show()
+            self._dialog_3d.raise_()
+            self._dialog_3d.activateWindow()
+            return
+        try:
+            from gui.penampil3d import buka_penampil
+        except ImportError as e:  # modul Qt Quick 3D tidak terpasang
+            tema.toast(self, f"Penampil 3D tidak tersedia: {e}", "peringatan")
+            return
+        proyek = get_proyek(self.proyek_id) or {}
+        jendela = buka_penampil(self, self.proyek_id, self.nama_proyek, proyek.get("path_file_ifc"))
+        if jendela is None:
+            return
+        self._dialog_3d = jendela
+        self.destroyed.connect(jendela.close)  # halaman ditutup / proyek lain dibuka: jendela 3D ikut tertutup
+        jendela.show()
+
+    def _segarkan_3d(self):
+        if self._dialog_3d is not None and self._dialog_3d.isVisible():
+            self._dialog_3d.segarkan()
+
+    def terapkan_perubahan(self, aksi, keterangan: str, ringkas: str):
+        """Perubahan dari jendela lain (Model 3D): `aksi()` menyimpan perubahan dan mengembalikan True bila ada yang
+        berubah. Masuk riwayat urungkan, tabel dimuat ulang. Return pesan total RAB sebelum → sesudah, atau None."""
+        lama = ringkasan_biaya(self.proyek_id)
+        sebelum = potret_proyek(self.proyek_id)
+        if not aksi():
+            return None
+        self._catat(keterangan, sebelum)
+        kunci = self._kunci_terpilih()
+        self.muat()
+        self._pilih_kunci(kunci)
+        return self._pesan_total(lama, ringkas)
+
+    def lihat_elemen(self, nama: str):
+        """Tampilkan baris RAB satu elemen: mode Per Elemen, semua kategori & lantai, cari nama elemen."""
+        for combo in (self.combo_kategori, self.combo_lantai):
+            combo.blockSignals(True)
+            combo.setCurrentIndex(0)
+            combo.blockSignals(False)
+        self.grup_mode.button(self.MODE_DETAIL).setChecked(True)
+        self.kolom_cari.blockSignals(True)
+        self.kolom_cari.setText(nama)
+        self.kolom_cari.blockSignals(False)
+        self._isi_ulang()
+        jendela = self.window()
+        if jendela.isMinimized():
+            jendela.showNormal()
+        jendela.raise_()
+        jendela.activateWindow()
 
     def _buka_export(self):
         dialog = ExportDialog(self.proyek_id, self.nama_proyek, self)

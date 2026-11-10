@@ -1,6 +1,6 @@
 # Panduan Singkat CostStruct
 
-Lima langkah dari file IFC sampai RAB.
+Lima langkah dari file IFC sampai RAB, ditambah penampil Model 3D.
 
 ## 1. Import model
 Halaman **Proyek** → **Import IFC** → pilih file `.ifc` → periksa ringkasan → **Import**.
@@ -37,6 +37,17 @@ Tombol **+ Tambah Pekerjaan** → cari, mis. "kloset", "stop kontak", "pipa pvc"
 
 Tombol **Export RAB** membuat file Excel/PDF. File itu memuat RAB, rincian per lantai, kebutuhan bahan
 proyek & per elemen, dan daftar bahan yang dipilih.
+
+## 6. Lihat model 3D dan biaya per elemen
+Tombol **Model 3D** (Ctrl+3) → klik elemen pada bangunan, mis. Kolom K1 A1.
+- Panel kanan menampilkan kebutuhan biayanya: kolom itu, pedestal, fondasi, dan pekerjaan tanah di bawahnya,
+  diurutkan per tahap pekerjaan.
+- Elemen terpilih berwarna kuning; bagian yang ikut dihitung berwarna hijau.
+- Dinding dan elemen lain yang punya pilihan bahan menampilkan combo box bahan dengan harga tiap pilihan untuk
+  elemen itu.
+- Seret kiri untuk memutar, seret kanan untuk menggeser, roda mouse untuk zoom.
+- **Lantai: s.d. …** dan **Arsitektur tembus pandang** membantu memilih kolom di dalam bangunan.
+- Rincian: `docs/Model-3D.md`.
 
 Semua perubahan bisa dibatalkan dengan **Urungkan** (Ctrl+Z). Pengaturan lain ada di menu **Proyek ▾**: biaya
 tidak langsung, tipe penulangan, parameter aturan, hitung ulang dari IFC, serta simpan/duplikat proyek.

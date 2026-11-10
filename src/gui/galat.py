@@ -15,6 +15,7 @@ import errno
 import sqlite3
 import sys
 import traceback
+from contextlib import contextmanager
 
 from PySide6.QtCore import QCoreApplication, QThread, QTranslator
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -190,6 +191,25 @@ class TerjemahanQt(QTranslator):
 
     def isEmpty(self):
         return False
+
+
+@contextmanager
+def tanpa_terjemahan_python():
+    """Lepas TerjemahanQt sementara, lalu pasang kembali.
+
+    Penerjemah ini ditulis di Python, jadi setiap panggilan QCoreApplication::translate dari thread lain harus
+    menunggu GIL. QQuickWidget.setSource memuat QML secara sinkron: thread utama (memegang GIL) menunggu thread
+    pemuat QML, dan thread pemuat QML memanggil translate (mis. pesan galat cache QML) -> keduanya saling menunggu
+    dan aplikasi macet. Dipakai di sekitar setSource (gui/penampil3d.py)."""
+    app = QCoreApplication.instance()
+    t = getattr(app, "_terjemahan_qt", None) if app is not None else None
+    if t is not None:
+        QCoreApplication.removeTranslator(t)
+    try:
+        yield
+    finally:
+        if t is not None:
+            QCoreApplication.installTranslator(t)
 
 
 def pasang_terjemahan(app) -> TerjemahanQt:

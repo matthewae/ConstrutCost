@@ -28,7 +28,9 @@ dibuka lebih lambat beberapa detik karena isinya diekstrak dulu ke folder sement
    - `schema.sql`;
    - modul `ifcopenshell` yang dipakai, termasuk aturan atribut turunan untuk skema IFC2X3 dan IFC4;
    - aplikasi jendela tanpa konsol.
-   Pustaka yang tidak dipakai dikecualikan, antara lain pandas, matplotlib, validator EXPRESS, dan Qt Quick/WebEngine.
+   - modul QML QtQml, QtQuick, dan QtQuick3D beserta `gui/penampil3d.qml` untuk penampil Model 3D.
+   Pustaka yang tidak dipakai dikecualikan, antara lain pandas, matplotlib, validator EXPRESS, WebEngine, dan
+   modul QML lain (Controls, Charts, Multimedia, ...) yang ikut terbawa hook PyInstaller.
 3. Menjalankan **uji mandiri** pada hasil build: `CostStruct.exe --uji-mandiri`.
 
 ### Uji mandiri (`--uji-mandiri`)
@@ -43,6 +45,8 @@ pengguna tidak tersentuh:
 | Parsing & rule engine | ekstraksi elemen, QTO, RAB |
 | Export Excel & PDF | openpyxl dan reportlab ikut terbundel |
 | Simpan & buka file proyek | file `.coststruct` |
+| Antarmuka (Qt) | jendela utama & halaman estimasi; plugin platform dan gaya Fusion terbundel |
+| Model 3D (Qt Quick 3D) | penampil 3D terbuka tanpa galat QML, panel biaya terisi, dan model tergambar (bila ada API grafis 3D) |
 
 Contoh pemanggilan:
 

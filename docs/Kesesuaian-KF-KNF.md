@@ -1,10 +1,11 @@
 # Kesesuaian dengan Kebutuhan Fungsional (KF) dan Non-Fungsional (KNF)
 
 Acuan: Tabel 3.1 (KF-1 s.d. KF-19) dan Tabel 3.2 (KNF-1 s.d. KNF-9) naskah skripsi.
-Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 533 tes lulus). Panduan pemakaian singkat: `docs/Panduan-Singkat.md`.
+Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 546 tes lulus). Panduan pemakaian singkat: `docs/Panduan-Singkat.md`.
 Koreksi basis aturan setelah audit (pelat lantai dasar, elemen bukan beton, sloof turunan, dll.)
 dijelaskan di `docs/Koreksi-Rule-Engine.md`. Katalog HSPK lengkap, pilihan material per pekerjaan dan per elemen,
 serta rincian kebutuhan bahan (keseluruhan, per lantai, per elemen) dijelaskan di `docs/Katalog-Material-Kebutuhan.md`.
+Penampil Model 3D dengan kebutuhan biaya per elemen dijelaskan di `docs/Model-3D.md`.
 
 ## Kebutuhan fungsional
 
@@ -27,7 +28,7 @@ serta rincian kebutuhan bahan (keseluruhan, per lantai, per elemen) dijelaskan d
 | KF-15 | Logging Aktivitas | Import, estimasi, edit, ganti bahan, harga, export, file proyek, dan galat dicatat di database serta log harian; ada halaman Riwayat Aktivitas dengan filter per jenis (setiap jenis log punya label, diuji) | `test_knf8_kf14_kf15.py` | Sesuai |
 | KF-16 | Navigasi Data | Pencarian, filter (kategori, lantai, jenis), dan pengurutan kolom di hasil estimasi, harga, proyek, dan aktivitas | `test_kf16_urut.py` | Sesuai |
 | KF-17 | Custom Output Formatting | Pilihan kolom (No, Kode, Harga, Bobot, Rumus), isi dokumen (termasuk kebutuhan bahan proyek & per elemen), dan orientasi PDF | `test_kf17_export.py`, `test_material_katalog.py` | Sesuai |
-| KF-18 | Detail Volume Breakdown | Panel Rincian Perhitungan menampilkan dimensi, sumber data, rumus, dan backup volume; tersedia kolom "Uraian rumus" di export | `test_kf3_kf4_rules.py`, `test_kebutuhan_lantai.py` | Sesuai |
+| KF-18 | Detail Volume Breakdown | Panel Rincian Perhitungan menampilkan dimensi, sumber data, rumus, dan backup volume; tersedia kolom "Uraian rumus" di export. Penampil **Model 3D**: klik elemen pada bangunan untuk melihat kebutuhan biayanya per tahap pekerjaan, termasuk pedestal, fondasi, sloof, dan pekerjaan tanah di bawahnya, dengan pilihan bahan per elemen (`docs/Model-3D.md`) | `test_kf3_kf4_rules.py`, `test_kebutuhan_lantai.py`, `test_penampil3d.py` | Sesuai |
 | KF-19 | Recalculate QTO | Ubah dimensi elemen (mis. pelat 30×30 → 50×50) lalu QTO dan RAB dihitung ulang | `test_kf19_dimensi.py` | Sesuai |
 
 ## Kebutuhan non-fungsional

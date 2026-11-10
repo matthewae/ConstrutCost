@@ -14,6 +14,7 @@ Data pengguna (database, log, cadangan) TIDAK ikut dibundel; dibuat otomatis di
 """
 
 import os
+import re
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
@@ -39,24 +40,70 @@ data_ifc = collect_data_files("ifcopenshell", excludes=["express/**", "mvd/**", 
 # ifcopenshell/express/__init__.py memeriksa keberadaan berkas express_parser.py di disk saat diimpor.
 data_ifc += collect_data_files("ifcopenshell", include_py_files=True, includes=["express/express_parser.py"])
 
+# Penampil Model 3D (src/gui/penampil3d.py + penampil3d.qml) memakai Qt Quick 3D lewat QQuickWidget.
+QT_3D = ["PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtQuickWidgets", "PySide6.QtQuick3D"]
+
 a = Analysis(
     [str(AKAR / "src" / "main.py")],
     pathex=[str(AKAR / "src")],
     binaries=[],
-    datas=[(str(AKAR / "src" / "database" / "schema.sql"), "database")] + data_ifc,
-    hiddenimports=modul_ifc + collect_submodules("rules") + ["PySide6.QtPdf", "PySide6.QtPdfWidgets"],
+    datas=[(str(AKAR / "src" / "database" / "schema.sql"), "database"),
+           (str(AKAR / "src" / "gui" / "penampil3d.qml"), "gui")] + data_ifc,
+    hiddenimports=modul_ifc + collect_submodules("rules") + ["PySide6.QtPdf", "PySide6.QtPdfWidgets"] + QT_3D,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
         "tkinter", "matplotlib", "pandas", "IPython", "pytest", "experta", "notebook", "scipy", "lxml",
         "cryptography",
-        "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.Qt3DCore", "PySide6.QtQuick",
-        "PySide6.QtQml", "PySide6.QtMultimedia", "PySide6.QtCharts", "PySide6.QtDataVisualization",
+        "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.Qt3DCore", "PySide6.QtMultimedia",
+        "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtQuickControls2", "PySide6.QtQuick3DXr",
     ] + list(TANPA_IFC) + TANPA_EXPRESS,
     noarchive=False,
     optimize=0,
 )
+
+# Hook PyInstaller untuk QtQml membawa SEMUA modul QML PySide6 (Controls, WebEngine, Multimedia, Charts, ...)
+# beserta pustaka Qt yang mereka perlukan (Qt6WebEngineCore saja ~200 MB). penampil3d.qml hanya mengimpor QtQuick
+# dan QtQuick3D, jadi yang dibawa: berkas langsung di folder QtQml, QtQuick, dan QtQuick3D (qmldir + plugin, tanpa
+# sub-modul seperti QtQuick/Controls atau QtQuick3D/Helpers) ditambah QtQml.Models & QtQml.WorkerScript yang diimpor
+# otomatis oleh QtQml. Pustaka Qt milik modul yang tidak dipakai, importir aset 3D, dan alat debug QML dibuang.
+# Yang dipakai penampil 3D: Qt6Qml, Qt6QmlMeta, Qt6QmlModels, Qt6QmlWorkerScript, Qt6Quick, Qt6QuickWidgets,
+# Qt6Quick3D, Qt6Quick3DRuntimeRender, Qt6Quick3DUtils, Qt6ShaderTools, Qt6OpenGL (uji mandiri tahap "Model 3D").
+QML_DASAR = ("QtQml/", "QtQuick/", "QtQuick3D/")
+QML_SUB = ("QtQml/Models/", "QtQml/WorkerScript/")
+QT_TIDAK_DIPAKAI = (
+    "3D", "Charts", "DataVisualization", "Graphs", "Labs", "Location", "Multimedia", "PdfQuick", "Positioning",
+    "QmlLocalStorage", "QmlNetwork", "QmlXmlListModel", "Quick3DAssetImport", "Quick3DAssetUtils", "Quick3DEffects",
+    "Quick3DHelpers", "Quick3DParticle", "Quick3DSpatialAudio", "Quick3DXr", "QuickControls2", "QuickDialogs2",
+    "QuickEffects", "QuickLayouts", "QuickParticles", "QuickShapes", "QuickTemplates2", "QuickTest", "QuickTimeline",
+    "QuickVectorImage", "RemoteObjects", "Scxml", "Sensors", "SpatialAudio", "StateMachine", "Test", "TextToSpeech",
+    "VirtualKeyboard", "WaylandCompositor", "WebChannel", "WebEngine", "WebSockets", "WebView",
+)
+
+
+def qml_dipakai(tujuan: str) -> bool:
+    t = tujuan.replace("\\", "/")
+    if not t.startswith("PySide6/"):
+        return True
+    if "/plugins/assetimporters/" in t or "/plugins/qmltooling/" in t:
+        return False
+    m = re.match(r"(?:lib)?Qt6(\w+)\.(?:dll|so|dylib)", t.rsplit("/", 1)[-1])
+    if m and m.group(1).startswith(QT_TIDAK_DIPAKAI):
+        return False
+    i = t.find("/qml/")
+    if i < 0:
+        return True
+    rel = t[i + len("/qml/"):]
+    if "/" not in rel:  # builtins.qmltypes, jsroot.qmltypes
+        return True
+    if rel.startswith(QML_SUB):
+        return True
+    return any(rel.startswith(d) and "/" not in rel[len(d):] for d in QML_DASAR)
+
+
+a.datas = [x for x in a.datas if qml_dipakai(x[0])]
+a.binaries = [x for x in a.binaries if qml_dipakai(x[0])]
 pyz = PYZ(a.pure)
 
 opsi_exe = dict(

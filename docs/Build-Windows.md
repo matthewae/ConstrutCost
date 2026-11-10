@@ -47,7 +47,8 @@ Hasilnya ada di `dist\CostStruct.exe`.
 2. menjalankan PyInstaller (±2 menit);
 3. menjalankan uji mandiri pada `.exe` yang baru dibuat.
 
-Uji mandiri terdiri atas 6 tahap: database, validasi IFC, estimasi, export, file proyek, dan jendela aplikasi.
+Uji mandiri terdiri atas 7 tahap: database, validasi IFC, estimasi, export, file proyek, jendela aplikasi, dan
+penampil Model 3D (Qt Quick 3D, termasuk pemeriksaan bahwa model benar-benar tergambar).
 Laporannya ada di `build\uji_mandiri\uji_mandiri.txt`.
 
 Folder `dist\CostStruct` berisi aplikasi lengkap. Seluruh folder bisa disalin atau di-zip ke komputer lain
