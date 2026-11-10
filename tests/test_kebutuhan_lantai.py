@@ -39,6 +39,9 @@ def ifc_bertingkat(tmp_path_factory):
             api.run("geometry.assign_representation", f, product=kol, representation=api.run(
                 "geometry.add_profile_representation", f, context=body,
                 profile=f.createIfcRectangleProfileDef("AREA", None, None, 0.25, 0.25), depth=3.5))
+            # dua kolom di posisi berbeda (dua kolom identik di satu titik = objek ganda, dihitung sekali)
+            api.run("geometry.edit_object_placement", f, product=kol,
+                    matrix=[[1, 0, 0, 4.0 * k], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
             produk.append(kol)
         balok = api.run("root.create_entity", f, ifc_class="IfcBeam", name=f"B{i}")
         api.run("geometry.assign_representation", f, product=balok, representation=api.run(

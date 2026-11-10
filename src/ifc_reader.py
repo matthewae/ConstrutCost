@@ -151,10 +151,9 @@ def _validasi(p: Path) -> InfoFileIFC:
     jumlah = {}
     for _entity, _tipe, kelas in kumpulkan_elemen(model):
         jumlah[kelas] = jumlah.get(kelas, 0) + 1
+    # jumlah_per_kelas = jumlah objek IFC (sama dengan elemen yang diekstrak); jumlah kolom fisik per fungsi
+    # (pedestal + kolom di atasnya = satu kolom) ada di ringkasan_kolom dan ditampilkan di dialog import
     ringkasan_kolom = _ringkasan_kolom(model)
-    if ringkasan_kolom and ElementType.COLUMN in jumlah:
-        # jumlah kolom = kolom fisik (pedestal + kolom di atasnya = satu kolom; objek ganda tidak dihitung)
-        jumlah[ElementType.COLUMN] = ringkasan_kolom["fisik"]
 
     skala = unit_util.calculate_unit_scale(model)
     lantai = sorted(

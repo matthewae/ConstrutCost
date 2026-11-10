@@ -1,6 +1,8 @@
 """Kolom fisik dan fungsi kolom (kolom.py): pedestal + kolom di atasnya = satu kolom, kolom kanopi/carport dan
 kolom arsitektur dipisah dari kolom struktur utama, objek kolom ganda tidak dihitung dua kali."""
 
+import os
+
 import pytest
 
 from kolom import (
@@ -15,6 +17,20 @@ from kolom import (
 from rules import PARAMETER_DEFAULT as P
 from rules import proses_semua
 from rules.penulangan import KAIT_UTAMA, LEWATAN, Penulangan, berat_per_m, hitung
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+@pytest.fixture(scope="module")
+def app():
+    from PySide6.QtWidgets import QApplication
+
+    from gui import tema
+
+    a = QApplication.instance() or QApplication([])
+    tema.terapkan(a, "hitam_kuning")
+    return a
+
 
 # denah bangunan 10 x 10 m dengan dinding keliling di lantai 1
 DINDING = {"Lantai 1": [(0, -0.07, 0, 10, 0.07, 3), (0, 9.93, 0, 10, 10.07, 3),
@@ -223,7 +239,23 @@ def test_dialog_import_menghitung_kolom_fisik(tmp_path):
     rk = info.ringkasan_kolom
     assert rk["objek"] == 12 and rk["fisik"] == 6 and rk["digabung"] == 6
     assert rk["per_fungsi"][FUNGSI_UTAMA] == 4 and rk["per_fungsi"][FUNGSI_KANOPI] == 2
-    assert info.jumlah_per_kelas[ElementType.COLUMN] == 6  # bukan 12 objek IfcColumn
+    assert info.jumlah_per_kelas[ElementType.COLUMN] == 12  # objek IFC (= elemen yang diekstrak)
+
+
+def test_dialog_import_menampilkan_kolom_per_fungsi(app, tmp_path):
+    from ifc_reader import buka_dan_validasi
+    from gui.import_dialog import RingkasanImportDialog
+    from PySide6.QtWidgets import QLabel, QTableWidget
+
+    d = RingkasanImportDialog(buka_dan_validasi(_model(tmp_path)))
+    t = d.findChild(QTableWidget)
+    baris = {t.item(r, 0).text(): int(t.item(r, 2).text()) for r in range(t.rowCount())}
+    assert baris["Kolom struktur utama"] == 4 and baris["Kolom kanopi / carport / teras"] == 2
+    assert not any(k == "Kolom" for k in baris)  # tidak ada lagi "12 kolom"
+    teks = " ".join(w.text() for w in d.findChildren(QLabel))
+    assert "12 objek IfcColumn: 6 segmen kolom (pedestal / potongan kolom) digabung" in teks
+    d.close()
+    d.deleteLater()
 
 
 def test_estimasi_tipe_kolom_dihitung_per_kolom_fisik(db_sementara, tmp_path):

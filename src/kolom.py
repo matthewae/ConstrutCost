@@ -11,7 +11,7 @@ Kolom fisik dan fungsi kolom (KF-2): satu kolom di lapangan sering dimodelkan se
    penghitungan jumlah kolom, tipe "— n buah", dan fondasi turunan (satu per kolom fisik).
 
 2. Objek ganda
-   Dua IfcColumn yang menempati ruang yang sama (tumpang tindih >= 50% denah dan tinggi), mis. kolom
+   Dua IfcColumn di lantai yang sama yang menempati ruang yang sama (tumpang tindih >= 50% denah dan tinggi), mis. kolom
    arsitektur (pembungkus) di luar kolom struktur, atau kolom tersalin dua kali. Volumenya dihitung sekali:
    segmen yang LoadBearing / lebih kecil dipertahankan, yang lain ditandai `duplikat`.
 
@@ -178,6 +178,8 @@ def analisis(segmen: list, dinding: dict | None = None, elev_dasar: float | None
             if j in duplikat:
                 continue
             a, b = segmen[i], segmen[j]
+            if a.lantai != b.lantai:  # beda lantai di ruang yang sama = data placement hilang, bukan objek ganda
+                continue
             t = _tumpang_tinggi(a, b)
             if _tutup_denah(a, b) >= TUTUP_MIN and t > 0 and t >= 0.5 * min(a.tinggi, b.tinggi):
                 duplikat[j] = i
