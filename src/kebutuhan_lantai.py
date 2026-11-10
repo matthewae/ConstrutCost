@@ -89,7 +89,7 @@ def struktur_per_tipe(baris: list) -> list:
         g = grup.setdefault(kunci, {"label": label, "urut": urut, "elemen": set(), "beton": 0.0, "bekisting": 0.0,
                                    "besi": 0.0, "biaya": 0.0, "mutu": {}})
         if r.get("elemen_id"):
-            g["elemen"].add(r["elemen_id"])
+            g["elemen"].add(r.get("kolom_grup") or r["elemen_id"])  # pedestal + kolom = satu kolom
         v = r["volume_pekerjaan"] or 0.0
         if kode.startswith(AWALAN_BETON):
             g["beton"] += v

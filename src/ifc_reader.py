@@ -34,6 +34,9 @@ import ifcopenshell.util.shape as shape_util
 import ifcopenshell.util.unit as unit_util
 
 from klasifikasi import LABEL, ElementType, hitung_tidak_dihitung, kumpulkan_elemen, predefined_type, teks_tidak_dihitung
+from kolom import FUNGSI_UTAMA
+from kolom import analisis_model as analisis_kolom
+from kolom import teks_ringkasan as teks_ringkasan_kolom
 
 SKEMA_DIDUKUNG = {"IFC2X3": "IFC2x3", "IFC4": "IFC4"}
 PESAN_TIDAK_VALID = "File tidak valid. Pastikan file berformat IFC2x3 atau IFC4."
@@ -68,6 +71,7 @@ class InfoFileIFC:
     jumlah_per_kelas: dict  # ElementType -> jumlah
     model: object = field(default=None, repr=False)
     tidak_dihitung: dict = field(default_factory=dict)  # '94 batang rangka (IfcMember)' -> {jumlah, contoh, catatan}
+    ringkasan_kolom: dict = field(default_factory=dict)  # kolom.py: kolom fisik per fungsi, segmen digabung
 
     @property
     def total_elemen(self) -> int:
@@ -147,6 +151,10 @@ def _validasi(p: Path) -> InfoFileIFC:
     jumlah = {}
     for _entity, _tipe, kelas in kumpulkan_elemen(model):
         jumlah[kelas] = jumlah.get(kelas, 0) + 1
+    ringkasan_kolom = _ringkasan_kolom(model)
+    if ringkasan_kolom and ElementType.COLUMN in jumlah:
+        # jumlah kolom = kolom fisik (pedestal + kolom di atasnya = satu kolom; objek ganda tidak dihitung)
+        jumlah[ElementType.COLUMN] = ringkasan_kolom["fisik"]
 
     skala = unit_util.calculate_unit_scale(model)
     lantai = sorted(
@@ -167,7 +175,16 @@ def _validasi(p: Path) -> InfoFileIFC:
         jumlah_per_kelas=jumlah,
         model=model,
         tidak_dihitung=hitung_tidak_dihitung(model),
+        ringkasan_kolom=ringkasan_kolom,
     )
+
+
+def _ringkasan_kolom(model) -> dict:
+    """Ringkasan kolom fisik untuk dialog import; {} bila gagal (validasi file tidak boleh gagal karenanya)."""
+    try:
+        return analisis_kolom(model).ringkasan
+    except Exception:
+        return {}
 
 
 def _validasi_anak(path: str) -> bool:
@@ -933,6 +950,23 @@ def ekstrak_elemen(model, progress=None):
             f"{lepas_n} batang tulangan model ({lepas_berat:,.0f} kg) tidak dihitung karena elemen induknya tidak "
             "diketahui atau bukan elemen beton yang dihitung. Periksa relasi tulangan di aplikasi BIM.".replace(",", ".")
         )
+
+    # Kolom fisik (kolom.py): pedestal + kolom di atasnya = satu kolom, fungsi kolom, objek ganda.
+    try:
+        hasil_kolom = analisis_kolom(model)
+    except Exception as e:  # geometri gagal: tiap IfcColumn dihitung sebagai kolom utama tersendiri
+        hasil_kolom = None
+        peringatan.append(f"Pengelompokan kolom gagal ({e}); setiap IfcColumn dihitung sebagai satu kolom.")
+    if hasil_kolom is not None:
+        for e in elemen:
+            if e["kelas"] == ElementType.COLUMN.value:
+                info = hasil_kolom.info.get(e["global_id"])
+                e["info_kolom"] = info
+                e["kolom_grup"] = info["grup"] if info else None
+        teks = teks_ringkasan_kolom(hasil_kolom.ringkasan)
+        if teks and (hasil_kolom.ringkasan["digabung"] or hasil_kolom.ringkasan["duplikat"] or hasil_kolom.ringkasan["tumpang"]
+                     or any(n for f, n in hasil_kolom.ringkasan["per_fungsi"].items() if f != FUNGSI_UTAMA)):
+            peringatan.append(f"Kolom: {teks}.")
 
     tidak = hitung_tidak_dihitung(model)
     if tidak:

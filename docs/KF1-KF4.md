@@ -25,7 +25,7 @@ Parsing berjalan di thread terpisah dengan progress bar (`src/gui/proses_latar.p
 
 | Entitas IFC | Kelas | Catatan |
 |---|---|---|
-| IfcColumn | COLUMN | |
+| IfcColumn | COLUMN | dikelompokkan menjadi kolom fisik (pedestal + kolom = satu) dan fungsi: utama, kanopi/carport/teras, praktis, arsitektur (`kolom.py`) |
 | IfcBeam | BEAM | |
 | IfcSlab | SLAB / ROOF | ROOF bila PredefinedType ROOF atau bagian dari IfcRoof |
 | IfcRoof | ROOF | hanya bila tidak dipecah menjadi IfcSlab (hindari hitung ganda) |

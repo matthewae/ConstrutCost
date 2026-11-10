@@ -88,7 +88,9 @@ CREATE TABLE IF NOT EXISTS elemen_proyek (
     tipe_id INTEGER,               -- tipe_penulangan.id (kolom/balok/sloof/pelat/dak/fondasi)
     eksternal INTEGER,             -- dinding luar (Pset_WallCommon.IsExternal): 1/0, NULL = tidak diisi model
     material TEXT,                 -- JSON pilihan material khusus elemen ini {slot: kunci}, menimpa pilihan proyek
-    besi_model TEXT                -- JSON tulangan yang dimodelkan (IfcReinforcingBar) per diameter, bila ada
+    besi_model TEXT,               -- JSON tulangan yang dimodelkan (IfcReinforcingBar) per diameter, bila ada
+    kolom_grup TEXT,               -- GlobalId wakil kolom fisik (pedestal + kolom = satu kolom), khusus kolom
+    info_kolom TEXT                -- JSON fungsi kolom (utama/kanopi/praktis/arsitektur), urutan segmen, objek ganda
 );
 
 -- hasil_estimasi: output rule-engine, per elemen per pekerjaan

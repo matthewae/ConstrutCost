@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from klasifikasi import LABEL, ElementType, teks_tidak_dihitung
+from kolom import LABEL_FUNGSI
 from gui import tema
 
 
@@ -110,7 +111,18 @@ class RingkasanImportDialog(QDialog):
         root.addWidget(bagian)
 
         urut = [k for k in ElementType if k in info.jumlah_per_kelas]
-        tabel = QTableWidget(len(urut), 3)
+        # baris tabel: (label, entitas IFC, jumlah). Kolom dipecah per fungsi (kolom.py): kolom struktur utama,
+        # kolom kanopi/carport, kolom praktis, kolom arsitektur; pedestal + kolom di atasnya = satu kolom.
+        rk = getattr(info, "ringkasan_kolom", None) or {}
+        baris_tabel = []
+        for kelas in urut:
+            if kelas == ElementType.COLUMN and rk.get("per_fungsi"):
+                for fungsi, n in rk["per_fungsi"].items():
+                    if n:
+                        baris_tabel.append((LABEL_FUNGSI[fungsi], kelas.value, n))
+            else:
+                baris_tabel.append((LABEL[kelas], kelas.value, info.jumlah_per_kelas[kelas]))
+        tabel = QTableWidget(len(baris_tabel), 3)
         tabel.setHorizontalHeaderLabels(["KELAS", "ENTITAS IFC", "JUMLAH"])
         tabel.verticalHeader().setVisible(False)
         tabel.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -124,17 +136,32 @@ class RingkasanImportDialog(QDialog):
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        for r, kelas in enumerate(urut):
-            tabel.setItem(r, 0, QTableWidgetItem(LABEL[kelas]))
-            tabel.setItem(r, 1, QTableWidgetItem(kelas.value))
-            jml = QTableWidgetItem(str(info.jumlah_per_kelas[kelas]))
+        for r, (label, entitas, n) in enumerate(baris_tabel):
+            tabel.setItem(r, 0, QTableWidgetItem(label))
+            tabel.setItem(r, 1, QTableWidgetItem(entitas))
+            jml = QTableWidgetItem(str(n))
             jml.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             tabel.setItem(r, 2, jml)
         tabel.verticalHeader().setDefaultSectionSize(30)
         # tinggi penuh: satu gulungan saja (area ringkasan), bukan gulungan di dalam tabel
         tabel.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        tabel.setFixedHeight(48 + 30 * max(len(urut), 1))
+        tabel.setFixedHeight(48 + 30 * max(len(baris_tabel), 1))
         root.addWidget(tabel)
+
+        if rk.get("digabung") or rk.get("duplikat") or rk.get("tumpang"):
+            catatan = []
+            if rk.get("digabung"):
+                catatan.append(f"{rk['digabung']} segmen kolom (pedestal / potongan kolom) digabung dengan kolom di "
+                               f"atasnya, mis. {rk['contoh_gabung'][0]}")
+            if rk.get("duplikat"):
+                catatan.append(f"{rk['duplikat']} objek kolom ganda tidak dihitung ulang, mis. {rk['contoh_duplikat'][0]}")
+            if rk.get("tumpang"):
+                catatan.append(f"{rk['tumpang']} sambungan segmen saling menumpuk "
+                               f"({rk['volume_tumpang']:.3f} m³ terhitung dua kali, rapikan di model bila perlu)".replace(".", ",", 1))
+            ket = QLabel(f"{rk['objek']} objek IfcColumn: " + "; ".join(catatan) + ". Volume semua segmen tetap dihitung.")
+            ket.setObjectName("infoKecil")
+            ket.setWordWrap(True)
+            root.addWidget(ket)
 
         tidak = getattr(info, "tidak_dihitung", None) or {}
         if tidak:

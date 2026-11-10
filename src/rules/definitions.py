@@ -410,7 +410,8 @@ def _volume_rabat(e, p):
 
 
 def _kolom_struktur(e, k, p):
-    return kolom_struktur(e)
+    # satu fondasi turunan per kolom fisik (pedestal + kolom di atasnya = satu kolom, lihat konteks)
+    return kolom_struktur(e) and e.get("fondasi_kolom", True)
 
 
 def _pasangan(e, k, p):

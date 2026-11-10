@@ -10,20 +10,23 @@ Elemen struktur dikelompokkan menjadi **tipe** berdasarkan penampangnya, seperti
 
 | Kelompok | Kode | Kunci tipe | Contoh |
 |---|---|---|---|
-| Kolom | K1, K2, ... | b × h | Kolom K1 (20/25) |
+| Kolom (struktur utama & praktis) | K1, K2, ... | b × h | Kolom K1 (20/25) |
+| Kolom kanopi / carport / teras | C1, ... | b × h | Kolom Kanopi/Carport C1 (30/30) |
+| Kolom arsitektur (non-struktural) | A1, ... | b × h | Kolom Arsitektur A1 (40/40) |
 | Balok | B1, ... | b × h | Balok B1 (15/20) |
 | Sloof | S1, ... | b × h | Sloof S1 (20/30) |
 | Pelat lantai | P1, ... | tebal | Pelat Lantai P1 (t = 12 cm) |
 | Pelat atap (dak) | D1, ... | tebal | Pelat Atap (Dak) D1 (t = 12 cm) |
 | Fondasi telapak | F1, ... | tebal | Fondasi Telapak F1 (t = 25 cm) |
 
-Kode diberikan berurutan dari penampang terbesar. Model IFC arsitektur umumnya tidak memuat `IfcReinforcingBar`,
+Kode diberikan berurutan dari penampang terbesar. Jumlah "— n buah" pada tipe kolom menghitung **kolom fisik**:
+pedestal dan kolom di atasnya (dua IfcColumn) adalah satu buah (`src/kolom.py`). Model IFC arsitektur umumnya tidak memuat `IfcReinforcingBar`,
 sehingga konfigurasi tulangan diambil dari tipe. Setiap tipe baru mendapat **konfigurasi bawaan**, yang bisa
 diubah di menu **Tipe Penulangan**. Konfigurasi yang sudah diubah tetap dipakai saat *Hitung Ulang dari IFC*.
 
 | Kelompok | Konfigurasi bawaan (asumsi rumah tinggal ≤ 2 lantai) |
 |---|---|
-| Kolom praktis (sisi ≤ 15 cm) | 4 Ø10, sengkang Ø6-150 |
+| Kolom praktis (sisi ≤ 15 cm) dan kolom arsitektur | 4 Ø10, sengkang Ø6-150 |
 | Kolom b·h ≤ 20/20 | 4 D13, sengkang Ø8-150 |
 | Kolom b·h ≤ 25/25 (mis. 20/25) | 6 D13, sengkang Ø10-150 |
 | Kolom lebih besar | 8 D16, sengkang Ø10-150 |
@@ -41,8 +44,10 @@ Selimut beton mengikuti SNI 2847:2019 Tabel 20.6.1.3.1: kolom, balok, dan sloof 
 ```
 W_m      = π d² / 4 × 7850 × 10⁻⁶                              kg/m'   (2.30 – 2.31)
 Utama    : L_eff = L + 2 × 12d (+ 40d tiap sambungan 12 m)                (2.32)
+           kolom per segmen (pedestal + kolom): kait 12d hanya di ujung bebas,
+           sambungan antarsegmen = 1 × 40d (dihitung pada segmen atas)
            W = n × L_eff × W_m × 1,05                                      (2.33)
-Sengkang : n = L / s + 1;  p = 2(b − 2c) + 2(h − 2c) + 2 × max(6d, 75 mm)
+Sengkang : n = L / s + 1 (segmen atas kolom bersegmen: L / s);  p = 2(b − 2c) + 2(h − 2c) + 2 × max(6d, 75 mm)
            W = n × p × W_m × 1,05
 Pelat    : persegi  → jumlah batang tiap arah × (bentang − 2c + 2 × 12d) × lapis
            tidak reguler → panjang = 2 × A / s × lapis

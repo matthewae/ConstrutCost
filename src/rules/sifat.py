@@ -68,6 +68,10 @@ def penampang_linier(e: dict):
 def bukan_beton(e: dict) -> str | None:
     """Alasan elemen tidak dihitung sebagai beton bertulang, atau None bila elemen dianggap beton."""
     kelas = e.get("kelas")
+    info = e.get("info_kolom") or {}
+    if kelas == "COLUMN" and info.get("duplikat"):
+        return (f"menempati ruang yang sama dengan kolom '{info.get('nama_duplikat') or info['duplikat']}' "
+                "(objek ganda / pembungkus arsitektur); volumenya sudah dihitung pada kolom tersebut")
     if kelas in KELAS_LINIER + KELAS_BIDANG + ("STAIR",) and _KAYU.search(e.get("nama") or ""):
         return "nama elemen menunjukkan bahan kayu/finishing, bukan beton"
     if kelas == "STAIR":
@@ -154,8 +158,11 @@ def bordes(e: dict) -> bool:
 
 def kolom_struktur(e: dict) -> bool:
     """Kolom yang memikul beban ke fondasi. Kolom praktis (sisi terkecil ≤ 15 cm, di dalam pasangan
-    dinding) berdiri di atas sloof/fondasi menerus sehingga tidak mendapat fondasi sumuran sendiri.
+    dinding) berdiri di atas sloof/fondasi menerus sehingga tidak mendapat fondasi sumuran sendiri; begitu
+    juga kolom arsitektur (non-struktural, kolom.py). Kolom kanopi/carport tetap memikul atap ke tanah.
     Bila penampang tidak diketahui, kolom dianggap kolom struktur (aman: fondasi tetap dihitung)."""
+    if (e.get("info_kolom") or {}).get("fungsi") in ("praktis", "arsitektur"):
+        return False
     b, h = e.get("lebar"), e.get("tebal")
     if b and h:
         return min(b, h) > 0.15 + 1e-9

@@ -87,7 +87,7 @@ def susun_rinci(baris: list, per_tipe_elemen: bool = False) -> list:
             g["judul_dasar"] = label_tipe(
                 r["kelompok_tipe"], r["kode_tipe"], (r["tipe_b_cm"] or 0) / 100 or None, (r["tipe_h_cm"] or 0) / 100
             )
-            g["elemen"].add(r["elemen_id"])
+            g["elemen"].add(r.get("kolom_grup") or r["elemen_id"])  # pedestal + kolom = satu kolom
             kunci_item = (r["pekerjaan_id"], r.get("uraian") if r.get("diameter") else None)
         else:
             kunci_item = (r["pekerjaan_id"], None)

@@ -64,6 +64,27 @@ Hasil Rumah Tipe 120 2 lantai courtyard setelah koreksi (cocok dengan quantity m
 besi 5.709 kg (= tulangan model 5.240 kg × 1,05 + wiremesh pelat dasar); aanstamping 4,53 m³; urugan pasir
 12,10 m³; lantai kerja fondasi 0,85 m³; keramik dinding 36,21 m². Biaya langsung Rp 1.023.700.010.
 
+### Kolom fisik dan fungsi kolom (Tipe 120 1 lantai: "36 kolom" seharusnya 16)
+
+Model memecah setiap titik as menjadi dua IfcColumn: **Pedestal PD-1** (atas footplate s.d. bawah sloof,
+lantai *00 FONDASI*) dan **Kolom KA/KB** (sloof s.d. ring balok, lantai *01 LANTAI 1*). Dua titik CP1/CP2
+adalah kolom carport. Pemeriksaan tumpang tindih geometri menunjukkan **volume tidak dobel**: sloof dipotong
+di muka kolom dan pedestal berhenti di atas footplate. Volume model 8,546 m³ dan bekisting 113,94 m² sama
+dengan hasil aplikasi. Yang salah adalah **jumlah kolom** dan pengelompokan tipenya ("Kolom K1 — 36 buah").
+
+| Masalah | Koreksi | Kode |
+|---|---|---|
+| Satu kolom yang dimodelkan per segmen dihitung beberapa kolom | Segmen yang bertumpuk vertikal digabung menjadi **satu kolom fisik** bila: posisi denah sama, penampang saling menutup ≥ 50%, celah ≤ 10 cm, **dan** segmen bawahnya pedestal (puncaknya ≤ peil lantai dasar + 15 cm, atau bernama pedestal/stek) atau keduanya di lantai yang sama. Kolom lantai 1 dan lantai 2 tetap dua kolom, karena volume kolom diukur per lantai. Volume, bekisting, dan besi tetap dihitung per segmen | `kolom.py`, `ifc_reader.py` |
+| Kolom kanopi/carport ikut dihitung sebagai kolom utama | **Fungsi kolom** per kolom fisik: *arsitektur* (LoadBearing = FALSE, atau nama dekoratif/ornamen/pilaster); *kanopi/carport/teras* (nama kanopi/carport/teras/pergola/gazebo, atau berdiri di luar selubung dinding lantainya > 30 cm); *praktis* (beton sisi ≤ 15 cm); selain itu *struktur utama*. Kolom kanopi dan arsitektur mendapat tipe penulangan sendiri (Kolom Kanopi/Carport C1, Kolom Arsitektur A1) | `kolom.py`, `rules/penulangan.py` |
+| Dua IfcColumn menempati ruang yang sama (kolom arsitektur pembungkus, objek tersalin) | **Objek ganda** (tumpang tindih ≥ 50% penampang dan tinggi): volume dihitung sekali pada kolom yang memikul beban; yang lain tidak dihitung beton/besi/bekisting dan dilaporkan | `kolom.py`, `rules/sifat.py` |
+| Fondasi sumuran turunan berpotensi dihitung untuk setiap segmen | Fondasi turunan **satu per kolom fisik**, pada segmen terbawah di lantai dasar. Kolom arsitektur tidak mendapat fondasi turunan | `rules/konteks.py`, `rules/definitions.py` |
+| Tulangan tipe per segmen menambah kait di sambungan pedestal–kolom | Kait standar 12d hanya di ujung bebas. Di sambungan, tulangan menerus dengan satu **lewatan 40d** (pada segmen atas), dan sengkang di sambungan dihitung sekali | `rules/penulangan.py` |
+
+Dialog Konfirmasi Import kini menampilkan *16 kolom struktur utama* dan *2 kolom kanopi / carport / teras*,
+dengan catatan "36 objek IfcColumn: 18 segmen (pedestal / potongan kolom) digabung dengan kolom di atasnya".
+Tipe penulangan menjadi *Kolom K1 (30/30) — 16 buah* dan *Kolom Kanopi/Carport C1 (30/30) — 2 buah*.
+Biaya langsung model ini tidak berubah (Rp 831.615.420), karena tulangannya dari model dan volumenya tidak dobel.
+
 ## Analisa pekerjaan persiapan
 
 Pekerjaan persiapan memakai analisa HSPK Kota Bandung 2027 dari sheet *Persiapan* (bab 1.1):

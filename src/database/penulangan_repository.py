@@ -112,7 +112,10 @@ def daftar_tipe(proyek_id: int) -> list:
     conn = _connect()
     try:
         rows = conn.execute(
-            """SELECT tp.*, (SELECT COUNT(*) FROM elemen_proyek ep WHERE ep.tipe_id = tp.id) AS jumlah_elemen,
+            """SELECT tp.*,
+                      -- kolom fisik: pedestal + kolom di atasnya (satu kolom_grup) dihitung satu buah
+                      (SELECT COUNT(DISTINCT COALESCE(ep.kolom_grup, 'id' || ep.id)) FROM elemen_proyek ep
+                        WHERE ep.tipe_id = tp.id) AS jumlah_elemen,
                       (SELECT COALESCE(SUM(h.volume_pekerjaan), 0) FROM hasil_estimasi h
                          JOIN elemen_proyek ep ON ep.id = h.elemen_id
                         WHERE ep.tipe_id = tp.id AND h.diameter IS NOT NULL) AS berat_besi

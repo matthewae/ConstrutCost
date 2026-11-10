@@ -70,6 +70,7 @@ def get_hasil_estimasi_by_proyek(proyek_id: int):
                 ep.sumber_dimensi,
                 COALESCE(ep.dimensi_manual, 0) AS dimensi_manual,
                 ep.tipe_id,
+                ep.kolom_grup,
                 tp.kode AS kode_tipe,
                 tp.kelompok AS kelompok_tipe,
                 tp.b_cm AS tipe_b_cm,

@@ -22,19 +22,27 @@ from dataclasses import dataclass
 
 KOLOM, BALOK, SLOOF, PELAT, DAK, FONDASI = "KOLOM", "BALOK", "SLOOF", "PELAT", "DAK", "FONDASI"
 PELAT_DASAR = "PELAT_DASAR"  # pelat lantai di atas tanah (slab on grade), lantai dasar
-LINIER = (KOLOM, BALOK, SLOOF)  # tulangan memanjang + sengkang
+# Kolom yang tidak memikul struktur utama dipisah dari kolom portal (kolom.py): kolom kanopi/carport/teras
+# (struktur sekunder) dan kolom arsitektur (non-struktural, hanya memperindah desain).
+KOLOM_KANOPI, KOLOM_ARSITEKTUR = "KOLOM_KANOPI", "KOLOM_ARSITEKTUR"
+KELOMPOK_KOLOM = (KOLOM, KOLOM_KANOPI, KOLOM_ARSITEKTUR)
+LINIER = (*KELOMPOK_KOLOM, BALOK, SLOOF)  # tulangan memanjang + sengkang
 BIDANG = (PELAT_DASAR, PELAT, DAK, FONDASI)  # tulangan anyaman dua arah
-URUTAN = (FONDASI, SLOOF, KOLOM, BALOK, PELAT_DASAR, PELAT, DAK)
+URUTAN = (FONDASI, SLOOF, KOLOM, KOLOM_KANOPI, KOLOM_ARSITEKTUR, BALOK, PELAT_DASAR, PELAT, DAK)
 
 NAMA_KELOMPOK = {
-    KOLOM: "Kolom", BALOK: "Balok", SLOOF: "Sloof", PELAT_DASAR: "Pelat Lantai Dasar", PELAT: "Pelat Lantai",
+    KOLOM: "Kolom", KOLOM_KANOPI: "Kolom Kanopi/Carport", KOLOM_ARSITEKTUR: "Kolom Arsitektur",
+    BALOK: "Balok", SLOOF: "Sloof", PELAT_DASAR: "Pelat Lantai Dasar", PELAT: "Pelat Lantai",
     DAK: "Pelat Atap (Dak)", FONDASI: "Fondasi Beton",  # footplate / fondasi menerus beton
 }
-AWALAN_KODE = {KOLOM: "K", BALOK: "B", SLOOF: "S", PELAT_DASAR: "L", PELAT: "P", DAK: "D", FONDASI: "F"}
+# satu huruf: kode tipe diurutkan dengan int(kode[1:])
+AWALAN_KODE = {KOLOM: "K", KOLOM_KANOPI: "C", KOLOM_ARSITEKTUR: "A", BALOK: "B", SLOOF: "S", PELAT_DASAR: "L",
+               PELAT: "P", DAK: "D", FONDASI: "F"}
 KODE_PEKERJAAN = {
-    KOLOM: "BSI.KOLOM", BALOK: "BSI.BALOK", SLOOF: "BSI.SLOOF",
-    PELAT_DASAR: "BSI.PELAT", PELAT: "BSI.PELAT", DAK: "BSI.DAK", FONDASI: "BSI.FONDASI",
+    KOLOM: "BSI.KOLOM", KOLOM_KANOPI: "BSI.KOLOM", KOLOM_ARSITEKTUR: "BSI.KOLOM", BALOK: "BSI.BALOK",
+    SLOOF: "BSI.SLOOF", PELAT_DASAR: "BSI.PELAT", PELAT: "BSI.PELAT", DAK: "BSI.DAK", FONDASI: "BSI.FONDASI",
 }
+KELOMPOK_FUNGSI_KOLOM = {"kanopi": KOLOM_KANOPI, "arsitektur": KOLOM_ARSITEKTUR}
 
 # Susunan tulangan bidang (kolom tipe_penulangan.lapis):
 #   1 = satu lapis (bawah),
@@ -67,7 +75,8 @@ PENAMPANG_MIN_LINIER = 0.10  # m, sisi terkecil kolom/balok/sloof (2 x selimut +
 # Selimut beton (SNI 2847:2019 Tabel 20.6.1.3.1): balok/kolom 40 mm, pelat 20 mm,
 # sloof bersentuhan tanah ≤ D16 40 mm, fondasi dicor langsung di atas tanah 75 mm.
 # Pelat lantai dasar dicor di atas pasir urug + plastik: 40 mm.
-SELIMUT = {KOLOM: 0.040, BALOK: 0.040, SLOOF: 0.040, PELAT_DASAR: 0.040, PELAT: 0.020, DAK: 0.020, FONDASI: 0.075}
+SELIMUT = {KOLOM: 0.040, KOLOM_KANOPI: 0.040, KOLOM_ARSITEKTUR: 0.040, BALOK: 0.040, SLOOF: 0.040,
+           PELAT_DASAR: 0.040, PELAT: 0.020, DAK: 0.020, FONDASI: 0.075}
 
 
 def berat_per_m(d_mm: float) -> float:
@@ -137,7 +146,8 @@ def ukuran_elemen(e: dict, batas_kemiringan_dak: float = 5.0):
     Linier: b x h = penampang, L = panjang/tinggi batang. Bidang: h = tebal, b & L = None."""
     kelas, pre = e.get("kelas"), e.get("predefined_type") or ""
     if kelas == "COLUMN":
-        return KOLOM, e.get("lebar"), e.get("tebal"), e.get("tinggi")
+        fungsi = (e.get("info_kolom") or {}).get("fungsi")
+        return KELOMPOK_FUNGSI_KOLOM.get(fungsi, KOLOM), e.get("lebar"), e.get("tebal"), e.get("tinggi")
     if kelas == "BEAM":
         # balok bernama sloof (ditandai preprocessor konteks) dihitung sebagai sloof
         return SLOOF if e.get("balok_sloof") else BALOK, e.get("lebar"), e.get("tinggi"), e.get("panjang")
@@ -191,14 +201,15 @@ def bawaan(kelompok: str, b: float | None, h: float | None) -> Penulangan:
     c = SELIMUT[kelompok]
     b = b or 0.0
     h = h or 0.0
-    if kelompok == KOLOM:
-        if min(b, h) <= 0.15:  # kolom praktis
-            return Penulangan(KOLOM, 4, 10, d_sengkang=6, jarak_sengkang=0.15, selimut=c)
+    if kelompok == KOLOM_ARSITEKTUR or (kelompok in KELOMPOK_KOLOM and min(b, h) <= 0.15):
+        # kolom praktis / kolom arsitektur (non-struktural): tulangan minimum 4 Ø10 + Ø6-150
+        return Penulangan(kelompok, 4, 10, d_sengkang=6, jarak_sengkang=0.15, selimut=c)
+    if kelompok in KELOMPOK_KOLOM:
         if b * h <= 0.04 + 1e-9:
-            return Penulangan(KOLOM, 4, 13, d_sengkang=8, jarak_sengkang=0.15, selimut=c)
+            return Penulangan(kelompok, 4, 13, d_sengkang=8, jarak_sengkang=0.15, selimut=c)
         if b * h <= 0.0625 + 1e-9:
-            return Penulangan(KOLOM, 6, 13, d_sengkang=10, jarak_sengkang=0.15, selimut=c)
-        return Penulangan(KOLOM, 8, 16, d_sengkang=10, jarak_sengkang=0.15, selimut=c)
+            return Penulangan(kelompok, 6, 13, d_sengkang=10, jarak_sengkang=0.15, selimut=c)
+        return Penulangan(kelompok, 8, 16, d_sengkang=10, jarak_sengkang=0.15, selimut=c)
     if kelompok == BALOK:
         if b <= 0.15 and h <= 0.20 + 1e-9:  # ring balok / balok latei
             return Penulangan(BALOK, 4, 10, d_sengkang=8, jarak_sengkang=0.15, selimut=c)
@@ -272,35 +283,42 @@ def _rumus_wm(d: float) -> str:
     return f"W_m {label_d(d)} = π × {d:g}² / 4 × 7850 × 10⁻⁶ = {_n(berat_per_m(d))} kg/m'"
 
 
-def _linier(kelompok, b, h, L, p: Penulangan) -> list:
+def _linier(kelompok, b, h, L, p: Penulangan, sambung_bawah: bool = False, sambung_atas: bool = False) -> list:
     out = []
-    # tulangan utama (Rumus 2.32 - 2.33)
+    # tulangan utama (Rumus 2.32 - 2.33). Kait standar hanya di ujung bebas; di sambungan dengan segmen
+    # bawah (pedestal / potongan kolom) tulangan menerus dengan satu lewatan 40d.
     d = p.d_utama
-    kait = 2 * KAIT_UTAMA * d / 1000
+    n_kait = 2 - int(sambung_bawah) - int(sambung_atas)
+    kait = n_kait * KAIT_UTAMA * d / 1000
     leff = L + kait
-    sambungan = max(0, math.ceil(leff / PANJANG_BATANG) - 1)
+    sambungan = max(0, math.ceil(leff / PANJANG_BATANG) - 1) + int(sambung_bawah)
     lewatan = sambungan * LEWATAN * d / 1000
     leff += lewatan
     wm = berat_per_m(d)
     berat = p.n_utama * leff * wm * FAKTOR_SISA
+    teks_kait = f"{n_kait} × {KAIT_UTAMA}d" if n_kait else "0 (menerus ke segmen bawah & atas)"
     tambah = f" + {sambungan} × {LEWATAN}d" if sambungan else ""
+    if sambung_bawah or sambung_atas:
+        tambah += " (sambungan dengan segmen kolom " + ("bawah" if sambung_bawah else "atas") + \
+                  (" & atas" if sambung_bawah and sambung_atas else "") + ")"
     out.append(ItemBesi(
         kode_pekerjaan(kelompok, d), berat,
-        f"{_rumus_wm(d)}; L_eff = L + 2 × {KAIT_UTAMA}d{tambah} = {_n(L)} + {_n(kait + lewatan)} = {_n(leff)} m; "
+        f"{_rumus_wm(d)}; L_eff = L + {teks_kait}{tambah} = {_n(L)} + {_n(kait + lewatan)} = {_n(leff)} m; "
         f"W = n × L_eff × W_m × 1,05 = {p.n_utama} × {_n(leff)} × {_n(wm)} × 1,05 = {_n(berat, 2)} kg",
         f"Tulangan utama {p.n_utama} {label_d(d)}", d,
     ))
-    # sengkang
+    # sengkang: sengkang di sambungan dipasang sekali (dihitung pada segmen bawah)
     ds, s, c = p.d_sengkang, p.jarak_sengkang, p.selimut
     bi, hi = max(b - 2 * c, b / 2), max(h - 2 * c, h / 2)
     kait_s = 2 * max(6 * ds / 1000, KAIT_SENGKANG_MIN)
     panjang = 2 * bi + 2 * hi + kait_s
-    jumlah = math.floor(L / s + 1e-9) + 1
+    jumlah = math.floor(L / s + 1e-9) + (0 if sambung_bawah else 1)
     wm = berat_per_m(ds)
     berat = jumlah * panjang * wm * FAKTOR_SISA
+    rumus_n = f"L / s{' (tanpa +1: sengkang sambungan dihitung di segmen bawah)' if sambung_bawah else ' + 1'}"
     out.append(ItemBesi(
         kode_pekerjaan(kelompok, ds), berat,
-        f"{_rumus_wm(ds)}; n = L / s + 1 = {_n(L)} / {_n(s, 2)} + 1 = {jumlah} buah; "
+        f"{_rumus_wm(ds)}; n = {rumus_n} = {_n(L)} / {_n(s, 2)}{'' if sambung_bawah else ' + 1'} = {jumlah} buah; "
         f"panjang 1 sengkang = 2(b - 2c) + 2(h - 2c) + kait = 2 × {_n(bi)} + 2 × {_n(hi)} + {_n(kait_s)} "
         f"= {_n(panjang)} m; W = {jumlah} × {_n(panjang)} × {_n(wm)} × 1,05 = {_n(berat, 2)} kg",
         f"Sengkang {label_d(ds)}-{s * 1000:.0f}", ds,
@@ -380,5 +398,14 @@ def hitung(e: dict, penulangan: Penulangan | None = None, batas_kemiringan_dak: 
     if kelompok in LINIER:
         if not (L and L > 0):
             return []
-        return _linier(kelompok, b, h, L, p)
+        return _linier(kelompok, b, h, L, p, *_sambungan(e))
     return _bidang(kelompok, e, h, p)
+
+
+def _sambungan(e: dict) -> tuple:
+    """(menyambung ke segmen bawah, menyambung ke segmen atas) untuk kolom yang dimodelkan per segmen
+    (pedestal + kolom, kolom yang dipotong): di sambungan tulangan menerus dengan lewatan, tanpa kait."""
+    info = e.get("info_kolom") or {}
+    if e.get("kelas") != "COLUMN" or info.get("duplikat") or (info.get("n") or 1) < 2:
+        return False, False
+    return info.get("urut", 1) > 1, info.get("urut", 1) < info.get("n", 1)

@@ -44,8 +44,10 @@ _KOLOM_ELEMEN = (
     "tipe_id",
     "material",
     "besi_model",
+    "kolom_grup",
+    "info_kolom",
 )
-_KOLOM_JSON = ("sumber_dimensi", "besi_model")
+_KOLOM_JSON = ("sumber_dimensi", "besi_model", "info_kolom")
 RULES_PEMBESIAN = [r for r in RULES if r.kode.startswith("BSI.")]
 
 
@@ -171,10 +173,11 @@ def _baris_ke_elemen(row) -> dict:
         el["sumber_dimensi"] = json.loads(el.get("sumber_dimensi") or "{}")
     except ValueError:
         el["sumber_dimensi"] = {}
-    try:
-        el["besi_model"] = json.loads(el["besi_model"]) if el.get("besi_model") else None
-    except ValueError:
-        el["besi_model"] = None
+    for k in ("besi_model", "info_kolom"):
+        try:
+            el[k] = json.loads(el[k]) if el.get(k) else None
+        except ValueError:
+            el[k] = None
     return el
 
 
@@ -235,7 +238,7 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=None) -> dict:
 
         # konteks bangunan (lantai dasar, sumber lantai/plafon) dari seluruh elemen proyek
         semua = [
-            el if r["id"] == elemen_id else dict(r)
+            el if r["id"] == elemen_id else _baris_ke_elemen(r)
             for r in conn.execute("SELECT * FROM elemen_proyek WHERE proyek_id = ?", (el["proyek_id"],))
         ]
         konteks = siapkan_konteks(semua, parameter)

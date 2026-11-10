@@ -10,7 +10,7 @@ tingkat bangunan yang dibutuhkan aturan, misalnya:
 
 Fakta per elemen ditulis langsung ke dict elemen (diubah di tempat) supaya bisa dibaca aturan dan
 pengelompokan tipe penulangan: `di_lantai_dasar`, `menerus_beton`, `balok_sloof`, `sloof_turunan`,
-`tebal_pelat_monolit`, `porsi_bowplank`.
+`tebal_pelat_monolit`, `porsi_bowplank`, `fondasi_kolom` (segmen kolom yang mendapat fondasi turunan).
 """
 
 from dataclasses import dataclass, field
@@ -90,6 +90,18 @@ def siapkan_konteks(elemen: list, parameter=None) -> Konteks:
             and not bordes(e)  # bordes menggantung di atas tanah: perlu bekisting & tulangan pelat
         )
         e["rabat"] = rabat(e)
+
+    # Kolom yang dimodelkan per segmen (pedestal + kolom, kolom dipotong): fondasi turunan cukup satu per kolom
+    # fisik, pada segmen terbawah yang berada di lantai dasar. Objek ganda tidak mendapat fondasi.
+    grup_kolom = {}
+    for e in elemen:
+        if e["kelas"] == ElementType.COLUMN.value and e.get("kolom_grup"):
+            grup_kolom.setdefault(e["kolom_grup"], []).append(e)
+    for anggota in grup_kolom.values():
+        calon = [e for e in anggota if e["di_lantai_dasar"] and not (e.get("info_kolom") or {}).get("duplikat")]
+        pilih = min(calon, key=lambda e: (e.get("info_kolom") or {}).get("urut", 1)) if calon else None
+        for e in anggota:
+            e["fondasi_kolom"] = e is pilih
 
     ada_ruang = _ada(elemen, ElementType.SPACE)
     # lapisan finishing yang dimodelkan sebagai IfcSlab bukan sumber luas lantai/plafon

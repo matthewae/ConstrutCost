@@ -29,6 +29,8 @@ KOLOM_TAMBAHAN = {
         "eksternal": "INTEGER",
         "material": "TEXT",
         "besi_model": "TEXT",
+        "kolom_grup": "TEXT",
+        "info_kolom": "TEXT",
     },
     "hasil_estimasi": {"rumus": "TEXT", "uraian": "TEXT", "diameter": "REAL", "harga_manual": "REAL", "catatan": "TEXT",
                        "lantai": "TEXT", "item_tambahan": "INTEGER DEFAULT 0"},
