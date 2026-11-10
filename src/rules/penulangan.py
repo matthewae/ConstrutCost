@@ -22,8 +22,8 @@ from dataclasses import dataclass
 
 KOLOM, BALOK, SLOOF, PELAT, DAK, FONDASI = "KOLOM", "BALOK", "SLOOF", "PELAT", "DAK", "FONDASI"
 PELAT_DASAR = "PELAT_DASAR"  # pelat lantai di atas tanah (slab on grade), lantai dasar
-# Kolom yang tidak memikul struktur utama dipisah dari kolom portal (kolom.py): kolom kanopi/carport/teras
-# (struktur sekunder) dan kolom arsitektur (non-struktural, hanya memperindah desain).
+# Kolom yang tidak memikul struktur utama dipisah dari kolom portal (kolom.py): kolom sekunder (kanopi/carport/
+# teras/taman) dan kolom arsitektur (non-struktural, hanya memperindah desain).
 KOLOM_KANOPI, KOLOM_ARSITEKTUR = "KOLOM_KANOPI", "KOLOM_ARSITEKTUR"
 KELOMPOK_KOLOM = (KOLOM, KOLOM_KANOPI, KOLOM_ARSITEKTUR)
 LINIER = (*KELOMPOK_KOLOM, BALOK, SLOOF)  # tulangan memanjang + sengkang
@@ -31,7 +31,7 @@ BIDANG = (PELAT_DASAR, PELAT, DAK, FONDASI)  # tulangan anyaman dua arah
 URUTAN = (FONDASI, SLOOF, KOLOM, KOLOM_KANOPI, KOLOM_ARSITEKTUR, BALOK, PELAT_DASAR, PELAT, DAK)
 
 NAMA_KELOMPOK = {
-    KOLOM: "Kolom", KOLOM_KANOPI: "Kolom Kanopi/Carport", KOLOM_ARSITEKTUR: "Kolom Arsitektur",
+    KOLOM: "Kolom", KOLOM_KANOPI: "Kolom Sekunder", KOLOM_ARSITEKTUR: "Kolom Arsitektur",
     BALOK: "Balok", SLOOF: "Sloof", PELAT_DASAR: "Pelat Lantai Dasar", PELAT: "Pelat Lantai",
     DAK: "Pelat Atap (Dak)", FONDASI: "Fondasi Beton",  # footplate / fondasi menerus beton
 }
@@ -43,6 +43,8 @@ KODE_PEKERJAAN = {
     SLOOF: "BSI.SLOOF", PELAT_DASAR: "BSI.PELAT", PELAT: "BSI.PELAT", DAK: "BSI.DAK", FONDASI: "BSI.FONDASI",
 }
 KELOMPOK_FUNGSI_KOLOM = {"kanopi": KOLOM_KANOPI, "arsitektur": KOLOM_ARSITEKTUR}
+CAKAR = "CAKAR"  # fondasi cakar ayam (rules/fondasi_kolom.py): bukan tipe penulangan, hanya kode pekerjaan
+KODE_PEKERJAAN[CAKAR] = "BSI.CAKAR"
 
 # Susunan tulangan bidang (kolom tipe_penulangan.lapis):
 #   1 = satu lapis (bawah),
@@ -158,6 +160,10 @@ def ukuran_elemen(e: dict, batas_kemiringan_dak: float = 5.0):
     if kelas == "FOOTING" and pre == "FOOTING_BEAM":
         return SLOOF, e.get("lebar"), e.get("tebal"), e.get("panjang")
     if kelas == "FOOTING" and (pre != "STRIP_FOOTING" or e.get("menerus_beton")):
+        from .sifat import sumuran_model  # impor lambat: sifat memakai konstanta modul ini
+
+        if sumuran_model(e):
+            return None  # sumuran masif: tanpa tipe penulangan (hanya stek yang dimodelkan)
         return FONDASI, None, e.get("tebal"), None
     if kelas == "SLAB" and e.get("rabat"):
         return None  # rabat beton / lantai kerja tidak bertulang

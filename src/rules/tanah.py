@@ -109,6 +109,14 @@ def sumuran(d: float, H: float, n: int, P: float, L: float, T: float, p) -> list
     return out
 
 
+def sumuran_model(V: float, H: float, p) -> list:
+    """Galian lubang sumuran yang dimodelkan: lubang terisi penuh beton sumuran (tanpa urugan kembali)."""
+    dalam = p.kedalaman_fondasi_telapak + H
+    return [ItemHasil(kode_galian(dalam), V,
+                      f"V = volume lubang sumuran = volume sumuran = {_n(V)} m³ (dasar ±{_n(dalam, 2)} m dari muka "
+                      f"tanah: kedalaman poer/fondasi {_n(p.kedalaman_fondasi_telapak, 2)} + H {_n(H, 2)})")]
+
+
 def tiang(V: float, panjang: float) -> list:
     return [ItemHasil(kode_galian(panjang), V, f"V = volume tiang = {_n(V)} m³ (kedalaman {_n(panjang, 2)} m)")]
 

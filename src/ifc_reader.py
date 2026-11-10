@@ -34,9 +34,12 @@ import ifcopenshell.util.shape as shape_util
 import ifcopenshell.util.unit as unit_util
 
 from klasifikasi import LABEL, ElementType, hitung_tidak_dihitung, kumpulkan_elemen, predefined_type, teks_tidak_dihitung
-from kolom import FUNGSI_UTAMA
+from kolom import FUNGSI_UTAMA, kaki_kolom
+from kolom import analisis as analisis_kolom_segmen
 from kolom import analisis_model as analisis_kolom
+from kolom import baca_model as baca_kolom
 from kolom import teks_ringkasan as teks_ringkasan_kolom
+from relasi import KELAS_GEOMETRI, analisis_balok, fondasi_di_bawah_kolom, kotak_dunia
 
 SKEMA_DIDUKUNG = {"IFC2X3": "IFC2x3", "IFC4": "IFC4"}
 PESAN_TIDAK_VALID = "File tidak valid. Pastikan file berformat IFC2x3 atau IFC4."
@@ -950,18 +953,46 @@ def ekstrak_elemen(model, progress=None):
             "diketahui atau bukan elemen beton yang dihitung. Periksa relasi tulangan di aplikasi BIM.".replace(",", ".")
         )
 
-    # Kolom fisik (kolom.py): pedestal + kolom di atasnya = satu kolom, fungsi kolom, objek ganda.
+    # Relasi geometri (koordinat dunia, satu kali hitung): kolom fisik (kolom.py), balok di atas dinding / di bawah
+    # pelat, dan fondasi setempat di bawah tiap kolom (relasi.py).
     try:
-        hasil_kolom = analisis_kolom(model)
-    except Exception as e:  # geometri gagal: tiap IfcColumn dihitung sebagai kolom utama tersendiri
-        hasil_kolom = None
-        peringatan.append(f"Pengelompokan kolom gagal ({e}); setiap IfcColumn dihitung sebagai satu kolom.")
+        kotak = kotak_dunia(model, [x for t in KELAS_GEOMETRI for x in model.by_type(t)])
+        segmen, dinding_lantai, elev_dasar = baca_kolom(model, kotak)
+        hasil_kolom = analisis_kolom_segmen(segmen, dinding_lantai, elev_dasar)
+    except Exception as e:  # geometri gagal: tiap IfcColumn dihitung sebagai satu kolom, tanpa relasi
+        kotak, segmen, hasil_kolom = {}, [], None
+        peringatan.append(f"Analisis letak elemen gagal ({e}); setiap IfcColumn dihitung sebagai satu kolom.")
     if hasil_kolom is not None:
+        ent = {e.GlobalId: e for t in ("IfcFooting", "IfcPile") for e in model.by_type(t)}
+        fondasi = {g: kotak[g] for g, x in ent.items() if g in kotak
+                   and str(getattr(x, "PredefinedType", "") or "") not in ("STRIP_FOOTING", "FOOTING_BEAM")}
+        di_bawah = fondasi_di_bawah_kolom(kaki_kolom(hasil_kolom, segmen), fondasi)
+        per_grup = {}
+        for g, grup in di_bawah.items():
+            per_grup.setdefault(grup, []).append(g)
+        kotak_bidang = dict(kotak)
+        kotak_bidang.update(kotak_dunia(model, model.by_type("IfcCovering") + model.by_type("IfcSpace")))
+        balok = analisis_balok(
+            {e.GlobalId: kotak[e.GlobalId] for e in model.by_type("IfcBeam") if e.GlobalId in kotak},
+            [kotak[w.GlobalId] for w in model.by_type("IfcWall") if w.GlobalId in kotak],
+            [kotak[x.GlobalId] for x in model.by_type("IfcSlab") if x.GlobalId in kotak],
+        )
         for e in elemen:
             if e["kelas"] == ElementType.COLUMN.value:
                 info = hasil_kolom.info.get(e["global_id"])
+                if info:
+                    info = {**info, "fondasi": per_grup.get(info["grup"], [])}
                 e["info_kolom"] = info
                 e["kolom_grup"] = info["grup"] if info else None
+            elif e["global_id"] in di_bawah:
+                grup = di_bawah[e["global_id"]]
+                e["info_fondasi"] = {"kolom": grup, "nama_kolom": hasil_kolom.info.get(grup, {}).get("nama_grup")}
+            if e["global_id"] in balok and e["kelas"] == ElementType.BEAM.value:
+                e["info_balok"] = balok[e["global_id"]]
+            if e["kelas"] in (ElementType.SLAB.value, ElementType.FLOOR.value, ElementType.SPACE.value) \
+                    and e["global_id"] in kotak_bidang:
+                # perkerasan luar (carport, jalan masuk, area servis) bukan bagian denah bangunan
+                e["di_luar_bangunan"] = hasil_kolom.di_luar(kotak_bidang[e["global_id"]])
         teks = teks_ringkasan_kolom(hasil_kolom.ringkasan)
         if teks and (hasil_kolom.ringkasan["digabung"] or hasil_kolom.ringkasan["duplikat"] or hasil_kolom.ringkasan["tumpang"]
                      or any(n for f, n in hasil_kolom.ringkasan["per_fungsi"].items() if f != FUNGSI_UTAMA)):

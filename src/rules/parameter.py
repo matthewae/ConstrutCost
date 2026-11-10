@@ -41,6 +41,18 @@ class ParameterEstimasi:
     # 0 = otomatis dari nama elemen, 1 = pasangan batu kali, 2 = beton bertulang (lihat JENIS_MENERUS)
     fondasi_menerus_jenis: int = 0
 
+    # --- Jenis fondasi kolom (pilihan tanpa mengubah model, rules/fondasi_kolom.py) ---
+    # 0 = sesuai model IFC, 1 = footplate, 2 = cakar ayam sistem Sedijatmo (lihat JENIS_FONDASI_KOLOM)
+    fondasi_kolom_jenis: int = 0
+    footplate_lebar: float = 0.0  # m, 0 = otomatis menurut jumlah lantai (FOOTPLATE_OTOMATIS)
+    footplate_tebal: float = 0.0  # m, 0 = otomatis
+    cakar_tebal_pelat: float = 0.15  # m, pelat beton bertulang cakar ayam
+    cakar_diameter_pipa: float = 0.80  # m, diameter luar pipa beton ("cakar")
+    cakar_tebal_pipa: float = 0.08  # m, tebal dinding pipa
+    cakar_panjang_pipa: float = 2.00  # m
+    cakar_jarak_pipa: float = 2.50  # m, jarak antarpipa maksimum
+    cakar_pakai_sloof: int = 0  # 1 = sloof tetap dihitung di atas pelat cakar ayam
+
     # --- Pekerjaan tanah (KF-4): galian, urugan pasir, lantai kerja, urugan kembali ---
     ruang_kerja_galian: float = 0.10  # m, kelonggaran galian tiap sisi fondasi
     tebal_pasir_fondasi: float = 0.05  # m, urugan pasir bawah fondasi batu kali
@@ -110,6 +122,28 @@ JENIS_MENERUS = {
     MENERUS_BATU_KALI: "Pasangan batu kali",
     MENERUS_BETON: "Beton bertulang",
 }
+
+
+FONDASI_MODEL, FONDASI_FOOTPLATE, FONDASI_CAKAR = 0, 1, 2
+JENIS_FONDASI_KOLOM = {
+    FONDASI_MODEL: "Sesuai model IFC",
+    FONDASI_FOOTPLATE: "Footplate (fondasi telapak)",
+    FONDASI_CAKAR: "Cakar ayam (sistem Sedijatmo)",
+}
+# Footplate turunan bila parameter = 0 (otomatis): (lebar, tebal) m menurut jumlah lantai bangunan.
+FOOTPLATE_OTOMATIS = {1: (0.80, 0.25), 2: (1.00, 0.25), 3: (1.20, 0.30)}
+# Tulangan cakar ayam: pelat (diameter mm, jarak m, lapis) dua arah; pipa (diameter mm, jarak m) vertikal & cincin.
+CAKAR_TULANGAN_PELAT = (10, 0.20, 2)
+CAKAR_TULANGAN_PIPA = (8, 0.20)
+
+
+def ukuran_footplate(p: ParameterEstimasi, jumlah_lantai: int) -> tuple:
+    """(lebar, tebal, keterangan) footplate turunan untuk pilihan jenis fondasi footplate."""
+    auto_b, auto_t = FOOTPLATE_OTOMATIS[min(max(jumlah_lantai, 1), 3)]
+    b = p.footplate_lebar or auto_b
+    t = p.footplate_tebal or auto_t
+    ket = "parameter proyek" if p.footplate_lebar and p.footplate_tebal else f"otomatis: bangunan {jumlah_lantai} lantai"
+    return b, t, ket
 
 
 def ukuran_sloof(p: ParameterEstimasi, jumlah_lantai: int) -> tuple:

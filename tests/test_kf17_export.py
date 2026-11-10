@@ -54,7 +54,8 @@ def test_kolom_dan_sheet_sesuai_pilihan(data_export, tmp_path):
     wb = load_workbook(lengkap)
     lantai = [n for n in wb.sheetnames if n.startswith("Lt")]
     # format RAB konsultan di depan, lampiran aplikasi di tengah, rincian per elemen paling akhir
-    assert lantai and wb.sheetnames == ["REKAP", "RAB", "ANALISA", "HARGA", "ASUMSI", "Rekap_Volume", "Rekap_Besi",
+    assert lantai and wb.sheetnames == ["REKAP", "RAB", "ANALISA", "HARGA", "ASUMSI", "PERBANDINGAN_FONDASI",
+                                        "Rekap_Volume", "Rekap_Besi",
                                         "BBS", "RAB Rinci", "Rekap per Lantai", "Kebutuhan per Lantai",
                                         "Rincian Perhitungan Lantai", *lantai, "Kebutuhan Bahan",
                                         "Kebutuhan per Elemen", "Detail_Elemen"]

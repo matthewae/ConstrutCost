@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from klasifikasi import LABEL, ElementType
 
 from .definitions import RULES, catatan_bukan_beton
+from .fondasi_kolom import SEMUA
 from .konteks import Konteks, siapkan_konteks
 from .parameter import PARAMETER_DEFAULT
 
@@ -33,6 +34,9 @@ def terapkan_rules(elemen: dict, konteks: Konteks = None, parameter=PARAMETER_DE
     """Return (hasil, dilewati). dilewati = alasan aturan cocok tetapi dimensinya kosong."""
     konteks = konteks or KONTEKS_KOSONG
     hasil, dilewati = [], []
+    diganti = elemen.get("kode_diganti") or set()
+    if SEMUA in diganti:  # elemen diganti pilihan jenis fondasi (ringkasannya dilaporkan sekali oleh konteks)
+        return hasil, dilewati
     catatan = catatan_bukan_beton(elemen, konteks, parameter)
     if catatan:
         dilewati.append(catatan)
@@ -52,14 +56,21 @@ def terapkan_rules(elemen: dict, konteks: Konteks = None, parameter=PARAMETER_DE
         if isinstance(keluaran, list):  # satu aturan -> beberapa item (pembesian per diameter)
             for it in keluaran:  # ItemBesi (berat) atau ItemHasil (nilai)
                 nilai = it.berat if hasattr(it, "berat") else it.nilai
-                if nilai and nilai > 0 and not _diganti_model(it.kode, elemen, model):
+                if _kode_diganti(it.kode, diganti):
+                    continue
+                if nilai and nilai > 0 and (getattr(it, "pengganti", False) or not _diganti_model(it.kode, elemen, model)):
                     hasil.append(HasilRule(it.kode, nilai, it.rumus, rule.keterangan, it.uraian, it.diameter))
             continue
         nilai, uraian = keluaran
-        if nilai is None or nilai <= 0 or _diganti_model(rule.kode, elemen, model):
+        if nilai is None or nilai <= 0 or _diganti_model(rule.kode, elemen, model) or _kode_diganti(rule.kode, diganti):
             continue
         hasil.append(HasilRule(rule.kode, nilai, uraian, rule.keterangan))
     return hasil, dilewati
+
+
+def _kode_diganti(kode: str, diganti) -> bool:
+    """Pekerjaan elemen yang digantikan pilihan jenis fondasi (mis. BTN.PELAT pelat lantai dasar -> pelat cakar ayam)."""
+    return any(kode == d or kode.startswith(d + ".") for d in diganti)
 
 
 def _diganti_model(kode: str, elemen: dict, model: dict) -> bool:
@@ -74,6 +85,8 @@ def proses_semua(elemen: list, parameter=PARAMETER_DEFAULT, rules=RULES):
     Return (konteks, [(elemen, [HasilRule])], dilewati)."""
     konteks = siapkan_konteks(elemen, parameter)
     keluaran, dilewati = [], []
+    if konteks.pilihan_fondasi.get("teks"):
+        dilewati.append(konteks.pilihan_fondasi["teks"])
     ada_dinding = any(e["kelas"] == ElementType.WALL.value for e in elemen)
     if ada_dinding and not konteks.ada_info_dinding_luar:
         dilewati.append(

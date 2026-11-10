@@ -1,7 +1,7 @@
 # Kesesuaian dengan Kebutuhan Fungsional (KF) dan Non-Fungsional (KNF)
 
 Acuan: Tabel 3.1 (KF-1 s.d. KF-19) dan Tabel 3.2 (KNF-1 s.d. KNF-9) naskah skripsi.
-Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 516 tes lulus). Panduan pemakaian singkat: `docs/Panduan-Singkat.md`.
+Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 533 tes lulus). Panduan pemakaian singkat: `docs/Panduan-Singkat.md`.
 Koreksi basis aturan setelah audit (pelat lantai dasar, elemen bukan beton, sloof turunan, dll.)
 dijelaskan di `docs/Koreksi-Rule-Engine.md`. Katalog HSPK lengkap, pilihan material per pekerjaan dan per elemen,
 serta rincian kebutuhan bahan (keseluruhan, per lantai, per elemen) dijelaskan di `docs/Katalog-Material-Kebutuhan.md`.
@@ -12,7 +12,7 @@ serta rincian kebutuhan bahan (keseluruhan, per lantai, per elemen) dijelaskan d
 |---|---|---|---|---|
 | KF-1 | Import File IFC | Pemeriksaan ekstensi, header ISO-10303-21, penutup file, skema IFC2x3/IFC4, dan `IfcProject`. Pembacaan file dilakukan di proses terpisah; ringkasan ditampilkan sebelum import | `test_kf1_validasi.py` | Sesuai |
 | KF-2 | Parser & Klasifikasi Geometri | Elemen diklasifikasikan menjadi kolom, balok, pelat, atap, dinding, fondasi, tiang, pintu, jendela, lantai, plafon, dan ruang. Dimensi diambil dari Qto/BaseQuantities/PSet; bila tidak ada, dari geometri | `test_kf2_ekstraksi.py` | Sesuai |
-| KF-3 | Rule-Based Processing | 77 aturan IF–THEN untuk 16 kelas elemen menentukan item pekerjaan (persiapan, tanah, beton, tangga, railing, bekisting, pembesian, pasangan, plesteran, dst.). Preprocessor konteks menetapkan lantai dasar, sumber luas, elemen turunan (batu kali, sloof, sumuran), elemen bukan beton, rabat dan bordes; pekerjaan yang dimodelkan (tulangan IfcReinforcingBar, urugan/lantai kerja/aanstamping, keramik dinding) menggantikan versi turunannya | `test_kf3_kf4_rules.py`, `test_penulangan.py`, `test_rule_koreksi.py`, `test_elemen_dimodelkan.py`, `test_kolom_fisik.py` | Sesuai |
+| KF-3 | Rule-Based Processing | 85 aturan IF–THEN untuk 16 kelas elemen menentukan item pekerjaan (persiapan, tanah, beton, tangga, railing, bekisting, pembesian, pasangan, plesteran, dst.). Preprocessor konteks menetapkan lantai dasar, sumber luas, elemen turunan (batu kali, sloof, sumuran), elemen bukan beton, rabat dan bordes; pekerjaan yang dimodelkan (tulangan IfcReinforcingBar, urugan/lantai kerja/aanstamping, keramik dinding) menggantikan versi turunannya; jenis fondasi kolom dapat dipilih (sesuai model / footplate / cakar ayam Sedijatmo) tanpa mengubah model | `test_kf3_kf4_rules.py`, `test_penulangan.py`, `test_rule_koreksi.py`, `test_elemen_dimodelkan.py`, `test_kolom_fisik.py`, `test_fondasi_pilihan.py` | Sesuai |
 | KF-4 | Perhitungan QTO | Volume, luas, panjang, berat besi (Rumus 2.30–2.33), dan pekerjaan tanah dihitung per elemen | `test_kf3_kf4_rules.py`, `test_kf4_tanah.py` | Sesuai |
 | KF-5 | Manajemen Harga Satuan | Ubah harga dan merk bahan, upah, serta alat; tambah material; harga bawaan HSPK (katalog lengkap 2.802 analisa bab 1–10); pilihan material per pekerjaan dan per elemen | `test_kf5_harga.py`, `test_hspk.py`, `test_material_katalog.py` | Sesuai |
 | KF-6 | Edit Hasil Estimasi | Edit volume, harga khusus, dan catatan; tambah/hapus item dari katalog HSPK; undo/redo; pratinjau PDF | `test_kf6_edit.py`, `test_material_katalog.py` | Sesuai |

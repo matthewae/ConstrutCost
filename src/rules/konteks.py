@@ -18,6 +18,8 @@ from statistics import median
 
 from klasifikasi import ElementType
 
+from .fondasi_kolom import SEMUA
+from .fondasi_kolom import siapkan as siapkan_fondasi
 from .parameter import MENERUS_BATU_KALI, MENERUS_BETON, PARAMETER_DEFAULT, ukuran_sloof
 from .sifat import balok_sloof, beton, bordes, dinding_pasangan, menerus_beton_dari_nama, pekerjaan_tanah, rabat
 
@@ -39,6 +41,7 @@ class Konteks:
     ada_menerus_beton: bool = False  # fondasi menerus model = beton bertulang (berfungsi sebagai sloof)
     sloof_di_atas_batu_kali: bool = False  # sloof duduk di atas batu kali (tanpa urugan pasir di bawahnya)
     tebal_pelat_monolit: float | None = None  # m, tebal tipikal pelat/dak beton yang dicor bersama balok
+    pilihan_fondasi: dict = field(default_factory=dict)  # ringkasan pilihan jenis fondasi kolom (fondasi_kolom.py)
     keliling_luar_dasar: float = 0.0  # m, panjang dinding luar lantai dasar
     ada_info_dinding_luar: bool = False  # model menandai dinding luar (Pset_WallCommon.IsExternal)
     # Pekerjaan yang dimodelkan langsung menggantikan versi turunannya (conflict resolution: model > turunan):
@@ -162,6 +165,17 @@ def siapkan_konteks(elemen: list, parameter=None) -> Konteks:
         if e["kelas"] != ElementType.BEAM.value:
             continue
         b, h = e.get("lebar"), e.get("tinggi")
+        info = e.get("info_balok")
+        if info is not None:
+            # relasi geometri (relasi.py): pelat yang dicor bersama balok per sisi, alas yang ditopang dinding
+            sisi = list(info.get("pelat_sisi") or [None, None])
+            if not parameter.bekisting_balok_monolit:
+                sisi = [None, None]
+            e["pelat_sisi"] = [t if t and h and h - t >= 0.5 * h - 1e-9 else None for t in sisi]
+            # alas dinding hanya untuk balok yang dicor di atas pasangan (tanpa pelat): ring balok, balok praktis
+            e["alas_ditopang"] = 0.0 if any(e["pelat_sisi"]) else float(info.get("ditopang") or 0.0)
+            e["tebal_pelat_monolit"] = None
+            continue
         ring = b and h and b <= RING_BALOK[0] + 1e-9 and h <= RING_BALOK[1] + 1e-9
         e["tebal_pelat_monolit"] = (
             t_monolit
@@ -186,10 +200,13 @@ def siapkan_konteks(elemen: list, parameter=None) -> Konteks:
             )
 
     # ---- pekerjaan yang dimodelkan (urugan pasir, lantai kerja, keramik dinding) menggantikan versi turunan
+    # ---- pilihan jenis fondasi kolom (footplate / cakar ayam) tanpa mengubah model
+    pilihan_fondasi = siapkan_fondasi(elemen, parameter, jumlah_lantai)
+
     kode_dari_model = {}
     for e in elemen:
         kode = pekerjaan_tanah(e)
-        if kode:
+        if kode and SEMUA not in (e.get("kode_diganti") or ()):
             kode_dari_model[kode] = {ElementType.EARTHWORK.value}
     if _ada(elemen, ElementType.WALL_TILE):
         kode_dari_model["KRM.DINDING"] = {ElementType.WALL_TILE.value}
@@ -214,6 +231,7 @@ def siapkan_konteks(elemen: list, parameter=None) -> Konteks:
         tebal_pelat_monolit=t_monolit,
         keliling_luar_dasar=keliling,
         kode_dari_model=kode_dari_model,
+        pilihan_fondasi=pilihan_fondasi,
         ada_info_dinding_luar=any(
             e.get("eksternal") is not None for e in elemen if e["kelas"] == ElementType.WALL.value
         ),

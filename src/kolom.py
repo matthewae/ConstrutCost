@@ -15,13 +15,15 @@ Kolom fisik dan fungsi kolom (KF-2): satu kolom di lapangan sering dimodelkan se
    arsitektur (pembungkus) di luar kolom struktur, atau kolom tersalin dua kali. Volumenya dihitung sekali:
    segmen yang LoadBearing / lebih kecil dipertahankan, yang lain ditandai `duplikat`.
 
-3. Fungsi kolom (per kolom fisik)
+3. Fungsi kolom (per kolom fisik), diperiksa berurutan
    - arsitektur : Pset_ColumnCommon.LoadBearing = FALSE, atau nama/tipe menyebut dekoratif/ornamen/
                   arsitektur/pilaster (tidak memikul struktur utama, hanya memperindah desain);
-   - kanopi     : nama/tipe menyebut kanopi/carport/teras/pergola/gazebo/selasar, atau kolom berdiri
-                  di luar denah bangunan (di luar selubung dinding lantainya);
+   - utama      : kolom yang menerus antarlantai (ada kolom tepat di atas/bawahnya di lantai lain) selalu
+                  kolom struktur utama: ia memikul lantai di atasnya, apa pun namanya;
+   - kanopi     : kolom sekunder: nama/tipe menyebut kanopi/carport/teras/pergola/gazebo/selasar/taman/pagar,
+                  atau berdiri di luar selubung bangunan (selubung dinding semua lantai dan kolom menerus);
    - praktis    : beton dengan sisi terkecil <= 15 cm (kolom praktis di dalam pasangan dinding);
-   - utama      : kolom struktur utama (portal bangunan).
+   - utama      : selain itu, kolom struktur utama (portal bangunan).
 """
 
 import re
@@ -33,7 +35,7 @@ FUNGSI_UTAMA, FUNGSI_KANOPI, FUNGSI_ARSITEKTUR, FUNGSI_PRAKTIS = "utama", "kanop
 URUT_FUNGSI = (FUNGSI_UTAMA, FUNGSI_KANOPI, FUNGSI_PRAKTIS, FUNGSI_ARSITEKTUR)
 LABEL_FUNGSI = {
     FUNGSI_UTAMA: "Kolom struktur utama",
-    FUNGSI_KANOPI: "Kolom kanopi / carport / teras",
+    FUNGSI_KANOPI: "Kolom sekunder (kanopi / carport / teras / taman)",
     FUNGSI_PRAKTIS: "Kolom praktis",
     FUNGSI_ARSITEKTUR: "Kolom arsitektur (non-struktural)",
 }
@@ -50,7 +52,7 @@ _ARSITEKTUR = re.compile(
     r"kolom\s*palsu|fake\s*column|cladding|pembungkus|selubung\s*kolom", re.IGNORECASE)
 _KANOPI = re.compile(
     r"kanopi|canopy|car\s*-?\s*port|teras|terrace|porch|pergola|gazebo|selasar|awning|luifel|"
-    r"covered\s*walk", re.IGNORECASE)
+    r"covered\s*walk|taman|garden|pagar|fence|gerbang|gate", re.IGNORECASE)
 _PEDESTAL = re.compile(r"pedestal|stek\s*kolom|stub\s*column|kolom\s*pendek|column\s*stub|neck\s*column",
                        re.IGNORECASE)
 
@@ -86,6 +88,13 @@ class Segmen:
 class HasilKolom:
     info: dict = field(default_factory=dict)  # gid -> {grup, fungsi, urut, n, peran, duplikat, nama_grup}
     ringkasan: dict = field(default_factory=dict)
+    selubung: list = field(default_factory=list)  # poligon denah bangunan (dinding semua lantai + kolom menerus)
+
+    def di_luar(self, kotak: tuple) -> bool | None:
+        """Titik tengah kotak berada di luar selubung bangunan (> 30 cm); None bila selubung tidak tersedia."""
+        if len(self.selubung) < 3:
+            return None
+        return _jarak_luar(self.selubung, ((kotak[0] + kotak[3]) / 2, (kotak[1] + kotak[4]) / 2)) > TOL_SELUBUNG
 
 
 def _tutup_denah(a: Segmen, b: Segmen) -> float:
@@ -206,17 +215,30 @@ def analisis(segmen: list, dinding: dict | None = None, elev_dasar: float | None
     for i in aktif:
         grup.setdefault(akar(i), []).append(i)
 
-    selubung = {}
-    for lantai, kotak in dinding.items():
-        if len(kotak) >= 3:
-            titik = [(k[0], k[1]) for k in kotak] + [(k[3], k[4]) for k in kotak] + \
-                    [(k[0], k[4]) for k in kotak] + [(k[3], k[1]) for k in kotak]
-            selubung[lantai] = _selubung(titik)
+    # kolom menerus antarlantai: bertumpuk dengan kolom fisik lain (lantai berbeda) = memikul lantai di atasnya
+    menerus = set()
+    for x, i in enumerate(aktif):
+        a = segmen[i]
+        for j in aktif[x + 1:]:
+            b = segmen[j]
+            if akar(i) == akar(j) or b.kotak[5] <= a.kotak[5]:
+                continue
+            if b.kotak[2] - a.kotak[5] <= TOL_CELAH and abs(b.kotak[2] - a.kotak[5]) <= 0.5 and \
+                    _tutup_denah(a, b) >= TUTUP_MIN:
+                menerus.update((akar(i), akar(j)))
 
-    hasil = HasilKolom()
+    # selubung bangunan (denah): dinding semua lantai + kolom yang menerus antarlantai
+    titik = []
+    for kotak in dinding.values():
+        titik += [(k[0], k[1]) for k in kotak] + [(k[3], k[4]) for k in kotak] + \
+                 [(k[0], k[4]) for k in kotak] + [(k[3], k[1]) for k in kotak]
+    titik += [segmen[i].pusat for i in aktif if akar(i) in menerus]
+    selubung = _selubung(titik) if sum(len(k) for k in dinding.values()) >= 3 else []
+
+    hasil = HasilKolom(selubung=selubung)
     per_fungsi = {f: 0 for f in URUT_FUNGSI}
     contoh_gabung, contoh_fungsi = [], {f: [] for f in URUT_FUNGSI}
-    for anggota in grup.values():
+    for kunci_grup, anggota in grup.items():
         anggota.sort(key=lambda i: segmen[i].kotak[2])
         seg = [segmen[i] for i in anggota]
         atas = [s for s in seg if not _bawah_tanah(s, elev_dasar)] or seg
@@ -225,9 +247,11 @@ def analisis(segmen: list, dinding: dict | None = None, elev_dasar: float | None
         lb = [s.load_bearing for s in atas if s.load_bearing is not None]
         if _ARSITEKTUR.search(teks) or (lb and not any(lb)):
             fungsi = FUNGSI_ARSITEKTUR
+        elif kunci_grup in menerus:
+            fungsi = FUNGSI_UTAMA  # memikul kolom/lantai di atasnya
         elif _KANOPI.search(teks):
             fungsi = FUNGSI_KANOPI
-        elif utama.lantai in selubung and _jarak_luar(selubung[utama.lantai], utama.pusat) > TOL_SELUBUNG:
+        elif selubung and _jarak_luar(selubung, utama.pusat) > TOL_SELUBUNG:
             fungsi = FUNGSI_KANOPI
         elif 0 < utama.sisi_kecil <= SISI_PRAKTIS + 1e-9 and not (_PROFIL_BAJA.search(teks) or _KAYU.search(teks)):
             # kolom praktis = beton kecil di dalam pasangan; profil baja/kayu kecil tetap kolom struktur
@@ -242,6 +266,7 @@ def analisis(segmen: list, dinding: dict | None = None, elev_dasar: float | None
         for k, s in enumerate(seg, 1):
             hasil.info[s.gid] = {
                 "grup": utama.gid, "nama_grup": utama.nama, "fungsi": fungsi, "urut": k, "n": len(seg),
+                "menerus": kunci_grup in menerus,
                 "peran": "pedestal" if len(seg) > 1 and _bawah_tanah(s, elev_dasar) else "kolom", "duplikat": None,
             }
     for j, i in duplikat.items():
@@ -321,29 +346,17 @@ def _load_bearing(entity):
     return None
 
 
-def baca_model(model) -> tuple:
-    """(segmen kolom, dinding per lantai, elevasi lantai dasar) dari model IFC (geometri koordinat dunia)."""
-    import os
-
-    import ifcopenshell.geom as geom
-    import ifcopenshell.util.shape as shape_util
+def baca_model(model, kotak: dict | None = None) -> tuple:
+    """(segmen kolom, dinding per lantai, elevasi lantai dasar) dari model IFC (geometri koordinat dunia).
+    kotak: {GlobalId: kotak dunia} yang sudah dihitung (relasi.kotak_dunia); None = hitung kolom + dinding."""
     import ifcopenshell.util.unit as unit_util
 
+    from relasi import kotak_dunia
+
     kolom = model.by_type("IfcColumn")
-    if not kolom:
-        return [], {}, None
     walls = model.by_type("IfcWall")
-    kotak = {}
-    st = geom.settings()
-    st.set("use-world-coords", True)
-    it = geom.iterator(st, model, max(1, min(os.cpu_count() or 1, 8)), include=kolom + walls)
-    if it.initialize():
-        while True:
-            sh = it.get()
-            mn, mx = shape_util.get_bbox(shape_util.get_vertices(sh.geometry))
-            kotak[sh.guid] = tuple(float(v) for v in (*mn, *mx))
-            if not it.next():
-                break
+    if kotak is None:
+        kotak = kotak_dunia(model, kolom + walls)
     skala = unit_util.calculate_unit_scale(model)
     lantai_elev, berisi = {}, set()
     segmen = []
@@ -366,6 +379,21 @@ def baca_model(model) -> tuple:
         berisi.add(st_.Name)
         dinding.setdefault(st_.Name, []).append(kotak[w.GlobalId])
     return segmen, dinding, elevasi_dasar(lantai_elev, berisi)
+
+
+def kaki_kolom(hasil: HasilKolom, segmen: list) -> dict:
+    """{gid grup: (x, y, z bawah)} posisi wakil dan kaki terbawah tiap kolom fisik (objek ganda dilewati)."""
+    per = {}
+    for s in segmen:
+        info = hasil.info.get(s.gid)
+        if not info or info.get("duplikat"):
+            continue
+        x, y = per.get(info["grup"], (None, None, None))[:2]
+        z = min(per.get(info["grup"], (0, 0, s.kotak[2]))[2], s.kotak[2])
+        if s.gid == info["grup"] or x is None:
+            x, y = s.pusat
+        per[info["grup"]] = (x, y, z)
+    return per
 
 
 def analisis_model(model) -> HasilKolom:

@@ -112,7 +112,19 @@ def ambil_data_export(proyek_id: int) -> dict:
         "komponen": komponen_pekerjaan(r["pekerjaan_id"] for r in baris),  # analisa AHSP: kebutuhan bahan
         "material": daftar_material(proyek_id),
         "parameter": daftar_parameter(proyek_id),
+        "perbandingan_fondasi": _perbandingan_fondasi(proyek_id),
     }
+
+
+def _perbandingan_fondasi(proyek_id: int) -> dict | None:
+    """Perbandingan jenis fondasi kolom (sheet PERBANDINGAN_FONDASI); None bila gagal / tidak relevan."""
+    from perbandingan_fondasi import bandingkan
+
+    try:
+        return bandingkan(proyek_id)
+    except Exception:
+        log.exception("Perbandingan jenis fondasi gagal")
+        return None
 
 
 def daftar_parameter(proyek_id: int) -> list:

@@ -10,3 +10,4 @@ class ItemHasil:
     rumus: str
     uraian: str = ""
     diameter: float | None = None
+    pengganti: bool = False  # menggantikan pekerjaan model (pilihan jenis fondasi): tidak digugurkan "model > turunan"

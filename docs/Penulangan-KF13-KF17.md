@@ -11,7 +11,7 @@ Elemen struktur dikelompokkan menjadi **tipe** berdasarkan penampangnya, seperti
 | Kelompok | Kode | Kunci tipe | Contoh |
 |---|---|---|---|
 | Kolom (struktur utama & praktis) | K1, K2, ... | b × h | Kolom K1 (20/25) |
-| Kolom kanopi / carport / teras | C1, ... | b × h | Kolom Kanopi/Carport C1 (30/30) |
+| Kolom kanopi / carport / teras | C1, ... | b × h | Kolom Sekunder C1 (30/30) |
 | Kolom arsitektur (non-struktural) | A1, ... | b × h | Kolom Arsitektur A1 (40/40) |
 | Balok | B1, ... | b × h | Balok B1 (15/20) |
 | Sloof | S1, ... | b × h | Sloof S1 (20/30) |
@@ -130,6 +130,7 @@ REKAP ──> RAB ──SUMIFS──> ANALISA ──VLOOKUP──> HARGA
 | HARGA | Harga dasar upah (U001…), bahan (B001…), alat (P001…) yang dipakai proyek (input biru) | — |
 | VOLUME_TAMBAHAN | Item katalog HSPK yang diisi pengguna (bila ada) | — |
 | ASUMSI | Biaya umum & keuntungan 10%, PPN 11% (input biru), parameter aturan proyek, pilihan material, catatan metode | — |
+| PERBANDINGAN_FONDASI | Pekerjaan yang berbeda antar jenis fondasi kolom (sesuai model / footplate / cakar ayam Sedijatmo): volume & jumlah per jenis, biaya langsung, beda, total + PPN (bersama Rekapitulasi; lihat `docs/Fondasi-Pilihan.md`) | `A_jenis = RAB!A − beda(●) + beda(jenis)` |
 | Rekap_Volume | Volume tiap item, jumlah elemen, sumber volume | — |
 | Rekap_Besi | Berat per kelompok/tipe elemen × diameter, beton, rasio kg/m³, sumber; kebutuhan per diameter + batang 12 m | `SUM`, `ROUNDUP(panjang/12)` |
 | BBS | Tulangan per elemen induk: diameter, panjang bersih, berat/m, berat total, sumber (model IFC / tipe penulangan) | `panjang = berat ÷ 1,05 ÷ berat/m` |

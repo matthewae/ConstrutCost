@@ -22,7 +22,7 @@ from database.hspk_bandung_2027 import AHSP, HSD, SATUAN, SUMBER
 from database.init_db import pastikan_skema
 from database.material import SLOT, kode_varian
 
-SEED_VERSI = "12-hspk-bdg-2027-aanstamping"
+SEED_VERSI = "13-hspk-bdg-2027-cakar-ayam"
 
 SUMBER_HSPK = "HSPK Kota Bandung 2027"
 
@@ -51,6 +51,12 @@ PEMETAAN = {
     "BTN.FONDASI": ("Beton Fondasi Telapak / Menerus f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
     "BSI.FONDASI": ("Pembesian Fondasi Beton (Asumsi Rasio kg/m³)", "Fondasi", "kg", "2.2.1.1.1a"),
     "BSK.FONDASI": ("Bekisting Fondasi Telapak / Menerus", "Fondasi", "m2", "2.2.1.3.1"),
+    # fondasi cakar ayam sistem Sedijatmo (pilihan jenis fondasi, rules/fondasi_kolom.py): beton & bekisting memakai
+    # analisa beton f'c 20 MPa dan bekisting fondasi; pipa dicor di tempat (bekisting dalam & luar)
+    "BTN.CAKAR.PELAT": ("Beton Pelat Fondasi Cakar Ayam f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
+    "BTN.CAKAR.PIPA": ("Beton Pipa (Cakar) Fondasi Cakar Ayam f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
+    "BSK.CAKAR.PELAT": ("Bekisting Tepi Pelat Fondasi Cakar Ayam", "Fondasi", "m2", "2.2.1.3.1"),
+    "BSK.CAKAR.PIPA": ("Bekisting Pipa (Cakar) Fondasi Cakar Ayam, Dalam & Luar", "Fondasi", "m2", "2.2.1.3.1"),
     "BTN.SLOOF": ("Beton Sloof f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
     "BSI.SLOOF": ("Pembesian Sloof (Asumsi Rasio kg/m³)", "Fondasi", "kg", "2.2.1.1.3a"),
     "BSK.SLOOF": ("Bekisting Sloof", "Fondasi", "m2", "2.2.1.3.2"),
@@ -125,6 +131,7 @@ for _grup, _nama, _kategori, _hspk_p, _hspk_u in (
     ("PELAT", "Pelat Lantai", "Beton", "2.2.1.1.1", "2.2.1.1.2a"),
     ("DAK", "Pelat Atap (Dak)", "Beton", "2.2.1.1.1", "2.2.1.1.2a"),
     ("FONDASI", "Fondasi Beton", "Fondasi", "2.2.1.1.1", "2.2.1.1.2a"),
+    ("CAKAR", "Fondasi Cakar Ayam", "Fondasi", "2.2.1.1.1", "2.2.1.1.2a"),
 ):
     PEMETAAN[f"BSI.{_grup}.P"] = (f"Pembesian {_nama} Besi Polos (BjTP) Ø < 12 mm", _kategori, "kg", _hspk_p)
     PEMETAAN[f"BSI.{_grup}.U"] = (f"Pembesian {_nama} Besi Ulir (BjTS) D ≥ 12 mm", _kategori, "kg", _hspk_u)

@@ -9,7 +9,7 @@ Mesin aturannya sudah benar sejak awal:
 - satuan yang sama dengan analisa HSPK.
 
 Audit pada tiga model uji menemukan beberapa **asumsi konstruksi** yang membuat RAB menyimpang. Dokumen ini
-mencatat setiap koreksi, alasannya, dan dampaknya. Jumlah aturan bertambah dari 52 menjadi 69, lalu 77 setelah uji model Rumah Tipe 120 (16 kelas elemen).
+mencatat setiap koreksi, alasannya, dan dampaknya. Jumlah aturan bertambah dari 52 menjadi 69, lalu 77 setelah uji model Rumah Tipe 120, dan 85 setelah sumuran model dan pilihan jenis fondasi kolom (16 kelas elemen).
 
 ## Ringkasan koreksi
 
@@ -75,15 +75,33 @@ dengan hasil aplikasi. Yang salah adalah **jumlah kolom** dan pengelompokan tipe
 | Masalah | Koreksi | Kode |
 |---|---|---|
 | Satu kolom yang dimodelkan per segmen dihitung beberapa kolom | Segmen yang bertumpuk vertikal digabung menjadi **satu kolom fisik** bila: posisi denah sama, penampang saling menutup ≥ 50%, celah ≤ 10 cm, **dan** segmen bawahnya pedestal (puncaknya ≤ peil lantai dasar + 15 cm, atau bernama pedestal/stek) atau keduanya di lantai yang sama. Kolom lantai 1 dan lantai 2 tetap dua kolom, karena volume kolom diukur per lantai. Volume, bekisting, dan besi tetap dihitung per segmen | `kolom.py`, `ifc_reader.py` |
-| Kolom kanopi/carport ikut dihitung sebagai kolom utama | **Fungsi kolom** per kolom fisik: *arsitektur* (LoadBearing = FALSE, atau nama dekoratif/ornamen/pilaster); *kanopi/carport/teras* (nama kanopi/carport/teras/pergola/gazebo, atau berdiri di luar selubung dinding lantainya > 30 cm); *praktis* (beton sisi ≤ 15 cm); selain itu *struktur utama*. Kolom kanopi dan arsitektur mendapat tipe penulangan sendiri (Kolom Kanopi/Carport C1, Kolom Arsitektur A1) | `kolom.py`, `rules/penulangan.py` |
+| Kolom kanopi/carport ikut dihitung sebagai kolom utama | **Fungsi kolom** per kolom fisik: *arsitektur* (LoadBearing = FALSE, atau nama dekoratif/ornamen/pilaster); *kanopi/carport/teras* (nama kanopi/carport/teras/pergola/gazebo, atau berdiri di luar selubung dinding lantainya > 30 cm); *praktis* (beton sisi ≤ 15 cm); selain itu *struktur utama*. Kolom kanopi dan arsitektur mendapat tipe penulangan sendiri (Kolom Sekunder C1, Kolom Arsitektur A1) | `kolom.py`, `rules/penulangan.py` |
 | Dua IfcColumn menempati ruang yang sama (kolom arsitektur pembungkus, objek tersalin) | **Objek ganda** (tumpang tindih ≥ 50% penampang dan tinggi): volume dihitung sekali pada kolom yang memikul beban; yang lain tidak dihitung beton/besi/bekisting dan dilaporkan | `kolom.py`, `rules/sifat.py` |
 | Fondasi sumuran turunan berpotensi dihitung untuk setiap segmen | Fondasi turunan **satu per kolom fisik**, pada segmen terbawah di lantai dasar. Kolom arsitektur tidak mendapat fondasi turunan | `rules/konteks.py`, `rules/definitions.py` |
 | Tulangan tipe per segmen menambah kait di sambungan pedestal–kolom | Kait standar 12d hanya di ujung bebas. Di sambungan, tulangan menerus dengan satu **lewatan 40d** (pada segmen atas), dan sengkang di sambungan dihitung sekali | `rules/penulangan.py` |
 
-Dialog Konfirmasi Import kini menampilkan *16 kolom struktur utama* dan *2 kolom kanopi / carport / teras*,
+Dialog Konfirmasi Import kini menampilkan *16 kolom struktur utama* dan *2 kolom sekunder (kanopi / carport / teras / taman)*,
 dengan catatan "36 objek IfcColumn: 18 segmen (pedestal / potongan kolom) digabung dengan kolom di atasnya".
-Tipe penulangan menjadi *Kolom K1 (30/30) — 16 buah* dan *Kolom Kanopi/Carport C1 (30/30) — 2 buah*.
+Tipe penulangan menjadi *Kolom K1 (30/30) — 16 buah* dan *Kolom Sekunder C1 (30/30) — 2 buah*.
 Biaya langsung model ini tidak berubah (Rp 831.615.420), karena tulangannya dari model dan volumenya tidak dobel.
+
+### Sumuran, bekisting balok, kolom menerus antarlantai (Tipe 120 2 & 3 lantai)
+
+| Masalah | Koreksi | Kode |
+|---|---|---|
+| Sumuran yang dimodelkan (IfcFooting CAISSON_FOUNDATION) dihitung beton footplate f'c 20 **dengan bekisting** (19,2 m² Courtyard, 32,0 m² 3 lantai) | Sumuran dicor di lubang galian berlapis buis beton (bekisting permanen): analisa **sumuran masif HSPK 2.2.2.2.6** (beton siklop + batu belah, sesuai spesifikasi model), tanpa bekisting dan tanpa tipe tulangan. Besi hanya dari stek yang dimodelkan. Galian = volume lubang | `rules/sifat.py`, `rules/definitions.py`, `rules/tanah.py` |
+| Ring balok 20/30 di level atap ikut dikurangi tebal pelat; ring balok / balok praktis yang dicor di atas dinding diberi bekisting alas | **Relasi geometri** (`relasi.py`): pelat yang puncaknya rata dengan puncak balok dan menempel di sisinya → sisi itu h − t (per sisi; sisi luar balok tepi setinggi penuh). Balok tanpa pelat yang duduk di atas pasangan dinding (puncak dinding = alas balok) → bekisting alas hanya pada bagian yang tidak ditopang. Balok latei di dalam dinding tetap berbekisting alas | `relasi.py`, `rules/konteks.py`, `rules/definitions.py` |
+| Kolom lantai 1 di bawah lantai 2 (carport terbuka) dan kolom sudut lantai 3 tanpa dinding tergolong kanopi | Kolom yang **menerus antarlantai** selalu kolom struktur utama. Selubung bangunan diambil dari dinding semua lantai + kolom menerus. Kolom dinding taman/pagar masuk **kolom sekunder** (kanopi/carport/teras/taman) | `kolom.py` |
+
+Sisa selisih bekisting terhadap angka model:
+- Bekisting tangga: aplikasi menghitung pelat bawah + bidang tegak anak tangga, model hanya pelat bawah.
+- Balok tepi: aplikasi membekisting sisi luar setinggi penuh, model mengurangi kedua sisi.
+- Ring balok yang membentang tanpa dinding di bawahnya: aplikasi memberi bekisting alas.
+
+Ketiganya disengaja karena mengikuti kondisi pelaksanaan.
+
+Pilihan jenis fondasi kolom (footplate / cakar ayam sistem Sedijatmo) tanpa mengubah model: lihat
+`docs/Fondasi-Pilihan.md`.
 
 ## Analisa pekerjaan persiapan
 

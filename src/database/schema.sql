@@ -90,7 +90,10 @@ CREATE TABLE IF NOT EXISTS elemen_proyek (
     material TEXT,                 -- JSON pilihan material khusus elemen ini {slot: kunci}, menimpa pilihan proyek
     besi_model TEXT,               -- JSON tulangan yang dimodelkan (IfcReinforcingBar) per diameter, bila ada
     kolom_grup TEXT,               -- GlobalId wakil kolom fisik (pedestal + kolom = satu kolom), khusus kolom
-    info_kolom TEXT                -- JSON fungsi kolom (utama/kanopi/praktis/arsitektur), urutan segmen, objek ganda
+    info_kolom TEXT,               -- JSON fungsi kolom (utama/kanopi/praktis/arsitektur), urutan segmen, objek ganda
+    info_balok TEXT,               -- JSON relasi balok: panjang alas di atas dinding, tebal pelat di atasnya
+    info_fondasi TEXT,             -- JSON fondasi setempat: kolom fisik yang dipikulnya
+    di_luar_bangunan INTEGER       -- pelat/penutup lantai/ruang di luar selubung bangunan (carport, jalan masuk): 1/0
 );
 
 -- hasil_estimasi: output rule-engine, per elemen per pekerjaan

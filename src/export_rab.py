@@ -542,6 +542,71 @@ def tulis_rab_lengkap(wb, data: dict, opsi, info_dokumen: list) -> str:
         wa.cell(r, 2, f"• {teks}").font = f9
         r += 1
 
+    # ------------------------------------------------------------ PERBANDINGAN_FONDASI
+    pf = data.get("perbandingan_fondasi")
+    if pf and opsi.rekap:  # bagian dari rekapitulasi biaya
+        wf = wb.create_sheet("PERBANDINGAN_FONDASI")
+        judul(wf, "PERBANDINGAN JENIS FONDASI KOLOM",
+              "Pekerjaan yang volumenya berbeda antar jenis fondasi, dihitung ulang dari model yang sama tanpa mengubah "
+              "gambar (Parameter Aturan › Fondasi kolom dihitung sebagai). Pekerjaan lain sama di semua jenis. "
+              "● = jenis yang dipakai di sheet RAB.")
+        nj = len(pf["jenis"])
+        kepala = ["No", "Uraian Pekerjaan", "Sat."]
+        for i, nama in enumerate(pf["jenis"]):
+            tanda = " ●" if i == pf["aktif"] else ""
+            kepala += [f"Volume\n{nama}{tanda}", f"Jumlah (Rp)\n{nama}{tanda}"]
+        head(wf, BARIS_HEADER, kepala, [5, 52, 6] + [11, 15] * nj)
+        wf.row_dimensions[BARIS_HEADER].height = 40
+        kol_vol = [4 + 2 * i for i in range(nj)]
+        kol_jml = [5 + 2 * i for i in range(nj)]
+        r = BARIS_HEADER + 1
+        awal = r
+        kat_lalu, no = None, 0
+        for b in pf["baris"]:
+            if b["kategori"] != kat_lalu:
+                baris_seksi(wf, r, 3 + 2 * nj)
+                wf.cell(r, 2, b["kategori"].upper())
+                kat_lalu = b["kategori"]
+                r += 1
+            no += 1
+            sel(wf, r, 1, no, al=tengah)
+            sel(wf, r, 2, b["nama"], al=bungkus)
+            sel(wf, r, 3, b["satuan"], al=tengah)
+            for i in range(nj):
+                sel(wf, r, kol_vol[i], b["volume"][i] or None, VOL, fill=fill_hsp if i == pf["aktif"] else None)
+                sel(wf, r, kol_jml[i], b["jumlah"][i] or None, RP, fill=fill_hsp if i == pf["aktif"] else None)
+            r += 1
+        akhir = r - 1
+        r += 1
+        ra = kol_jml[pf["aktif"]]
+        baris_beda = r
+        ring = data["ringkasan"]
+        pct = sum(b_["nilai"] for b_ in ring["item_tidak_langsung"] if b_["jenis"] == "persen") / 100
+        tetap = sum(b_["nilai"] for b_ in ring["item_tidak_langsung"] if b_["jenis"] == "nilai")
+        for teks, fungsi, tebal in (
+            ("Jumlah pekerjaan yang berbeda", lambda c, r_: f"=SUM({L(c)}{awal}:{L(c)}{akhir})", False),
+            ("Biaya langsung (A) = A di RAB − pekerjaan berbeda jenis ● + pekerjaan berbeda jenis ini",
+             lambda c, r_: f"={ref_A}-${L(ra)}${baris_beda}+{L(c)}{baris_beda}", True),
+            ("Beda biaya langsung terhadap jenis ●",
+             lambda c, r_: f"={L(c)}{baris_beda + 1}-${L(ra)}${baris_beda + 1}", False),
+            ("Total (A + biaya tidak langsung) + PPN, dibulatkan",
+             lambda c, r_: f"=ROUNDDOWN(({L(c)}{baris_beda + 1}*(1+{pct!r})+{tetap!r})*(1+{ASUMSI_PPN}),-3)", True),
+        ):
+            sel(wf, r, 2, teks, font=f9b if tebal else f9, al=Alignment(horizontal="right", vertical="top",
+                                                                        wrap_text=True))
+            for c in kol_jml:
+                sel(wf, r, c, fungsi(c, r), RP, f9b if tebal else f9, fill=fill_hsp if c == ra else None)
+            r += 1
+        r += 1
+        for nama, catatan in zip(pf["jenis"], pf["catatan"]):
+            if catatan:
+                wf.cell(r, 2, f"• {nama}: {catatan.split('. ', 1)[-1]}").font = f9ket
+                wf.cell(r, 2).alignment = Alignment(wrap_text=True, vertical="top")
+                wf.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3 + 2 * nj)
+                wf.row_dimensions[r].height = 36
+                r += 1
+        cetak(wf, BARIS_HEADER, f"C{BARIS_HEADER + 1}", "landscape")
+
     # ------------------------------------------------------------ Rekap_Volume
     if opsi.detail:
         wv = wb.create_sheet("Rekap_Volume")

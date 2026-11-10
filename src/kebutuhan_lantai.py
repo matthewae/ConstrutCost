@@ -65,6 +65,8 @@ def label_grup_struktur(r: dict) -> tuple:
         urut = (URUTAN.index(r["kelompok_tipe"]) if r["kelompok_tipe"] in URUTAN else 9,
                 0, int((r.get("kode_tipe") or "X0")[1:] or 0))
         return ("tipe", r["tipe_id"]), label, urut
+    if kel == "CAKAR":
+        return ("kelompok", kel), "Fondasi Cakar Ayam (pelat + pipa)", (-1, 1, 0)
     if kel == "LANTAI_KERJA":
         label = "Lantai Kerja / Rabat (f'c 7,5 MPa)"
     elif kel == "SUMURAN":

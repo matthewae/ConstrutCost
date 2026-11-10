@@ -11,10 +11,21 @@ from dataclasses import fields, replace
 
 from aktivitas import catat
 from database.estimasi_repository import _connect
-from rules.parameter import JENIS_MENERUS, PARAMETER_DEFAULT, ParameterEstimasi
+from rules.parameter import JENIS_FONDASI_KOLOM, JENIS_MENERUS, PARAMETER_DEFAULT, ParameterEstimasi
 
 # (kunci, label, satuan, minimum, maksimum, desimal) per kelompok, untuk dialog Parameter Aturan
 PARAMETER_EDIT = {
+    "Jenis fondasi kolom (pilihan, tanpa mengubah model)": [
+        ("fondasi_kolom_jenis", "Fondasi kolom dihitung sebagai", "", 0, 2, 0),
+        ("footplate_lebar", "Footplate: lebar (0 = otomatis)", "m", 0.0, 3.0, 2),
+        ("footplate_tebal", "Footplate: tebal (0 = otomatis)", "m", 0.0, 0.6, 2),
+        ("cakar_tebal_pelat", "Cakar ayam: tebal pelat", "m", 0.10, 0.30, 2),
+        ("cakar_diameter_pipa", "Cakar ayam: diameter luar pipa", "m", 0.40, 1.50, 2),
+        ("cakar_tebal_pipa", "Cakar ayam: tebal dinding pipa", "m", 0.06, 0.15, 2),
+        ("cakar_panjang_pipa", "Cakar ayam: panjang pipa", "m", 1.0, 3.5, 2),
+        ("cakar_jarak_pipa", "Cakar ayam: jarak antarpipa maksimum", "m", 1.5, 4.0, 2),
+        ("cakar_pakai_sloof", "Cakar ayam: sloof tetap dihitung", "", 0, 1, 0),
+    ],
     "Fondasi batu kali (turunan dinding lantai dasar)": [
         ("batu_kali_lebar_atas", "Lebar atas", "m", 0.15, 1.5, 2),
         ("batu_kali_lebar_bawah", "Lebar bawah", "m", 0.2, 2.0, 2),
@@ -65,6 +76,8 @@ PARAMETER_EDIT = {
 # Parameter berupa pilihan: nilai -> label (ditampilkan sebagai daftar pilihan di dialog)
 PILIHAN = {
     "fondasi_menerus_jenis": JENIS_MENERUS,
+    "fondasi_kolom_jenis": JENIS_FONDASI_KOLOM,
+    "cakar_pakai_sloof": {0: "Tidak (pelat cakar ayam menggantikan sloof)", 1: "Ya"},
     "bekisting_balok_monolit": {1: "Ya (b + 2(h − t))", 0: "Tidak (b + 2h)"},
 }
 _SPEK = {k: (label, sat, lo, hi, d) for grup in PARAMETER_EDIT.values() for k, label, sat, lo, hi, d in grup}
@@ -124,6 +137,12 @@ def validasi_parameter(nilai: dict) -> dict:
     for k, nama in (("sloof_lebar", "Lebar sloof"), ("sloof_tinggi", "Tinggi sloof")):
         if 0 < getattr(p, k) < 0.10:
             raise ParameterTidakValid(f"{nama} harus 0 (otomatis) atau minimal 0,10 m.")
+    if 0 < p.footplate_lebar < 0.50:
+        raise ParameterTidakValid("Lebar footplate harus 0 (otomatis) atau minimal 0,50 m.")
+    if 0 < p.footplate_tebal < 0.20:
+        raise ParameterTidakValid("Tebal footplate harus 0 (otomatis) atau minimal 0,20 m.")
+    if p.cakar_diameter_pipa - 2 * p.cakar_tebal_pipa < 0.20 - 1e-9:
+        raise ParameterTidakValid("Diameter dalam pipa cakar ayam (D − 2 × tebal) minimal 0,20 m.")
     return hasil
 
 

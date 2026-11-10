@@ -46,8 +46,11 @@ _KOLOM_ELEMEN = (
     "besi_model",
     "kolom_grup",
     "info_kolom",
+    "info_balok",
+    "info_fondasi",
+    "di_luar_bangunan",
 )
-_KOLOM_JSON = ("sumber_dimensi", "besi_model", "info_kolom")
+_KOLOM_JSON = ("sumber_dimensi", "besi_model", "info_kolom", "info_balok", "info_fondasi")
 RULES_PEMBESIAN = [r for r in RULES if r.kode.startswith("BSI.")]
 
 
@@ -173,7 +176,7 @@ def _baris_ke_elemen(row) -> dict:
         el["sumber_dimensi"] = json.loads(el.get("sumber_dimensi") or "{}")
     except ValueError:
         el["sumber_dimensi"] = {}
-    for k in ("besi_model", "info_kolom"):
+    for k in ("besi_model", "info_kolom", "info_balok", "info_fondasi"):
         try:
             el[k] = json.loads(el[k]) if el.get(k) else None
         except ValueError:

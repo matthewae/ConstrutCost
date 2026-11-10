@@ -89,6 +89,31 @@ def test_kolom_kanopi_carport_dari_nama_dan_dari_letak_di_luar_bangunan():
     assert h.ringkasan["per_fungsi"] == {FUNGSI_UTAMA: 2, FUNGSI_KANOPI: 3, FUNGSI_PRAKTIS: 0, FUNGSI_ARSITEKTUR: 0}
 
 
+def test_kolom_menerus_antarlantai_tetap_kolom_utama():
+    """Lantai 1 terbuka (carport di bawah lantai 2) dan sudut lantai atas tanpa dinding: kolom di luar selubung
+    dinding lantainya tetapi memikul kolom lantai di atasnya / berdiri di atas kolom lantai bawah = kolom utama."""
+    dinding = {"Lantai 1": [(0, -0.07, 0, 6, 0.07, 3), (0, 9.93, 0, 6, 10.07, 3), (-0.07, 0, 0, 0.07, 10, 3)],
+               "Lantai 2": [(0, -0.07, 3.5, 6, 0.07, 6.5), (-0.07, 0, 3.5, 0.07, 10, 6.5)]}
+    seg = [_seg("D1-L1", 10, 0, 0, 3.5, nama="Kolom K1 Lt.1 D1 (carport)"),  # carport di bawah lantai 2
+           _seg("D1-L2", 10, 0, 3.5, 7.0, lantai="Lantai 2", nama="Kolom K1 Lt.2 D1"),
+           _seg("D3-L2", 10, 10, 3.5, 7.0, lantai="Lantai 2", nama="Kolom K3 Lt.2 D3"),  # sudut tanpa dinding
+           _seg("D3-L1", 10, 10, 0, 3.5, nama="Kolom K1 Lt.1 D3"),
+           _seg("CP", 3, -6, 0, 3.5, nama="Kolom K2 30x30 CP"),  # satu lantai, di luar selubung bangunan
+           _seg("TAMAN", 3, 8, 0, 3.0, nama="Kolom KP 30x30 Dinding Taman")]
+    h = analisis(seg, dinding, elev_dasar=0.0)
+    f = {g: v["fungsi"] for g, v in h.info.items()}
+    assert f["D1-L1"] == f["D1-L2"] == f["D3-L1"] == f["D3-L2"] == FUNGSI_UTAMA
+    assert h.info["D1-L1"]["menerus"] and h.info["D1-L1"]["grup"] != h.info["D1-L2"]["grup"]
+    assert f["CP"] == f["TAMAN"] == FUNGSI_KANOPI
+
+
+def test_selubung_bangunan_membedakan_perkerasan_luar():
+    h = analisis([_seg("A1", 0, 0, 0, 3.5)], DINDING, elev_dasar=0.0)
+    assert h.di_luar((0, -6, -0.2, 6, -1, -0.1)) is True  # carport / jalan masuk di depan bangunan
+    assert h.di_luar((1, 1, -0.1, 9, 9, -0.03)) is False  # rabat di dalam bangunan
+    assert analisis([], {}, None).di_luar((0, 0, 0, 1, 1, 1)) is None  # tanpa dinding: tidak diketahui
+
+
 def test_kolom_arsitektur_praktis_dan_baja():
     seg = [_seg("DEKOR", 3, 3, 0, 3.5, nama="Kolom Dekoratif Fasad 40x40", sisi=0.4),
            _seg("NLB", 6, 3, 0, 3.5, nama="Kolom Bulat D30", lb=False),  # Pset_ColumnCommon.LoadBearing = FALSE
@@ -163,7 +188,7 @@ def test_tipe_kolom_kanopi_terpisah_dari_kolom_utama():
     assert kunci_tipe(utama) == ("KOLOM", 30, 30)
     assert kunci_tipe(kanopi) == (KOLOM_KANOPI, 30, 30)
     assert kunci_tipe(ars) == (KOLOM_ARSITEKTUR, 30, 30)
-    assert label_tipe(KOLOM_KANOPI, "C1", 0.3, 0.3) == "Kolom Kanopi/Carport C1 (30/30)"
+    assert label_tipe(KOLOM_KANOPI, "C1", 0.3, 0.3) == "Kolom Sekunder C1 (30/30)"
     assert bawaan(KOLOM_ARSITEKTUR, 0.3, 0.3).ringkas() == "4 Ø10, sengkang Ø6-150"  # non-struktural: minimum
     assert bawaan(KOLOM_KANOPI, 0.3, 0.3).ringkas() == bawaan("KOLOM", 0.3, 0.3).ringkas()
 
@@ -250,7 +275,7 @@ def test_dialog_import_menampilkan_kolom_per_fungsi(app, tmp_path):
     d = RingkasanImportDialog(buka_dan_validasi(_model(tmp_path)))
     t = d.findChild(QTableWidget)
     baris = {t.item(r, 0).text(): int(t.item(r, 2).text()) for r in range(t.rowCount())}
-    assert baris["Kolom struktur utama"] == 4 and baris["Kolom kanopi / carport / teras"] == 2
+    assert baris["Kolom struktur utama"] == 4 and baris["Kolom sekunder (kanopi / carport / teras / taman)"] == 2
     assert not any(k == "Kolom" for k in baris)  # tidak ada lagi "12 kolom"
     teks = " ".join(w.text() for w in d.findChildren(QLabel))
     assert "12 objek IfcColumn: 6 segmen kolom (pedestal / potongan kolom) digabung" in teks
@@ -265,9 +290,9 @@ def test_estimasi_tipe_kolom_dihitung_per_kolom_fisik(db_sementara, tmp_path):
 
     pid = create_proyek("Uji Kolom", str(_model(tmp_path)))
     r = jalankan_estimasi(pid)
-    assert any(p.startswith("Kolom: 4 kolom struktur utama, 2 kolom kanopi") for p in r["peringatan"])
+    assert any(p.startswith("Kolom: 4 kolom struktur utama, 2 kolom sekunder") for p in r["peringatan"])
     tipe = {t["label"]: t["jumlah_elemen"] for t in daftar_tipe(pid) if t["kelompok"].startswith("KOLOM")}
-    assert tipe == {"Kolom K1 (30/30)": 4, "Kolom Kanopi/Carport C1 (30/30)": 2}
+    assert tipe == {"Kolom K1 (30/30)": 4, "Kolom Sekunder C1 (30/30)": 2}
     # info kolom tersimpan dan dibaca kembali (hitung ulang dimensi memakai pengelompokan yang sama)
     from database.estimasi_repository import _connect
 

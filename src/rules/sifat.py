@@ -156,6 +156,17 @@ def bordes(e: dict) -> bool:
     )
 
 
+_SUMURAN = re.compile(r"sumuran|caisson|bore[\s_-]*pile|bored[\s_-]*pile|strauss|broncaptering", re.IGNORECASE)
+
+
+def sumuran_model(e: dict) -> bool:
+    """Fondasi sumuran / tiang bor yang dimodelkan sebagai IfcFooting: dicor di lubang galian (buis beton sebagai
+    bekisting permanen), dihitung dengan analisa sumuran, tanpa bekisting."""
+    return e.get("kelas") == "FOOTING" and (
+        (e.get("predefined_type") or "") == "CAISSON_FOUNDATION" or bool(_SUMURAN.search(e.get("nama") or ""))
+    )
+
+
 def kolom_struktur(e: dict) -> bool:
     """Kolom yang memikul beban ke fondasi. Kolom praktis (sisi terkecil ≤ 15 cm, di dalam pasangan
     dinding) berdiri di atas sloof/fondasi menerus sehingga tidak mendapat fondasi sumuran sendiri; begitu

@@ -26,10 +26,10 @@ from typing import Callable
 
 from klasifikasi import ElementType as T
 
-from . import penulangan, tanah
+from . import fondasi_kolom, penulangan, tanah
 from .konteks import Konteks
-from .parameter import ParameterEstimasi
-from .sifat import balok_sloof, bukan_beton, dinding_pasangan, kolom_struktur, pekerjaan_tanah
+from .parameter import FONDASI_FOOTPLATE, FONDASI_MODEL, ParameterEstimasi
+from .sifat import balok_sloof, bukan_beton, dinding_pasangan, kolom_struktur, pekerjaan_tanah, sumuran_model
 
 
 @dataclass(frozen=True)
@@ -111,6 +111,23 @@ def _bekisting_balok(e, p):
     # dua sisi + alas balok (sisi atas tertutup bekisting pelat). Bila balok dicor bersama pelat,
     # tinggi sisi yang dibekisting = h - t_pelat (bagian setinggi pelat tertutup bekisting pelat).
     b, h, L = e["lebar"], e["tinggi"], e["panjang"]
+    sisi = e.get("pelat_sisi")
+    if sisi is not None:  # relasi geometri: per sisi, dan alas yang duduk di atas pasangan dinding
+        L_alas = max(L - min(e.get("alas_ditopang") or 0.0, L), 0.0)
+        s1, s2 = h - (sisi[0] or 0.0), h - (sisi[1] or 0.0)
+        nilai = b * L_alas + (s1 + s2) * L
+        ket = []
+        if L_alas < L - 1e-6:
+            ket.append(f"alas {_n(L - L_alas)} m duduk di atas pasangan dinding, tanpa bekisting alas")
+        if any(sisi):
+            ket.append("pelat dicor bersama: " + " & ".join(
+                f"sisi {i} t = {_n(t, 2)}" for i, t in enumerate(sisi, 1) if t))
+        if not all(sisi):
+            ket.append("sisi tanpa pelat setinggi penuh")
+        return nilai, (
+            f"A = b × L_alas + (h₁ + h₂) × L = {_n(b)} × {_n(L_alas)} + ({_n(s1)} + {_n(s2)}) × {_n(L)} "
+            f"= {_n(nilai)} m² ({'; '.join(ket)})"
+        )
     t = e.get("tebal_pelat_monolit")
     if t:
         nilai = (b + 2 * (h - t)) * L
@@ -441,11 +458,24 @@ def _menerus_batu_kali(e, k, p):
 
 
 def _fondasi_beton(e, k, p):
-    # footplate / pile cap, atau fondasi menerus yang ditetapkan beton bertulang
+    # footplate / pile cap, atau fondasi menerus yang ditetapkan beton bertulang (sumuran dihitung tersendiri)
     pre = e.get("predefined_type") or ""
     if pre in FONDASI_MENERUS:
         return bool(e.get("menerus_beton"))
-    return pre not in SLOOF
+    return pre not in SLOOF and not sumuran_model(e)
+
+
+def _sumuran_model(e, k, p):
+    return sumuran_model(e)
+
+
+def _besi_model_saja(e, p):
+    # sumuran masif (beton siklop) tidak bertulang; hanya stek/tulangan yang dimodelkan yang dihitung
+    return penulangan.dari_model(e, None, p.batas_kemiringan_dak)
+
+
+def _tanah_sumuran_model(e, p):
+    return tanah.sumuran_model(e["volume"], e.get("tebal") or e.get("tinggi") or 0.0, p)
 
 
 def _dinding_luar(e, k, p):
@@ -487,10 +517,23 @@ def _fondasi_turunan(e, k: Konteks, p):
     return e.get("di_lantai_dasar", False) and not k.ada_fondasi_model
 
 
-# sumuran turunan hanya di bawah kolom struktur; kolom praktis berdiri di atas sloof/fondasi menerus
-_sumuran_turunan = _dan(_fondasi_turunan, _kolom_struktur)
-# batu kali turunan hanya di bawah dinding pasangan (partisi ringan tidak berfondasi)
-_batu_kali_turunan = _dan(_fondasi_turunan, _pasangan)
+def _jenis_fondasi(*jenis):
+    return lambda e, k, p: p.fondasi_kolom_jenis in jenis
+
+
+# sumuran turunan hanya di bawah kolom struktur; kolom praktis berdiri di atas sloof/fondasi menerus. Pilihan
+# jenis fondasi footplate / cakar ayam menurunkan fondasinya sendiri (rules/fondasi_kolom.py).
+_sumuran_turunan = _dan(_fondasi_turunan, _kolom_struktur, _jenis_fondasi(FONDASI_MODEL))
+# batu kali turunan hanya di bawah dinding pasangan (partisi ringan tidak berfondasi); cakar ayam tanpa batu kali
+_batu_kali_turunan = _dan(_fondasi_turunan, _pasangan, _jenis_fondasi(FONDASI_MODEL, FONDASI_FOOTPLATE))
+
+
+def _fondasi_pilihan(e, k, p):
+    return bool(e.get("fondasi_pilihan"))
+
+
+def _pelat_cakar(e, k, p):
+    return bool(e.get("luas_cakar"))
 
 
 def _atap_miring(e, k, p):
@@ -577,6 +620,15 @@ RULES = [
          keterangan="Bekisting kolom"),
     # Fondasi sumuran di bawah kolom struktur lantai dasar (Rumus 2.36 - 2.39)
     Rule("BTN.SUMURAN", T.COLUMN, _sumuran, syarat=_sumuran_turunan, keterangan="Fondasi sumuran (turunan)"),
+    # Pilihan jenis fondasi kolom (Parameter Aturan): footplate turunan atau pipa cakar ayam di bawah kolom
+    Rule("FDN.KOLOM", T.COLUMN, fondasi_kolom.item_kolom, syarat=_fondasi_pilihan,
+         keterangan="Fondasi kolom sesuai pilihan jenis fondasi"),
+    # Pelat cakar ayam (sistem Sedijatmo) di bawah bidang lantai dasar dan tapak dinding lantai dasar
+    *[
+        Rule("BTN.CAKAR.PELAT", kelas, fondasi_kolom.item_pelat, syarat=_pelat_cakar,
+             keterangan="Pelat fondasi cakar ayam (pilihan jenis fondasi)")
+        for kelas in (T.SLAB, T.FLOOR, T.SPACE, T.WALL)
+    ],
     # ===== Balok (Rumus 2.9) =====
     Rule("BTN.BALOK", T.BEAM, _volume(), ("volume",), syarat=_dan(_beton, _bukan_sloof)),
     Rule("BSI.BALOK", T.BEAM, _pembesian("rasio_besi_balok"), ("volume",), syarat=_dan(_beton, _bukan_sloof)),
@@ -636,6 +688,10 @@ RULES = [
     Rule("BSI.FONDASI", T.FOOTING, _pembesian("rasio_besi_fondasi"), ("volume",), syarat=_fondasi_beton),
     Rule("BSK.FONDASI", T.FOOTING, _bekisting_keliling, ("keliling", "tebal"), syarat=_fondasi_beton),
     Rule("BTN.SUMURAN", T.PILE, _volume(), ("volume",)),
+    # sumuran / tiang bor yang dimodelkan sebagai IfcFooting: analisa sumuran (HSPK 2.2.2.2.6), tanpa bekisting
+    Rule("BTN.SUMURAN", T.FOOTING, _volume(), ("volume",), syarat=_sumuran_model,
+         keterangan="Fondasi sumuran (dimodelkan)"),
+    Rule("BSI.FONDASI", T.FOOTING, _besi_model_saja, syarat=_sumuran_model, keterangan="Stek / tulangan sumuran model"),
     # ===== Pintu (susunan HSPK: daun + kusen + kunci + engsel) & jendela =====
     Rule("PTU.DAUN", T.DOOR, _luas_bukaan, ("luas",), keterangan="Luas daun pintu"),
     Rule("PTU.KUSEN", T.DOOR, _kusen_pintu, ("lebar", "tinggi")),
@@ -657,6 +713,7 @@ RULES = [
     Rule("TNH.FONDASI", T.FOOTING, _tanah_footplate, ("tebal", "volume"), syarat=_fondasi_beton),
     Rule("TNH.FONDASI", T.COLUMN, _tanah_sumuran, syarat=_sumuran_turunan, keterangan="Galian sumuran (turunan)"),
     Rule("TNH.FONDASI", T.PILE, _tanah_tiang, ("volume",)),
+    Rule("TNH.FONDASI", T.FOOTING, _tanah_sumuran_model, ("volume",), syarat=_sumuran_model),
     Rule("TNH.SLOOF", T.FOOTING, _tanah_sloof, ("lebar", "panjang"), syarat=_dan(_pre(*SLOOF), _sloof_di_atas_tanah)),
     Rule("TNH.SLOOF", T.BEAM, _tanah_sloof, ("lebar", "panjang"), syarat=_dan(_beton, _sloof, _sloof_di_atas_tanah)),
     Rule("TNH.SLOOF", T.WALL, _tanah_sloof_turunan, ("panjang",), syarat=_dan(_sloof_turunan, _sloof_di_atas_tanah)),
