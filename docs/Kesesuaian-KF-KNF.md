@@ -1,7 +1,8 @@
 # Kesesuaian dengan Kebutuhan Fungsional (KF) dan Non-Fungsional (KNF)
 
-Acuan: Tabel 3.1 (KF-1 s.d. KF-19) dan Tabel 3.2 (KNF-1 s.d. KNF-9) naskah skripsi.
-Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 620 tes lulus). Panduan pemakaian singkat: `docs/Panduan-Singkat.md`.
+Acuan: Tabel 3.1 (KF-1 s.d. KF-19) dan Tabel 3.2 (KNF-1 s.d. KNF-9) naskah skripsi, ditambah usulan KF-20 s.d. KF-23
+dan KNF-10 s.d. KNF-11 untuk fitur Model 3D dan pilihan jenis fondasi kolom (lihat paket revisi laporan).
+Bukti diambil dari kode dan tes otomatis (`python -m pytest`, 621 tes lulus). Panduan pemakaian singkat: `docs/Panduan-Singkat.md`.
 Koreksi basis aturan setelah audit (pelat lantai dasar, elemen bukan beton, sloof turunan, dll.)
 dijelaskan di `docs/Koreksi-Rule-Engine.md`. Katalog HSPK lengkap, pilihan material per pekerjaan dan per elemen,
 serta rincian kebutuhan bahan (keseluruhan, per lantai, per elemen) dijelaskan di `docs/Katalog-Material-Kebutuhan.md`.
@@ -31,6 +32,10 @@ RAB (cladding, kisi, lisplang, nok, talang, ...) di `docs/Elemen-Lain.md`.
 | KF-17 | Custom Output Formatting | Pilihan kolom (No, Kode, Harga, Bobot, Rumus), isi dokumen (termasuk kebutuhan bahan proyek & per elemen), dan orientasi PDF | `test_kf17_export.py`, `test_material_katalog.py` | Sesuai |
 | KF-18 | Detail Volume Breakdown | Panel Rincian Perhitungan menampilkan dimensi, sumber data, rumus, dan backup volume; tersedia kolom "Uraian rumus" di export. Penampil **Model 3D**: klik elemen pada bangunan untuk melihat kebutuhan biayanya per tahap pekerjaan, termasuk pedestal, fondasi, sloof, dan pekerjaan tanah di bawahnya, dengan pilihan bahan per elemen (`docs/Model-3D.md`) | `test_kf3_kf4_rules.py`, `test_kebutuhan_lantai.py`, `test_penampil3d.py` | Sesuai |
 | KF-19 | Recalculate QTO | Ubah dimensi elemen (mis. pelat 30×30 → 50×50) lalu QTO dan RAB dihitung ulang | `test_kf19_dimensi.py` | Sesuai |
+| KF-20 | Visualisasi Model 3D (usulan) | Mode Model 3D di halaman estimasi (Ctrl+3): putar/geser/zoom, pandangan cepat, saringan lantai, tampilan lengkap / tembus pandang / struktur saja, warna jenis / biaya, cari elemen, Kembali ke RAB (Esc) | `test_penampil3d.py` | Sesuai |
+| KF-21 | Biaya per elemen & ganti bahan dari 3D (usulan) | Klik elemen → biaya elemen + pedestal, fondasi, sloof, pekerjaan tanah (per tahap / per bagian); combo bahan per elemen; tersimpan otomatis, urungkan/ulangi bersama tabel, sinkron dua arah dengan tabel RAB dan Export; elemen "termasuk pekerjaan lain" menampilkan pekerjaan pencakupnya | `test_penampil3d.py`, `test_elemen_lain.py` | Sesuai |
+| KF-22 | Besi beton 3D (usulan) | Mode "Besi beton (pembesian)": IfcReinforcingBar per elemen induk di dalam beton tembus pandang; klik besi → pembesian elemen induk; model tanpa besi → pesan | `test_penampil3d.py` | Sesuai |
+| KF-23 | Pilihan jenis fondasi kolom & perbandingan (usulan) | Parameter Aturan: sesuai model / footplate / cakar ayam Sedijatmo tanpa mengubah model; sheet PERBANDINGAN_FONDASI di Export Excel (`docs/Fondasi-Pilihan.md`) | `test_fondasi_pilihan.py` | Sesuai |
 
 ## Kebutuhan non-fungsional
 
@@ -43,8 +48,10 @@ RAB (cladding, kisi, lisplang, nok, talang, ...) di `docs/Elemen-Lain.md`.
 | KNF-5 | Indikator proses | Dialog progres "Memproses file IFC" dengan i/n elemen (termasuk tahap geometri paralel); splash dengan progress bar dan tahap pemuatan | `test_ui_modern.py` (splash) | Sesuai |
 | KNF-6 | Bahasa Indonesia baku | Seluruh teks UI, pesan galat, dan tombol bawaan Qt (OK/Batal/Ya/Tidak, menu klik kanan) berbahasa Indonesia | `test_knf8_kf14_kf15.py` | Sesuai (lihat catatan 1) |
 | KNF-7 | Windows 11 64-bit, luring | Tidak ada akses jaringan di kode; data disimpan di `%APPDATA%\CostStruct`; gaya Qt Fusion, ikon taskbar, dan title bar gelap Windows. Seluruh tes lulus di Windows (CI `windows-latest`) | `.github/workflows/windows.yml`, `test_knf8_kf14_kf15.py` | Sesuai di Windows Server 2025 (CI); uji akhir di Windows 11 penelitian (catatan 2) |
-| KNF-8 | Paket .exe mandiri | `CostStruct.spec` + `tools/build_exe.py`. Uji mandiri `CostStruct.exe` 6 tahap: database, validasi IFC di proses anak, parsing & rule engine, export Excel/PDF, file proyek, dan jendela utama Qt (gaya Fusion) | `.github/workflows/windows.yml`, `test_knf8_kf14_kf15.py` | Sesuai: `CostStruct.exe` dibuild & lulus uji mandiri di Windows (CI) |
+| KNF-8 | Paket .exe mandiri | `CostStruct.spec` + `tools/build_exe.py`. Uji mandiri `CostStruct.exe` 7 tahap: database, validasi IFC di proses anak, parsing & rule engine, export Excel/PDF, file proyek, jendela utama Qt (gaya Fusion), dan Model 3D (model benar-benar tergambar) | `.github/workflows/windows.yml`, `test_knf8_kf14_kf15.py` | Sesuai: `CostStruct.exe` dibuild & lulus uji mandiri di Windows (CI) |
 | KNF-9 | Integritas database SQLite | Setiap proses tulis dalam satu transaksi; `PRAGMA synchronous=FULL`; `quick_check` saat aplikasi dibuka; cadangan harian. Diuji dengan `kill -9` saat menulis, 5 kali: database tetap `ok` dan hasil estimasi lengkap | `test_knf_kinerja_integritas.py`, `test_knf8_kf14_kf15.py` | Sesuai |
+| KNF-10 | Model 3D ≤ 15 detik, besi beton ≤ 15 detik (usulan) | Geometri dibaca paralel; dibuka ulang tanpa membaca IFC lagi; jendela progres. Hasil ukur di tabel di bawah | `uji_mandiri.py` tahap 7, pengukuran manual | Sesuai untuk rumah tinggal tipikal; file sintetis 50 MB dengan perabot bermesh padat **belum** (± 110 s, catatan 4) |
+| KNF-11 | Grafis terintegrasi & ketahanan penampil 3D (usulan) | Direct3D 11 di Windows; bila API grafis 3D tidak tersedia, pesan tampil dan panel biaya tetap dapat dipakai lewat pencarian; file IFC hilang → pesan tanpa crash | `test_penampil3d.py` (`test_grafis_3d_tidak_tersedia_...`, `test_file_ifc_hilang_...`), uji mandiri tahap 7 di CI Windows | Sesuai |
 
 ### Hasil ukur KNF-1 / KNF-2
 
@@ -65,13 +72,24 @@ Hasil ukur yang sama di **Windows** (CI GitHub Actions, Windows Server 2025, 4 i
 | Duplex_A_20110907.ifc | 2,4 MB | 1,6 s | 0,06 s |
 | SampleStructuralModel.ifc | 6,1 MB | 6,0 s | 0,08 s |
 
-Di runner yang sama, `CostStruct.exe` dibuild dalam 99 s (folder 246 MB) dan uji mandirinya lulus keenam tahap.
+Di runner yang sama, `CostStruct.exe` dibuild (folder ±272 MB) dan uji mandirinya lulus ketujuh tahap, termasuk Model 3D.
 
 Sebelum geometri dihitung paralel, parsing SampleStructuralModel memakan 12,4 s. Sekarang 4,4 s, dengan hasil
 dimensi yang identik.
 
 Untuk BAB IV, jalankan ulang alat ukur di laptop Windows 11 yang dipakai penelitian. Alat ini menyimpan
 hasilnya ke `hasil_kinerja.csv`.
+
+### Hasil ukur KNF-10 (Model 3D)
+
+Waktu `model3d.muat_model3d` dan `model3d.muat_besi` (4 inti CPU, Linux, Python 3.13):
+
+| File | Ukuran | Elemen 3D | Segitiga | Model 3D | Besi beton | Memuat besi |
+|---|---|---|---|---|---|---|
+| Tipe 120 1 lantai | 10,9 MB | 360 | 11.456 | 2,05 s | 3.099 batang | 3,71 s |
+| Tipe 120 2 lantai courtyard | 16,8 MB | 569 | 31.792 | 3,46 s | 4.803 batang | 5,35 s |
+| Tipe 120 3 lantai modern tropis | 19,0 MB | 571 | 19.588 | 3,01 s | 5.740 batang | 6,46 s |
+| rumah_50mb.ifc (sintetis) | 53,4 MB | 475 | 1.203.921 | 109,93 s | — | — |
 
 ## Catatan
 
@@ -95,3 +113,4 @@ hasilnya ke `hasil_kinerja.csv`.
    mencantumkan KF-9 (seharusnya KF-8), UC-06 Simpan dan Buka Proyek mencantumkan KF-8 dan KF-10 (seharusnya KF-7),
    dan UC-07 Kelola User Preference mencantumkan KF-11 (seharusnya KF-10). Kode dan dokumen ini mengikuti
    Tabel 3.1.
+4. **KNF-10 pada model bermesh padat.** File sintetis 50 MB berisi 100 perabot dengan 1,2 juta segitiga (±61 kali model 3 lantai). Parsing dan RAB-nya tetap memenuhi KNF-1/KNF-2, tetapi Model 3D-nya ±110 s. Penyederhanaan geometri elemen non-RAB (mis. perabot) dicatat sebagai pengembangan lanjutan.

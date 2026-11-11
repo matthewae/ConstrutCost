@@ -140,7 +140,7 @@ tampilan kembali ke pilihan sebelumnya.
 
 ## Pengujian
 
-`tests/test_penampil3d.py` (18 tes) memakai model IFC buatan. Isinya: kolom = pedestal + kolom di atas footplate
+`tests/test_penampil3d.py` (19 tes) memakai model IFC buatan. Isinya: kolom = pedestal + kolom di atas footplate
 dan lantai kerja, dinding di atas sloof, dan perabot. Yang diuji:
 
 - **Geometri:** lantai, koordinat dunia vs koordinat tampilan, dan penghapusan segitiga tanpa luas.
@@ -159,6 +159,7 @@ dan lantai kerja, dinding di atas sloof, dan perabot. Yang diuji:
   - Kembali ke RAB, Esc dua tahap, tombol Urungkan / Ulangi, dan Lihat di Tabel RAB;
   - **sinkron dua arah**: ganti bahan di 3D → tabel RAB dan file Excel hasil Export memuat bahan baru; edit volume di
     tabel → panel 3D memuat volume baru.
-- **File hilang:** pesan file IFC tidak ditemukan.
+- **File hilang / grafis tidak tersedia:** pesan file IFC tidak ditemukan; bila API grafis 3D tidak tersedia, pesan
+  tampil dan panel biaya tetap dapat dipakai lewat pencarian.
 - **Besi beton:** tabung segi-6, besi dikelompokkan per elemen induk, mode besi (beton tembus pandang, klik besi →
   pembesian elemen induk), dan model tanpa besi (pesan, tampilan kembali).

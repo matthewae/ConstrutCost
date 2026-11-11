@@ -435,6 +435,27 @@ def test_file_ifc_hilang_memberi_pesan(qapp, db_sementara, monkeypatch):
     assert "tidak ditemukan" in pesan[0]
 
 
+def test_grafis_3d_tidak_tersedia_memberi_pesan_dan_panel_tetap_jalan(qapp, proyek, monkeypatch):
+    """KNF-11: bila Qt Quick tidak memakai API grafis 3D (driver tanpa Direct3D 11 / OpenGL 3.3), jendela 3D
+    menampilkan pesan, tidak berhenti, dan panel biaya tetap dapat dipakai lewat pencarian."""
+    from gui.penampil3d import Penampil3D
+
+    pid, _path, m = proyek
+    monkeypatch.setattr(Penampil3D, "render_3d_aktif", lambda self: False)
+    d = Penampil3D(pid, "Uji 3D", m)
+    try:
+        d._cek_render()
+        assert d._label_galat is not None and "tidak dapat digambar" in d._label_galat.text()
+        d._cek_render()  # dipanggil lagi (mis. jendela ditampilkan ulang): pesan tidak bertumpuk
+        assert sum(1 for c in d.quick.children() if c is d._label_galat) == 1
+        d.cari.setText("Kolom K1")
+        d._cari_enter()
+        assert d._pilih and d.panel.stack.currentIndex() == 1 and d.panel._data["total"] > 0
+    finally:
+        d.close()
+        d.deleteLater()
+
+
 # ---------------------------------------------------------------- besi beton 3D
 
 
