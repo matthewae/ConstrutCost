@@ -227,6 +227,17 @@ class MainWindow(QMainWindow):
         self.tampilkan_proyek()
         self.hal_proyek.import_ifc(path)
 
+    def buka_berkas(self, path: str):
+        """File dari Explorer (klik dua kali / Buka dengan, lihat installer) atau diseret ke jendela: file proyek
+        .coststruct dibuka, file lain (.ifc) di-import."""
+        from database.berkas_proyek import EKSTENSI
+
+        if str(path).lower().endswith(EKSTENSI):
+            self.tampilkan_proyek()
+            self.hal_proyek.buka_file(str(path))
+        else:
+            self._ke_proyek_lalu_import(str(path))
+
     # ---------------------------------------------------------------- drag & drop
 
     @staticmethod
@@ -246,7 +257,7 @@ class MainWindow(QMainWindow):
         path = self._path_dari(event)
         if path:
             event.acceptProposedAction()
-            self._ke_proyek_lalu_import(path)
+            self.buka_berkas(path)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

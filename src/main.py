@@ -2,6 +2,8 @@
 Titik masuk CostStruct.
 
     python src/main.py                       aplikasi
+    python src/main.py <file.coststruct|.ifc> aplikasi, lalu buka file proyek / import file IFC itu
+                                             (dipakai asosiasi file installer: klik dua kali di Explorer)
     python src/main.py --uji-mandiri [ifc]   uji mandiri tanpa antarmuka (lihat uji_mandiri.py)
 
 Juga dipakai sebagai skrip utama PyInstaller (CostStruct.spec, KNF-8).
@@ -35,4 +37,5 @@ if __name__ == "__main__":
 
     from gui.splash_screen import main
 
-    main()
+    berkas = next((a for a in sys.argv[1:] if not a.startswith("-") and Path(a).is_file()), None)
+    main(berkas)

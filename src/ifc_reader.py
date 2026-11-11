@@ -269,13 +269,20 @@ class _Pengukur:
         self._bentuk = {}  # entity id -> _Geometri hasil siapkan_geometri (paralel)
         self._mode_cek = False
         self._lain = {}  # entity id -> (teks, jenis) elemen kelas LAINNYA (elemen_lain.py)
+        self.jenis_manual = {}  # GlobalId -> kunci jenis pilihan pengguna (elemen_lain.pilihan_jenis)
 
-    def jenis_lain(self, entity) -> tuple:
-        """(teks, jenis) elemen lain, dihitung sekali per entitas."""
+    def jenis_otomatis(self, entity) -> tuple:
+        """(teks, jenis yang dikenali dari nama/teks) elemen lain, dihitung sekali per entitas."""
         if entity.id() not in self._lain:
             teks = elemen_lain.teks_elemen(entity)
             self._lain[entity.id()] = (teks, elemen_lain.kenali(entity, teks))
         return self._lain[entity.id()]
+
+    def jenis_lain(self, entity) -> tuple:
+        """(teks, jenis yang dipakai): koreksi pengguna (`jenis_manual`, per GlobalId) didahulukan."""
+        teks, jenis = self.jenis_otomatis(entity)
+        manual = self.jenis_manual.get(entity.GlobalId)
+        return teks, (manual.split(":", 1)[0] if manual else jenis)
 
     def angka_pset(self, entity) -> dict:
         """Angka dari Pset non-Qto yang lazim ditulis perencana: panjang, tinggi, tebal, luas waterproofing,
@@ -853,31 +860,38 @@ def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
 
 def _cladding_dan_dinding(model, elemen: list, kotak: dict) -> None:
     """Luas cat dinding yang tertutup cladding: cladding tegak yang menempel pada dinding mengurangi cat sisi
-    luar (cladding luar) atau sisi dalam dinding itu (info_lain dinding: tertutup_luar / tertutup_dalam)."""
-    cladding = [e for e in elemen if (e.get("info_lain") or {}).get("jenis") in elemen_lain.CLADDING and e.get("luas")]
+    luar (cladding luar) atau sisi dalam dinding itu (info_lain dinding: tertutup_luar / tertutup_dalam).
+
+    Kontribusi semua elemen lain berbentuk pelat tipis disimpan per elemen (`tutup`: {gid: [luas, sisi, nama]}),
+    tetapi hanya yang berjenis cladding yang mengurangi cat. Bila pengguna mengoreksi jenis elemen (mis. panel
+    yang terbaca kisi menjadi cladding), luas tertutup dinding dihitung ulang tanpa membaca IFC
+    (`elemen_lain.hitung_tertutup`)."""
+    calon = [e for e in elemen if e["kelas"] == ElementType.LAINNYA.value and e.get("luas") and e.get("info_lain")]
     dinding = {e["global_id"]: e for e in elemen if e["kelas"] == ElementType.WALL.value and e["global_id"] in kotak}
-    if not cladding or not dinding:
+    if not calon or not dinding:
         return
-    gid = {e["global_id"] for e in cladding}
+    gid = {e["global_id"] for e in calon}
     ent = [x for x in model.by_type("IfcElement") if x.GlobalId in gid]
     kotak_c = kotak_dunia(model, ent)
     per = elemen_lain.luas_tertutup_cladding(
-        {e["global_id"]: (kotak_c[e["global_id"]], e["luas"]) for e in cladding if e["global_id"] in kotak_c},
+        {e["global_id"]: (kotak_c[e["global_id"]], e["luas"]) for e in calon if e["global_id"] in kotak_c},
         {g: kotak[g] for g in dinding})
-    nama_c = {e["global_id"]: e for e in cladding}
+    per_gid = {e["global_id"]: e for e in calon}
     for gc, bagian in per.items():
-        c = nama_c[gc]
+        c = per_gid[gc]
         c["info_lain"]["dinding"] = [dinding[gw]["nama"] for gw, _l in bagian]
+        luar_c = (c["info_lain"].get("pset") or {}).get("eksternal", c["info_lain"].get("eksternal"))
         for gw, luas in bagian:
             w = dinding[gw]
-            luar = c["info_lain"].get("eksternal")
-            if luar is None:
-                luar = bool(w.get("eksternal"))
+            luar = luar_c if luar_c is not None else bool(w.get("eksternal"))
             sisi = "tertutup_luar" if luar and w.get("eksternal") else "tertutup_dalam"
             info = w.get("info_lain") or {}
-            info[sisi] = round(info.get(sisi, 0.0) + luas, 4)
-            info.setdefault("cladding", []).append(c["nama"])
+            info.setdefault("tutup", {})[gc] = [round(luas, 4), sisi, c.get("nama")]
             w["info_lain"] = info
+    aktif = {e["global_id"] for e in calon if elemen_lain.jenis_tertutup(e["info_lain"])}
+    for w in dinding.values():
+        if (w.get("info_lain") or {}).get("tutup"):
+            w["info_lain"] = elemen_lain.hitung_tertutup(w["info_lain"], aktif)
 
 
 def _dinding_luar(entity) -> bool | None:
@@ -963,12 +977,15 @@ def baca_tulangan(model, s_panjang: float):
     return per_host, (lepas_n, lepas_berat)
 
 
-def ekstrak_elemen(model, progress=None):
+def ekstrak_elemen(model, progress=None, jenis_manual: dict | None = None):
     """
     Return (elemen, peringatan). `progress(i, n, teks)` dipanggil per elemen bila diberikan.
     Nilai yang gagal dibaca dibiarkan None; rule engine yang memutuskan item mana dilewati.
+    `jenis_manual`: {GlobalId: kunci jenis} koreksi jenis elemen lain oleh pengguna (dipakai lagi saat IFC dibaca
+    ulang).
     """
     p = _Pengukur(model)
+    p.jenis_manual = dict(jenis_manual or {})
     kandidat = list(kumpulkan_elemen(model))
     n = len(kandidat)
     elemen, peringatan = [], []
@@ -1012,10 +1029,12 @@ def ekstrak_elemen(model, progress=None):
 
         info_lain = None
         if kelas == ElementType.LAINNYA:
-            teks, jenis = p.jenis_lain(entity)
+            teks, jenis = p.jenis_otomatis(entity)
             info_lain = elemen_lain.info(entity, teks, jenis, p.angka_pset(entity))
             if d.nilai.get("tapak"):
                 info_lain["tapak"] = d.nilai["tapak"]
+            if p.jenis_manual.get(entity.GlobalId):
+                info_lain = elemen_lain.ganti_jenis(info_lain, p.jenis_manual[entity.GlobalId])
         elif kelas in (ElementType.COLUMN, ElementType.BEAM, ElementType.SLAB, ElementType.ROOF, ElementType.STAIR):
             try:  # bahan untuk elemen yang bukan beton bertulang (baja per kg / kayu per m³)
                 bahan = [m.Name for m in element_util.get_materials(entity) or [] if getattr(m, "Name", None)]

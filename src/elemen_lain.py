@@ -263,9 +263,33 @@ def tebal_dari_teks(t: str) -> float | None:
     return v if 0.02 <= v <= 1.0 else None
 
 
+def _nama_tipe(entity) -> str:
+    nama = re.sub(r":\d+$", "", (getattr(entity, "Name", None) or "").strip())
+    try:
+        import ifcopenshell.util.element as ue
+
+        tipe = ue.get_type(entity)
+        nama = (tipe.Name if tipe is not None and tipe.Name else None) or nama
+    except Exception:
+        pass
+    return (nama or entity.is_a())[:80]
+
+
+_KUNCI_PSET = ("tebal", "luas_waterproofing", "volume_galian", "eksternal")
+
+
 def info(entity, teks: str, jenis: str, pset_angka: dict) -> dict:
-    """Keterangan elemen lain yang disimpan bersama elemen (kolom info_lain, JSON)."""
-    d = {"jenis": jenis, "label": LABEL_JENIS.get(jenis, jenis), "ifc": entity.is_a(), "teks": teks[:300]}
+    """Keterangan elemen lain yang disimpan bersama elemen (kolom info_lain, JSON). Teks, nama tipe, dan angka Pset
+    ikut disimpan agar jenis elemen dapat dikoreksi pengguna tanpa membaca file IFC lagi (`ganti_jenis`)."""
+    pset = {k: pset_angka[k] for k in _KUNCI_PSET if pset_angka.get(k) is not None}
+    return susun_info(jenis, entity.is_a(), teks, _nama_tipe(entity), pset)
+
+
+def susun_info(jenis: str, ifc: str, teks: str, nama_tipe: str | None, pset: dict) -> dict:
+    """Isi info_lain untuk satu jenis dari data elemen yang sudah dibaca (teks, nama tipe, angka Pset)."""
+    pset_angka = pset or {}
+    d = {"jenis": jenis, "label": LABEL_JENIS.get(jenis, jenis), "ifc": ifc, "teks": (teks or "")[:300],
+         "nama_tipe": nama_tipe or ifc, "pset": dict(pset_angka)}
     if jenis in CLADDING + ("kisi", "roster"):
         d["rangka"] = bool(POLA_RANGKA.search(teks))
     if jenis in ("roster", "beton_lansekap"):
@@ -286,20 +310,100 @@ def info(entity, teks: str, jenis: str, pset_angka: dict) -> dict:
             if pset_angka.get(k):
                 d[k] = pset_angka[k]
     if jenis == "sanitair":
-        s = sanitair(teks)
+        s = sanitair(teks or "")
         d["kode"], d["nama_sanitair"] = s if s else (None, None)
-    if jenis in ("lain", "rangka_baja", "rangka_kayu"):
-        nama = re.sub(r":\d+$", "", (getattr(entity, "Name", None) or "").strip())
-        try:
-            import ifcopenshell.util.element as ue
-
-            tipe = ue.get_type(entity)
-            nama = (tipe.Name if tipe is not None and tipe.Name else None) or nama
-        except Exception:
-            pass
-        d["nama_tipe"] = (nama or entity.is_a())[:80]
     if jenis in CLADDING:
         d["eksternal"] = pset_angka.get("eksternal")
+    return d
+
+
+# ---------------------------------------------------------------- koreksi jenis oleh pengguna
+
+TIDAK_DIHITUNG = "tidak_dihitung"
+LABEL_JENIS[TIDAK_DIHITUNG] = "Tidak dihitung (termasuk pekerjaan lain / di luar lingkup RAB)"
+_SANITAIR_NAMA = {kode: nama for _pola, kode, nama in SANITAIR}
+
+
+def pilihan_jenis() -> list:
+    """[(kunci, label)] pilihan jenis elemen lain untuk dikoreksi pengguna. Sanitair dipilih per jenis alat
+    ("sanitair:SNT.WASTAFEL"), karena satu jenis sanitair = satu analisa HSPK."""
+    hasil = []
+    for k, label in LABEL_JENIS.items():
+        if k == "sanitair":
+            hasil += [(f"sanitair:{kode}", f"Sanitair: {nama}") for kode, nama in _SANITAIR_NAMA.items()]
+        elif k != TIDAK_DIHITUNG:
+            hasil.append((k, label))
+    hasil.append((TIDAK_DIHITUNG, LABEL_JENIS[TIDAK_DIHITUNG]))
+    return hasil
+
+
+def kunci_pilihan(i: dict | None) -> str | None:
+    """Kunci pilihan_jenis() yang sesuai info_lain elemen (sanitair memakai kode alatnya)."""
+    i = i or {}
+    jenis = i.get("jenis")
+    if jenis == "sanitair" and i.get("kode"):
+        return f"sanitair:{i['kode']}"
+    return jenis
+
+
+def label_pilihan(kunci: str | None) -> str:
+    if kunci and kunci.startswith("sanitair:"):
+        return f"Sanitair: {_SANITAIR_NAMA.get(kunci.split(':', 1)[1], kunci.split(':', 1)[1])}"
+    return LABEL_JENIS.get(kunci or "", kunci or "-")
+
+
+def ganti_jenis(i: dict | None, pilihan: str | None, nama: str | None = None) -> dict:
+    """info_lain baru setelah pengguna mengoreksi jenis elemen. `pilihan` = kunci pilihan_jenis(), atau None untuk
+    kembali ke jenis yang dikenali otomatis. Teks, nama tipe, angka Pset, dan tapak yang tersimpan dipakai lagi,
+    jadi file IFC tidak perlu dibaca ulang. Jenis otomatis disimpan di `jenis_otomatis`; `manual` = pilihan
+    pengguna (dipakai lagi saat IFC dibaca ulang, dicocokkan lewat GlobalId)."""
+    lama = dict(i or {})
+    otomatis = lama.get("jenis_otomatis") or kunci_pilihan(lama) or "lain"
+    kunci = pilihan or otomatis
+    jenis, kode = (kunci.split(":", 1) + [None])[:2] if kunci.startswith("sanitair:") else (kunci, None)
+    pset = dict(lama.get("pset") or {})
+    for k in _KUNCI_PSET:  # info_lain versi lama: angka Pset tersimpan langsung di info
+        if k not in pset and lama.get(k) is not None:
+            pset[k] = lama[k]
+    d = susun_info(jenis, lama.get("ifc") or "IfcElement", lama.get("teks") or "",
+                   lama.get("nama_tipe") or nama, pset)
+    if kode:
+        d["kode"], d["nama_sanitair"] = kode, _SANITAIR_NAMA.get(kode, kode)
+    for k in ("tapak", "dinding"):
+        if lama.get(k) is not None:
+            d[k] = lama[k]
+    if kunci != otomatis:
+        d["jenis_otomatis"], d["manual"] = otomatis, kunci
+    return d
+
+
+def jenis_tertutup(i: dict | None) -> bool:
+    """Elemen ini menutup muka dinding sebagai cladding (bidang di baliknya tidak dicat)."""
+    return (i or {}).get("jenis") in CLADDING
+
+
+def hitung_tertutup(info_dinding: dict, cladding_aktif: set) -> dict:
+    """Ulangi luas tertutup dinding dari kontribusi tiap elemen pelapis (`tutup`: {gid: [luas, sisi]}), hanya
+    untuk elemen yang saat ini berjenis cladding. Dipakai setelah jenis elemen dikoreksi."""
+    d = dict(info_dinding or {})
+    tutup = d.get("tutup") or {}
+    if not tutup:
+        return d
+    jumlah = {"tertutup_luar": 0.0, "tertutup_dalam": 0.0}
+    nama = []
+    for gid, (luas, sisi, *n) in tutup.items():
+        if gid in cladding_aktif:
+            jumlah[sisi] += luas
+            nama += [x for x in n[:1] if x]
+    for k, v in jumlah.items():
+        if v > 0:
+            d[k] = round(v, 4)
+        else:
+            d.pop(k, None)
+    if nama:
+        d["cladding"] = list(dict.fromkeys(nama))
+    else:
+        d.pop("cladding", None)
     return d
 
 

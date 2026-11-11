@@ -263,8 +263,8 @@ class ProyekPage(QWidget):
 
     # ---------------------------------------------------------------- KF-7 / KF-9
 
-    def buka_file(self):
-        hasil = buka_file_proyek(self)
+    def buka_file(self, path: str | None = None):
+        hasil = buka_file_proyek(self, path)
         if hasil:
             self.muat()
             tema.toast(self, f'Proyek "{hasil[1]}" dibuka')

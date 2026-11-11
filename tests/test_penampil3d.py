@@ -375,6 +375,91 @@ def test_mode_3d_di_halaman_estimasi_kembali_dan_urungkan(qapp, proyek):
         hal.deleteLater()
 
 
+def test_ubah_jenis_elemen_dari_3d_dan_dialog_tabel_dengan_urungkan(qapp, proyek, monkeypatch):
+    """Koreksi jenis elemen lain: combo di panel Model 3D, dialog Koreksi Jenis Elemen Lain dari tabel RAB, dan
+    tombol Ubah Jenis di panel Rincian; semuanya masuk riwayat urungkan yang sama."""
+    from PySide6.QtWidgets import QComboBox
+
+    from database.biaya_repository import ringkasan_biaya
+    from database.estimasi_repository import get_hasil_estimasi_by_proyek
+    from gui.estimasi_page import EstimasiPage
+    from gui.jenis_dialog import JenisElemenDialog
+
+    pid, _path, m = proyek
+    hal = EstimasiPage(pid, "Uji 3D")
+    w = _jendela(hal)
+    try:
+        hal._buka_3d()
+        d = hal._dialog_3d
+        meja = next(e.gid for e in m.elemen if e.nama == "Meja Kerja")
+        d.pilih(meja)
+        assert d.panel._data["jenis"] == {"elemen_id": d._peta[meja]["id"], "kunci": "lain", "otomatis": "lain",
+                                          "manual": False}
+        combo = [c for c in d.panel.findChildren(QComboBox) if c.findData("tidak_dihitung") >= 0]
+        assert len(combo) == 1 and combo[0].currentData() == "lain"
+        lama = ringkasan_biaya(pid)["langsung"]
+        eid = d._peta[meja]["id"]
+        d._ubah_jenis(eid, "sanitair:SNT.WASTAFEL", "Meja Kerja")  # sama dengan memilih di combo
+        assert hal.riwayat.count() == 1 and "Ubah jenis" in d.btn_urungkan.toolTip()
+        assert ringkasan_biaya(pid)["langsung"] > lama  # wastafel punya harga HSPK, perabot harga 0
+        assert d.panel._data["jenis"]["kunci"] == "sanitair:SNT.WASTAFEL" and d.panel._data["jenis"]["manual"]
+        assert [r["kode"] for b in d.panel._data["bagian"] for r in b["baris"]] == ["SNT.WASTAFEL"]
+        d._ubah_jenis(eid, "tidak_dihitung", "Meja Kerja")
+        assert d.panel.stack.currentIndex() == 1 and d.panel._data is None  # panel "Tidak dihitung" + combo jenis
+        assert any(c.findData("tidak_dihitung") >= 0 and c.currentData() == "tidak_dihitung"
+                   for c in d.panel.findChildren(QComboBox))
+        d.btn_urungkan.click()
+        d.btn_urungkan.click()
+        assert ringkasan_biaya(pid)["langsung"] == pytest.approx(lama)
+        d.btn_kembali.click()
+
+        # dialog dari tabel RAB (menu Proyek / tombol Ubah Jenis Elemen di panel Rincian)
+        dibuka = {}
+
+        def jalankan(self):
+            dibuka["pilih"] = self.tabel.currentRow()
+            cb = self._combo[eid]
+            cb.setCurrentIndex(cb.findData("tidak_dihitung"))
+            assert self.perubahan == {eid: "tidak_dihitung"} and self.btn_simpan.isEnabled()
+            return JenisElemenDialog.Accepted
+        monkeypatch.setattr(JenisElemenDialog, "exec", jalankan)
+        hal.panel.minta_jenis_elemen.emit(eid)
+        assert dibuka["pilih"] >= 0  # baris elemen itu langsung disorot
+        assert not any(r["elemen_id"] == eid for r in map(dict, get_hasil_estimasi_by_proyek(pid)))
+        assert hal.riwayat.count() >= 1
+        hal.riwayat.undo()
+        assert any(r["elemen_id"] == eid for r in map(dict, get_hasil_estimasi_by_proyek(pid)))
+        assert ringkasan_biaya(pid)["langsung"] == pytest.approx(lama)
+    finally:
+        w.close()
+        hal.deleteLater()
+
+
+def test_dialog_jenis_elemen_daftar_saring_dan_kembali_otomatis(qapp, proyek):
+    from estimasi_service import ubah_jenis_elemen
+    from gui.jenis_dialog import JenisElemenDialog
+
+    pid, _path, _m = proyek
+    d0 = JenisElemenDialog(pid)
+    meja = next(x for x in d0._data if x["nama"] == "Meja Kerja")
+    assert not d0.btn_simpan.isEnabled() and not d0.btn_otomatis.isEnabled()
+    d0.deleteLater()
+    ubah_jenis_elemen(pid, {meja["id"]: "tidak_dihitung"})
+    d = JenisElemenDialog(pid, pilih=meja["id"])
+    try:
+        x = next(x for x in d._data if x["id"] == meja["id"])
+        assert x["manual"] and x["jenis"] == "tidak_dihitung" and x["baris"] == 0
+        assert "1 dikoreksi" in d.label_jumlah.text() and d.btn_otomatis.isEnabled()
+        d.cari.setText("tidak ada yang cocok")
+        assert all(d.tabel.isRowHidden(i) for i in range(d.tabel.rowCount()))
+        d.cari.setText("meja")
+        assert sum(not d.tabel.isRowHidden(i) for i in range(d.tabel.rowCount())) == 1
+        d._semua_otomatis()
+        assert d.perubahan == {meja["id"]: None} and d.btn_simpan.isEnabled()
+    finally:
+        d.deleteLater()
+
+
 def test_perubahan_dua_arah_antara_mode_3d_tabel_dan_export(qapp, proyek, tmp_path):
     """Perubahan di mode 3D ikut ke tabel RAB dan export; perubahan di tabel ikut terlihat di mode 3D."""
     from database.biaya_repository import ringkasan_biaya

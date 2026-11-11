@@ -51,6 +51,8 @@ Kode program:
      Fondasi Rp 1,70 jt · Pekerjaan tanah Rp 117.347*;
    - **pilihan bahan elemen ini** (combo box). Setiap pilihan menampilkan biayanya untuk elemen itu dan selisihnya
      terhadap pilihan sekarang;
+   - untuk elemen lain (cladding, kisi, talang, sanitair, perabot, ...): **jenis elemen** (combo box) untuk
+     mengoreksi jenis yang dikenali dari nama model, atau memilih *Tidak dihitung* (`docs/Elemen-Lain.md`);
    - daftar pekerjaan dalam dua tampilan: **Urutan pekerjaan** (per tahap: tanah → fondasi → beton → dinding →
      plesteran → cat) dan **Per bagian** (elemen ini, pedestal, fondasi, pekerjaan tanah). Setiap baris berisi
      volume × harga satuan = jumlah; rumus volume muncul di tooltip.
@@ -140,7 +142,7 @@ tampilan kembali ke pilihan sebelumnya.
 
 ## Pengujian
 
-`tests/test_penampil3d.py` (19 tes) memakai model IFC buatan. Isinya: kolom = pedestal + kolom di atas footplate
+`tests/test_penampil3d.py` (21 tes) memakai model IFC buatan. Isinya: kolom = pedestal + kolom di atas footplate
 dan lantai kerja, dinding di atas sloof, dan perabot. Yang diuji:
 
 - **Geometri:** lantai, koordinat dunia vs koordinat tampilan, dan penghapusan segitiga tanpa luas.
@@ -154,7 +156,8 @@ dan lantai kerja, dinding di atas sloof, dan perabot. Yang diuji:
   - warna pilih dan terkait;
   - saringan lantai, struktur saja, dan tembus pandang (klik menembus); saringan lantai juga berlaku untuk rangka
     atap di mode Struktur saja;
-  - pencarian dan ganti bahan.
+  - pencarian dan ganti bahan;
+  - koreksi jenis elemen lain dari panel 3D dan dari dialog Koreksi Jenis Elemen Lain, keduanya dapat diurungkan.
 - **Mode 3D di halaman estimasi:**
   - Kembali ke RAB, Esc dua tahap, tombol Urungkan / Ulangi, dan Lihat di Tabel RAB;
   - **sinkron dua arah**: ganti bahan di 3D → tabel RAB dan file Excel hasil Export memuat bahan baru; edit volume di

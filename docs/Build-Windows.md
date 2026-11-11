@@ -52,7 +52,36 @@ penampil Model 3D (Qt Quick 3D, termasuk pemeriksaan bahwa model benar-benar ter
 Laporannya ada di `build\uji_mandiri\uji_mandiri.txt`.
 
 Folder `dist\CostStruct` berisi aplikasi lengkap. Seluruh folder bisa disalin atau di-zip ke komputer lain
-tanpa memasang Python.
+tanpa memasang Python. Untuk dibagikan ke pengguna, lebih rapi memakai installer (bagian berikut).
+
+## Installer (CostStruct-Setup.exe)
+
+Installer dibuat dengan **Inno Setup 6** (gratis, https://jrsoftware.org/isdl.php) dari folder `dist\CostStruct`:
+
+```powershell
+python tools\build_exe.py              # 1. build aplikasi (wajib lebih dulu)
+python tools\build_installer.py        # 2. dist\installer\CostStruct-Setup-<versi>.exe
+python tools\build_installer.py --uji  # 2 + uji: pasang diam-diam, uji mandiri, cek asosiasi file, copot
+```
+
+Isi installer (`installer\CostStruct.iss`, teks bahasa Indonesia di `installer\Indonesian.isl`):
+
+| Fitur | Keterangan |
+|---|---|
+| Tanpa hak administrator | Bawaan dipasang untuk pengguna ini di `%LOCALAPPDATA%\Programs\CostStruct`; dialog menawarkan pasang untuk semua pengguna (Program Files) |
+| Shortcut | Start Menu; shortcut desktop opsional |
+| Asosiasi file | File proyek `.coststruct` dibuka dengan klik dua kali; CostStruct ditambahkan ke **Buka dengan** untuk file `.ifc` (aplikasi bawaan `.ifc` tidak diganti). Keduanya dapat dimatikan saat instalasi |
+| Pembaruan | Versi baru memperbarui instalasi lama (AppId tetap), data tidak hilang |
+| Copot | Lewat **Settings → Apps** atau Start Menu. Data pengguna di `%APPDATA%\CostStruct` (database proyek, harga, log, cadangan) **tidak dihapus**, sehingga proyek tetap ada bila dipasang ulang |
+
+Versi installer diambil otomatis dari `VERSI_APLIKASI` di `src\gui\main_window.py`. Di CI, installer dibangun
+dan diuji pada setiap push: dipasang diam-diam, uji mandiri dijalankan dari folder instalasi, asosiasi
+`.coststruct` diperiksa, lalu dicopot dan diperiksa bersih. Unduh dari **Actions → run terbaru → Artifacts →
+CostStruct-Setup**.
+
+Installer belum ditandatangani digital, jadi Windows SmartScreen akan memperingatkan saat installer dibuka.
+Klik **More info → Run anyway**. Tanda tangan digital (code signing certificate) dapat ditambahkan nanti tanpa
+mengubah installer.
 
 ## Pesan yang mungkin muncul
 
@@ -68,4 +97,5 @@ tanpa memasang Python.
 
 - **Klik dua kali** `tools\build_exe.bat`. Skrip ini memasang paket lalu mem-build dengan Python yang ada di PATH.
 - **Unduh hasil build CI.** Setiap push ke PR otomatis di-build di Windows. Unduh dari GitHub
-  **Actions → run terbaru → Artifacts → CostStruct-windows**.
+  **Actions → run terbaru → Artifacts → CostStruct-Setup** (installer) atau **CostStruct-windows** (folder
+  aplikasi).

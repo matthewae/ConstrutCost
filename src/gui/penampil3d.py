@@ -489,6 +489,7 @@ class PanelBiaya3D(QFrame):
 
     minta_bahan = Signal(int, str, str, str)  # elemen_id, slot, kunci, nama elemen
     minta_bahan_lengkap = Signal(int, str)  # elemen_id, nama elemen
+    minta_jenis = Signal(int, object, str)  # elemen_id, kunci jenis (None = otomatis), nama elemen
     minta_tabel = Signal(str)  # nama elemen
     minta_fokus = Signal()
     terkait_diubah = Signal(bool)
@@ -593,8 +594,9 @@ class PanelBiaya3D(QFrame):
         tema.kosongkan_layout(self.lay_konten)
         self.stack.setCurrentIndex(1)
 
-    def tidak_dihitung(self, judul: str, label: str, lantai: str | None, alasan: str):
-        """Elemen yang ada di model tetapi tidak menghasilkan item RAB."""
+    def tidak_dihitung(self, judul: str, label: str, lantai: str | None, alasan: str, jenis: dict | None = None):
+        """Elemen yang ada di model tetapi tidak menghasilkan item RAB. `jenis` (elemen lain): pilihan jenis tetap
+        ditampilkan agar elemen yang dikecualikan pengguna dapat dihitung kembali."""
         self._data = None
         self._mulai()
         self._kepala(label, lantai, judul, "")
@@ -602,6 +604,8 @@ class PanelBiaya3D(QFrame):
         kartu.set_data("Tidak dihitung", "")
         self.lay_konten.addWidget(kartu)
         self.lay_konten.addWidget(tema.label(alasan, "subjudul", wrap=True))
+        if jenis:
+            self._seksi_jenis(jenis["elemen_id"], judul, jenis)
         self.lay_konten.addStretch()
         for b in (self.btn_tabel, self.btn_bahan):
             b.hide()
@@ -670,6 +674,8 @@ class PanelBiaya3D(QFrame):
         if self._pesan:
             self.lay_konten.addWidget(tema.label(self._pesan, "petunjuk", wrap=True))
 
+        if data.get("jenis"):
+            self._seksi_jenis(u["elemen_id"], u["judul"], data["jenis"])
         if data["slot"]:
             self._seksi_bahan(u, data["slot"])
 
@@ -721,6 +727,41 @@ class PanelBiaya3D(QFrame):
             r.setStyleSheet(f"color: {tema.W['teks_redup']}; font-size: 11px; font-weight: 700;")
             baris.addWidget(r)
         self.lay_konten.addLayout(baris)
+
+    def _seksi_jenis(self, elemen_id: int, nama: str, jenis: dict):
+        """Jenis elemen lain yang dikenali dari nama/teks model, dapat dikoreksi pengguna."""
+        from elemen_lain import pilihan_jenis
+
+        self._judul_seksi("Jenis elemen")
+        kartu = QFrame()
+        kartu.setObjectName("seksi3d")
+        lk = QVBoxLayout(kartu)
+        lk.setContentsMargins(12, 10, 12, 10)
+        lk.setSpacing(6)
+        atas = QHBoxLayout()
+        atas.addWidget(tema.label("<b>Dikenali dari nama & keterangan model</b>", wrap=True), stretch=1)
+        atas.addWidget(tema.chip("dikoreksi pengguna" if jenis["manual"] else "otomatis",
+                                 "peringatan" if jenis["manual"] else "netral"))
+        lk.addLayout(atas)
+        cb = QComboBox()
+        cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        cb.setMinimumContentsLength(12)
+        cb.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        cb.view().setMinimumWidth(420)
+        cb.setFocusPolicy(Qt.StrongFocus)
+        cb.wheelEvent = lambda e: e.ignore()
+        for kunci, label in pilihan_jenis():
+            cb.addItem(label + ("  (otomatis)" if kunci == jenis["otomatis"] else ""), kunci)
+        cb.setCurrentIndex(max(0, cb.findData(jenis["kunci"])))
+        cb.currentIndexChanged.connect(
+            lambda _i, c=cb: self._tunda(self.minta_jenis.emit, elemen_id,
+                                         None if c.currentData() == jenis["otomatis"] else c.currentData(), nama))
+        cb.setToolTip("Bila penamaan model tidak lazim, pilih jenis yang benar. Kuantitas dihitung ulang tanpa membaca "
+                      "file IFC, dapat diurungkan (Ctrl+Z), dan tetap berlaku saat IFC dibaca ulang.")
+        lk.addWidget(cb)
+        lk.addWidget(tema.label("Pilih \"Tidak dihitung\" bila elemen ini sudah termasuk pekerjaan lain atau di luar "
+                                "lingkup RAB.", "petunjuk", wrap=True))
+        self.lay_konten.addWidget(kartu)
 
     def _seksi_bahan(self, u: dict, slot: dict):
         self._judul_seksi("Pilihan bahan elemen ini")
@@ -1039,6 +1080,7 @@ class Penampil3D(QWidget):
         self.panel = PanelBiaya3D()
         self.panel.minta_bahan.connect(self._ganti_bahan)
         self.panel.minta_bahan_lengkap.connect(self._bahan_lengkap)
+        self.panel.minta_jenis.connect(self._ubah_jenis)
         self.panel.minta_tabel.connect(self._lihat_tabel)
         self.panel.minta_fokus.connect(lambda: self._pilih and self.fokus(self._pilih))
         self.panel.terkait_diubah.connect(self._atur_terkait)
@@ -1187,9 +1229,11 @@ class Penampil3D(QWidget):
                                         data)
                     return
             self.panel.tidak_dihitung(
-                (info or {}).get("nama") or e.nama, label_kelas(info, e.ifc), e.lantai, self._alasan(info, e))
+                (info or {}).get("nama") or e.nama, label_kelas(info, e.ifc), e.lantai, self._alasan(info, e),
+                self._info_jenis(info))
             return
         data = rincian(self.proyek_id, gid, self._kotak, self._termasuk_terkait, self._peta)
+        data["jenis"] = self._info_jenis(info)
         self._terkait = set(data["terkait"]) if self._termasuk_terkait else set()
         pesan = ""
         if self._pilih_besi and self._besi and self._pilih_besi in self._besi:
@@ -1199,6 +1243,18 @@ class Penampil3D(QWidget):
             pesan = ("Kolom ini tersusun dari beberapa objek IFC (mis. pedestal + kolom) dan dihitung sebagai satu "
                      "kolom fisik.")
         self.panel.tampilkan(data, self._opsi_harga(), self._termasuk_terkait, pesan)
+
+    @staticmethod
+    def _info_jenis(info) -> dict | None:
+        """Jenis elemen lain (kelas LAINNYA) untuk panel: kunci dipakai, otomatis, dan apakah dikoreksi pengguna."""
+        if not info or info.get("kelas") != "LAINNYA":
+            return None
+        from elemen_lain import kunci_pilihan
+
+        i = info.get("info_lain") or {}
+        kunci = kunci_pilihan(i)
+        return {"elemen_id": info["id"], "kunci": kunci, "otomatis": i.get("jenis_otomatis") or kunci,
+                "manual": bool(i.get("manual"))}
 
     @staticmethod
     def _alasan(info, e) -> str:
@@ -1212,6 +1268,9 @@ class Penampil3D(QWidget):
         if info["kelas"] == "SLAB":
             return ("Pelat ini lapisan finishing (penutup lantai). Penutup lantainya sudah dihitung dari penutup lantai, "
                     "ruang, atau luas pelat struktur, jadi tidak dihitung dua kali.")
+        if info["kelas"] == "LAINNYA" and (info.get("info_lain") or {}).get("jenis") == "tidak_dihitung":
+            return ("Elemen ini dikecualikan dari RAB oleh pengguna (jenis: Tidak dihitung). Pilih jenis lain di bawah "
+                    "untuk menghitungnya kembali.")
         ik = info.get("info_kolom") or {}
         if ik.get("peran") == "duplikat":
             return (f"Objek ganda: menempati tempat yang sama dengan {ik.get('nama_duplikat') or 'kolom lain'}. "
@@ -1454,6 +1513,19 @@ class Penampil3D(QWidget):
             return bool(simpan_material_elemen(elemen_id, {slot: kunci})["berubah"])
 
         self._terapkan(aksi, f"Ganti bahan {nama}: {label}".strip(), f"{SLOT[slot].judul} {nama} → {label}")
+
+    def _ubah_jenis(self, elemen_id: int, kunci, nama: str):
+        from elemen_lain import kunci_pilihan, label_pilihan
+        from estimasi_service import ubah_jenis_elemen
+
+        info = next((x for x in self._peta.values() if x["id"] == elemen_id), {})
+        label = label_pilihan(kunci or (info.get("info_lain") or {}).get("jenis_otomatis")
+                              or kunci_pilihan(info.get("info_lain")))
+
+        def aksi():
+            return bool(ubah_jenis_elemen(self.proyek_id, {elemen_id: kunci})["berubah"])
+
+        self._terapkan(aksi, f"Ubah jenis {nama}: {label}".strip(), f"Jenis {nama} → {label}")
 
     def _bahan_lengkap(self, elemen_id: int, nama: str):
         from gui.material_dialog import MaterialElemenDialog

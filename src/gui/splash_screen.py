@@ -135,9 +135,10 @@ class SplashScreen(QWidget):
 
     MARGIN_BAYANGAN = 24
 
-    def __init__(self):
+    def __init__(self, berkas_awal: str | None = None):
         super().__init__()
         self.dashboard = None  # ditahan sebagai atribut supaya tidak ke-garbage-collect
+        self.berkas_awal = berkas_awal  # file yang dibuka dari Explorer (.coststruct / .ifc), dibuka setelah dashboard
 
         # Jendela transparan supaya sudut membulat dan bayangan tampil mulus
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -330,10 +331,12 @@ class SplashScreen(QWidget):
             pass  # tetap pakai tema bawaan bila preferensi tidak terbaca
         self.dashboard = MainWindow()
         self.dashboard.show()
+        if self.berkas_awal:
+            QTimer.singleShot(300, lambda d=self.dashboard, p=self.berkas_awal: d.buka_berkas(p))
         self.close()
 
 
-def main():
+def main(berkas_awal: str | None = None):
     from aktivitas import siapkan_log
     from gui.galat import pasang_penangkap_galat, pasang_terjemahan
 
@@ -353,7 +356,7 @@ def main():
     except Exception:  # database belum siap / rusak: tema bawaan, galat ditangani tahap pemeriksaan database
         tema.terapkan(app)
     app.setWindowIcon(tema.ikon_aplikasi())
-    splash = SplashScreen()
+    splash = SplashScreen(berkas_awal)
     splash.show()
     sys.exit(app.exec())
 

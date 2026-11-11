@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 from aktivitas import catat
+import elemen_lain
 from database.estimasi_repository import BUK_RATE, _connect
 from database.init_db import pastikan_skema
 from database.material_repository import kode_elemen, kode_proyek
@@ -136,7 +137,18 @@ def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=None)
         if model is None:
             model = buka_dan_validasi(row["path_file_ifc"], terisolasi=True).model
 
-        elemen, peringatan = ekstrak_elemen(model, progress)
+        # koreksi jenis elemen lain oleh pengguna tetap berlaku setelah IFC dibaca ulang (dicocokkan lewat GlobalId)
+        jenis_manual = {}
+        for r in conn.execute("SELECT global_id, info_lain FROM elemen_proyek WHERE proyek_id = ? AND kelas = ? "
+                              "AND info_lain LIKE '%\"manual\"%'", (proyek_id, ElementType.LAINNYA.value)):
+            try:
+                pilihan = (json.loads(r["info_lain"]) or {}).get("manual")
+            except ValueError:
+                pilihan = None
+            if pilihan:
+                jenis_manual[r["global_id"]] = pilihan
+        elemen, peringatan = (ekstrak_elemen(model, progress, jenis_manual=jenis_manual) if jenis_manual
+                              else ekstrak_elemen(model, progress))
         harga, kode_ke_id = _harga_dan_kode(conn, proyek_id)
         # pilihan material khusus elemen tetap berlaku setelah IFC dibaca ulang (dicocokkan lewat GlobalId)
         material_lama = {
@@ -289,6 +301,129 @@ def hitung_ulang_elemen(elemen_id: int, dimensi: dict, parameter=None) -> dict:
         return {"baris": n, "dilewati": dilewati, "berubah": berubah}
     finally:
         conn.close()
+
+
+def ubah_jenis_elemen(proyek_id: int, perubahan: dict, parameter=None) -> dict:
+    """Koreksi jenis elemen lain (kelas LAINNYA) oleh pengguna, mis. panel yang terbaca kisi menjadi cladding,
+    atau perabot yang dikecualikan dari RAB. `perubahan` = {elemen_id: kunci elemen_lain.pilihan_jenis(), atau
+    None untuk kembali ke jenis otomatis}.
+
+    Tanpa membaca file IFC: info elemen disusun ulang dari teks, nama tipe, dan angka Pset yang tersimpan. Yang
+    dihitung ulang hanya elemen yang berubah dan dinding yang tertutup elemen itu (cat di balik cladding). Harga
+    khusus dan catatan dipertahankan; volume yang diedit manual pada dinding terdampak juga dipertahankan,
+    sedangkan baris elemen yang jenisnya berubah dihitung baru. Pilihan disimpan di info_lain (`manual`) dan
+    dipakai lagi saat IFC dibaca ulang. Return {"berubah": [elemen_id], "dinding": n, "baris": n}."""
+    parameter = parameter or muat_parameter(proyek_id)
+    conn = _connect()
+    try:
+        semua = [_baris_ke_elemen(r) for r in conn.execute(
+            "SELECT * FROM elemen_proyek WHERE proyek_id = ? ORDER BY id", (proyek_id,)
+        )]
+        per_id = {e["id"]: e for e in semua}
+        berubah = []
+        for eid, pilihan in perubahan.items():
+            el = per_id.get(int(eid))
+            if el is None or el["kelas"] != ElementType.LAINNYA.value:
+                continue
+            lama_info = el.get("info_lain") or {}
+            baru = elemen_lain.ganti_jenis(lama_info, pilihan, el.get("nama"))
+            if (elemen_lain.kunci_pilihan(baru) == elemen_lain.kunci_pilihan(lama_info)
+                    and baru.get("manual") == lama_info.get("manual")):
+                continue
+            el["info_lain"] = baru
+            berubah.append(el)
+        if not berubah:
+            return {"berubah": [], "dinding": 0, "baris": 0}
+
+        gid_berubah = {e["global_id"] for e in berubah}
+        aktif = {e["global_id"] for e in semua
+                 if e["kelas"] == ElementType.LAINNYA.value and elemen_lain.jenis_tertutup(e.get("info_lain"))}
+        dinding = []
+        for w in semua:
+            tutup = (w.get("info_lain") or {}).get("tutup") or {}
+            if w["kelas"] == ElementType.WALL.value and gid_berubah & set(tutup):
+                w["info_lain"] = elemen_lain.hitung_tertutup(w["info_lain"], aktif)
+                dinding.append(w)
+
+        konteks = siapkan_konteks(semua, parameter)
+        harga, kode_ke_id = _harga_dan_kode(conn, proyek_id)
+        hitung = berubah + dinding
+        ids = tuple(e["id"] for e in hitung)
+        tanda = ", ".join("?" * len(ids))
+        khusus = _simpan_khusus(conn, f"elemen_id IN ({tanda})", ids)
+        manual = _simpan_volume_manual(conn, [w["id"] for w in dinding])
+        conn.execute(f"DELETE FROM hasil_estimasi WHERE elemen_id IN ({tanda})", ids)
+        n, catatan = 0, []
+        for el in hitung:
+            conn.execute("UPDATE elemen_proyek SET info_lain = ? WHERE id = ?",
+                         (json.dumps(el["info_lain"], ensure_ascii=False), el["id"]))
+            hasil, _dilewati = terapkan_rules(el, konteks, parameter)
+            n += _simpan_hasil(conn, proyek_id, el["id"], hasil, harga, kode_ke_id, catatan, el.get("material"))
+        _pulihkan_khusus(conn, khusus)
+        _pulihkan_volume_manual(conn, manual)
+        conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (proyek_id,))
+        conn.commit()
+        teks = "; ".join(f"{e.get('nama') or e['id']} → {elemen_lain.label_pilihan(elemen_lain.kunci_pilihan(e['info_lain']))}"
+                         for e in berubah[:5])
+        catat("jenis", f"Ubah jenis {len(berubah)} elemen: {teks}" + (" …" if len(berubah) > 5 else "")
+              + (f"; cat {len(dinding)} dinding di baliknya dihitung ulang" if dinding else ""), proyek_id)
+        return {"berubah": [e["id"] for e in berubah], "dinding": len(dinding), "baris": n}
+    finally:
+        conn.close()
+
+
+def daftar_elemen_lain(proyek_id: int) -> list:
+    """Elemen kelas LAINNYA proyek untuk dialog koreksi jenis: id, nama, kelas IFC, lantai, jenis dipakai,
+    jenis otomatis, dimensi utama, dan subtotal biaya."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            """SELECT ep.id, ep.global_id, ep.nama, ep.ifc_type, ep.lantai, ep.luas, ep.panjang, ep.volume,
+                      ep.info_lain, COALESCE(SUM(he.subtotal_biaya), 0) AS biaya, COUNT(he.id) AS baris
+               FROM elemen_proyek ep LEFT JOIN hasil_estimasi he ON he.elemen_id = ep.id
+               WHERE ep.proyek_id = ? AND ep.kelas = ? GROUP BY ep.id ORDER BY ep.lantai, ep.nama""",
+            (proyek_id, ElementType.LAINNYA.value)).fetchall()
+    finally:
+        conn.close()
+    hasil = []
+    for r in rows:
+        d = dict(r)
+        try:
+            i = json.loads(d.pop("info_lain") or "{}") or {}
+        except ValueError:
+            i = {}
+        d["jenis"] = elemen_lain.kunci_pilihan(i)
+        d["jenis_otomatis"] = i.get("jenis_otomatis") or d["jenis"]
+        d["manual"] = bool(i.get("manual"))
+        hasil.append(d)
+    return hasil
+
+
+def _simpan_volume_manual(conn, elemen_ids: list) -> dict:
+    """Volume baris yang diedit manual (KF-6) untuk elemen yang akan dihitung ulang, kunci (elemen, pekerjaan,
+    uraian)."""
+    if not elemen_ids:
+        return {}
+    tanda = ", ".join("?" * len(elemen_ids))
+    return {
+        (r["elemen_id"], r["pekerjaan_id"], r["uraian"]): r["volume_pekerjaan"]
+        for r in conn.execute(
+            f"SELECT elemen_id, pekerjaan_id, uraian, volume_pekerjaan FROM hasil_estimasi "
+            f"WHERE elemen_id IN ({tanda}) AND diedit_manual = 1", tuple(elemen_ids))
+    }
+
+
+def _pulihkan_volume_manual(conn, simpan: dict) -> None:
+    """Pasang kembali volume manual ke baris baru yang sama; subtotal mengikuti harga satuan baris itu."""
+    for (eid, pid, uraian), volume in simpan.items():
+        conn.execute(
+            """UPDATE hasil_estimasi SET
+                   subtotal_biaya = CASE WHEN volume_pekerjaan > 0 THEN subtotal_biaya / volume_pekerjaan * ?
+                                         ELSE subtotal_biaya END,
+                   volume_pekerjaan = ?, diedit_manual = 1
+               WHERE elemen_id = ? AND pekerjaan_id = ? AND uraian IS ?""",
+            (volume, volume, eid, pid, uraian),
+        )
 
 
 def _simpan_khusus(conn, syarat: str, args: tuple) -> dict:

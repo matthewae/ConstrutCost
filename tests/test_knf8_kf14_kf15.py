@@ -391,3 +391,79 @@ def test_build_exe_memeriksa_lingkungan_sebelum_build(monkeypatch):
     dipanggil = []
     monkeypatch.setattr(build_exe.subprocess, "run", lambda *a, **k: dipanggil.append(a))
     assert build_exe.main([]) == 2 and dipanggil == []
+
+
+# ---------------------------------------------------------------- installer Windows (Inno Setup)
+
+
+def test_installer_inno_setup_konsisten_dengan_aplikasi():
+    """installer/CostStruct.iss: versi = VERSI_APLIKASI, sumber = folder hasil build_exe, ikon & terjemahan ada,
+    asosiasi .coststruct membuka file dengan argumen "%1" (diproses main.py)."""
+    import re
+
+    from gui.main_window import VERSI_APLIKASI
+
+    sys.path.insert(0, str(AKAR / "tools"))
+    try:
+        import build_installer
+    finally:
+        sys.path.pop(0)
+    iss = (AKAR / "installer" / "CostStruct.iss").read_text(encoding="utf-8")
+    versi = VERSI_APLIKASI.lstrip("v")
+    assert build_installer.versi_aplikasi() == versi
+    assert f'#define VersiApp "{versi}"' in iss
+    assert r'Source: "..\dist\CostStruct\*"' in iss and build_installer.FOLDER_APP == AKAR / "dist" / "CostStruct"
+    assert r"SetupIconFile=..\assets\coststruct.ico" in iss and (AKAR / "assets" / "coststruct.ico").is_file()
+    assert "PrivilegesRequired=lowest" in iss  # dapat dipasang tanpa hak administrator
+    assert '"""{app}\\{#ExeApp}"" ""%1"""' in iss  # perintah buka: CostStruct.exe "<file>"
+    assert "Software\\Classes\\.coststruct" in iss and "OpenWithProgids" in iss
+    isl = (AKAR / "installer" / "Indonesian.isl").read_bytes()
+    assert isl.isascii()  # aman untuk semua code page
+    teks_isl = isl.decode("ascii")
+    assert 'MessagesFile: "compiler:Default.isl,Indonesian.isl"' in iss
+    for nama in set(re.findall(r"\{cm:(\w+)", iss)):  # semua pesan khusus yang dipakai terdefinisi
+        assert re.search(rf"^{nama}=", teks_isl, re.M), nama
+    alur = (AKAR / ".github" / "workflows" / "windows.yml").read_text(encoding="utf-8")
+    assert "tools/build_installer.py --uji" in alur and "CostStruct-Setup" in alur
+
+
+def test_build_installer_hanya_di_windows_dan_butuh_hasil_build(monkeypatch, tmp_path):
+    sys.path.insert(0, str(AKAR / "tools"))
+    try:
+        import build_installer
+    finally:
+        sys.path.pop(0)
+    dipanggil = []
+    monkeypatch.setattr(build_installer.subprocess, "run", lambda *a, **k: dipanggil.append(a))
+    monkeypatch.setattr(build_installer.sys, "platform", "linux")
+    assert build_installer.main([]) == 2
+    monkeypatch.setattr(build_installer.sys, "platform", "win32")
+    monkeypatch.setattr(build_installer, "FOLDER_APP", tmp_path / "belum_dibuild")
+    assert build_installer.main(["--uji"]) == 2 and dipanggil == []
+
+
+def test_buka_berkas_dari_explorer_atau_diseret(db_sementara, qapp, tmp_path, monkeypatch):
+    """Klik dua kali file .coststruct (asosiasi installer) / seret ke jendela: file proyek dibuka; file .ifc di-import."""
+    from database.berkas_proyek import simpan_berkas
+    from database.proyek_repository import create_proyek, get_all_proyek
+    from estimasi_service import jalankan_estimasi
+    from gui import tema
+    from gui.main_window import MainWindow
+
+    pid = create_proyek("Proyek Asal", str(AC20))
+    jalankan_estimasi(pid)
+    berkas = simpan_berkas(pid, tmp_path / "Proyek Asal.coststruct", sertakan_ifc=False)
+    monkeypatch.setattr(tema, "tanya", lambda *a, **k: True)
+    w = MainWindow()
+    try:
+        diimport = []
+        monkeypatch.setattr(w.hal_proyek, "import_ifc", lambda path=None: diimport.append(path))
+        sebelum = len(get_all_proyek())
+        w.buka_berkas(str(berkas))
+        assert len(get_all_proyek()) == sebelum + 1  # proyek dari file dibuat
+        assert w._estimasi is not None and w.stack.currentWidget() is w._estimasi  # langsung terbuka
+        w.buka_berkas(str(AC20))
+        assert diimport == [str(AC20)]
+    finally:
+        w.close()
+        w.deleteLater()

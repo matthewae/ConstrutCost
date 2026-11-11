@@ -26,6 +26,7 @@ JENIS = {
     "edit": "Edit hasil",
     "material": "Ganti bahan",
     "dimensi": "Ubah dimensi",
+    "jenis": "Ubah jenis elemen",
     "penulangan": "Penulangan",
     "parameter": "Parameter aturan",
     "biaya": "Biaya tidak langsung",

@@ -2,6 +2,9 @@
 
 Lima langkah dari file IFC sampai RAB, ditambah penampil Model 3D.
 
+**Pemasangan:** jalankan `CostStruct-Setup-<versi>.exe` (tanpa hak administrator). Bila SmartScreen muncul,
+klik **More info → Run anyway**. Setelah terpasang, file proyek `.coststruct` dapat dibuka dengan klik dua kali.
+
 ## 1. Import model
 Halaman **Proyek** → **Import IFC** → pilih file `.ifc` → periksa ringkasan → **Import**.
 Volume semua pekerjaan dihitung otomatis dari model.
@@ -51,6 +54,17 @@ Tombol **Model 3D** (Ctrl+3) → klik elemen pada bangunan, mis. Kolom K1 A1.
 - **← Kembali ke RAB** (Esc) kembali ke tabel. Semua perubahan tersimpan otomatis dan ikut ke tabel dan Export RAB.
   **Urungkan / Ulangi** tersedia di bagian atas.
 - Rincian: `docs/Model-3D.md`.
+
+## 7. Koreksi jenis elemen lain (bila perlu)
+Elemen di luar kolom, balok, pelat, dinding, dan sejenisnya (cladding, kisi, roster, lisplang, nok, talang,
+waterproofing, planter, sanitair, perabot, ...) dikenali dari nama dan keterangan model. Bila penamaan model tidak
+lazim, misalnya panel fasad terbaca kisi-kisi:
+- di **Model 3D**, klik elemen → **Jenis elemen** → pilih jenis yang benar; atau
+- menu **Proyek ▾ → Koreksi Jenis Elemen Lain...** untuk memeriksa semua elemen lain sekaligus; atau
+- tombol **Ubah Jenis Elemen...** di panel Rincian (tabel Per Elemen).
+
+Pilih **Tidak dihitung** untuk elemen yang sudah termasuk pekerjaan lain atau di luar lingkup RAB. Kuantitas
+dihitung ulang langsung (termasuk cat dinding di balik cladding), dan pilihan tetap berlaku saat IFC dibaca ulang.
 
 Semua perubahan bisa dibatalkan dengan **Urungkan** (Ctrl+Z). Pengaturan lain ada di menu **Proyek ▾**: biaya
 tidak langsung, tipe penulangan, parameter aturan, hitung ulang dari IFC, serta simpan/duplikat proyek.

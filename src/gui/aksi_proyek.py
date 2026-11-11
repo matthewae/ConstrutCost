@@ -70,9 +70,11 @@ def simpan_file_proyek(parent, proyek_id: int) -> Path | None:
     return hasil
 
 
-def buka_file_proyek(parent) -> tuple | None:
-    """UC-06 langkah 4-7: buka file .coststruct menjadi proyek di database. Return (id, nama)."""
-    path, _ = QFileDialog.getOpenFileName(parent, "Buka File Proyek", folder_ifc(muat_preferensi()), FILTER)
+def buka_file_proyek(parent, path: str | None = None) -> tuple | None:
+    """UC-06 langkah 4-7: buka file .coststruct menjadi proyek di database. Return (id, nama).
+    `path` diisi bila file sudah diketahui (klik dua kali file di Explorer, atau diseret ke jendela)."""
+    if not path:
+        path, _ = QFileDialog.getOpenFileName(parent, "Buka File Proyek", folder_ifc(muat_preferensi()), FILTER)
     if not path:
         return None
     try:

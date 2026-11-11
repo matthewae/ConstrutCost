@@ -279,6 +279,7 @@ class EstimasiPage(QWidget):
         menu.addSection("Bahan & pekerjaan")
         menu.addAction("Ganti Bahan Proyek...", self._buka_material)
         menu.addAction("Tambah Pekerjaan dari Katalog HSPK...", self._buka_katalog)
+        menu.addAction("Koreksi Jenis Elemen Lain...", self._buka_jenis)
         menu.addAction("Biaya Tidak Langsung...", self._buka_biaya)
         menu.addSection("Pengaturan lanjutan")
         menu.addAction("Tipe Penulangan...", self._buka_penulangan)
@@ -422,6 +423,7 @@ class EstimasiPage(QWidget):
         self.panel.minta_harga_baris.connect(self._harga_diubah)
         self.panel.minta_catatan.connect(self._catatan_diubah)
         self.panel.minta_material_elemen.connect(self._buka_material_elemen)
+        self.panel.minta_jenis_elemen.connect(self._buka_jenis)
         self.panel.minta_hapus_item.connect(self._hapus_item)
         self.splitter.addWidget(self.panel)
         self.splitter.setStretchFactor(0, 1)
@@ -1510,6 +1512,22 @@ class EstimasiPage(QWidget):
         self.muat()
         self._umpan_balik_total(lama, f"Bahan diganti ({dialog.hasil['baris']} baris RAB)")
 
+    def _buka_jenis(self, elemen_id: int | None = None):
+        """Koreksi jenis elemen lain (cladding, kisi, talang, sanitair, ... atau tidak dihitung); satu langkah urungkan."""
+        from estimasi_service import ubah_jenis_elemen
+        from gui.jenis_dialog import JenisElemenDialog
+
+        dialog = JenisElemenDialog(self.proyek_id, self, pilih=elemen_id or None)
+        perubahan = dialog.perubahan if dialog.exec() == JenisElemenDialog.Accepted else {}
+        dialog.deleteLater()
+        if not perubahan:
+            return
+        n = len(perubahan)
+        pesan = self.terapkan_perubahan(lambda: bool(ubah_jenis_elemen(self.proyek_id, perubahan)["berubah"]),
+                                        f"Ubah jenis {n} elemen", f"Jenis {n} elemen dikoreksi")
+        if pesan:
+            tema.toast(self, pesan)
+
     def _buka_material_elemen(self, elemen_id: int, nama: str = ""):
         lama = ringkasan_biaya(self.proyek_id)
         sebelum = potret_proyek(self.proyek_id)
@@ -1609,6 +1627,7 @@ class PanelRincian(QFrame):
     minta_harga_baris = Signal(object, object)  # [hasil_id], harga (None = harga master)
     minta_catatan = Signal(int, str)  # hasil_id, teks
     minta_material_elemen = Signal(int, str)  # elemen_id, nama elemen
+    minta_jenis_elemen = Signal(int)  # elemen_id elemen lain (koreksi jenis)
     minta_hapus_item = Signal(int)  # hasil_id item tambahan katalog
 
     def __init__(self, parent=None):
@@ -1794,6 +1813,12 @@ class PanelRincian(QFrame):
                                   "Ubah dimensi elemen lalu hitung ulang kuantitas dan biayanya (KF-19)")
                 btn.clicked.connect(lambda _=False, eid=r["elemen_id"]: self.minta_ubah_dimensi.emit(eid))
                 self._lay.addSpacing(2)
+                self._lay.addWidget(btn)
+            if kelas == ElementType.LAINNYA.value:
+                btn = tema.tombol("Ubah Jenis Elemen...", "secondary", "kubus",
+                                  "Koreksi jenis elemen ini bila penamaan model tidak lazim (mis. panel terbaca kisi), "
+                                  "atau kecualikan dari RAB")
+                btn.clicked.connect(lambda _=False, eid=r["elemen_id"]: self.minta_jenis_elemen.emit(eid))
                 self._lay.addWidget(btn)
 
         self._lay.addWidget(tema.garis())

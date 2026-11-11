@@ -1,5 +1,6 @@
 # KNF-7 / KNF-8: tes otomatis dan build CostStruct.exe di Windows sungguhan (runner windows-latest).
-# Hasil build (folder CostStruct siap pakai) dapat diunduh dari tab Actions -> run -> Artifacts.
+# Hasil build (folder CostStruct siap pakai dan installer CostStruct-Setup) dapat diunduh dari tab
+# Actions -> run -> Artifacts.
 name: Windows - tes & build .exe
 
 on:
@@ -48,12 +49,24 @@ jobs:
         if: success() || failure()  # tetap dijalankan walau ada tes gagal: semua masalah terlihat dalam satu run
         run: python tools/build_exe.py
 
+      - name: Build & uji installer (Inno Setup)
+        if: success()
+        run: python tools/build_installer.py --uji --pasang-iscc
+
       - name: Unggah aplikasi Windows
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: CostStruct-windows
           path: dist/CostStruct
+          retention-days: 14
+
+      - name: Unggah installer Windows
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CostStruct-Setup
+          path: dist/installer/*.exe
           retention-days: 14
 
       - name: Unggah laporan uji
@@ -63,6 +76,7 @@ jobs:
           name: laporan-uji-windows
           path: |
             build/uji_mandiri
+            build/uji_installer
             hasil_kinerja.csv
           if-no-files-found: ignore
           retention-days: 14

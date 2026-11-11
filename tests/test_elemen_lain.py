@@ -201,3 +201,88 @@ def test_batang_rangka_atap_ac20_tampil_sebagai_bagian_rangka_atap(db_sementara)
     data = rincian_termasuk(pid, "rangka_atap", sparren[0].kotak, peta, {e.gid: e.kotak for e in m.elemen})
     assert data and data["total"] > 0
     assert {r["kode"].split("~")[0] for b in data["bagian"] for r in b["baris"]} == {"ATP.RANGKA"}
+
+
+# ---------------------------------------------------------------- koreksi jenis elemen oleh pengguna
+
+
+def test_ganti_jenis_dari_info_tersimpan():
+    import elemen_lain as el
+
+    i = el.susun_info("kisi", "IfcShadingDevice", "Panel WPC + rangka hollow 40x40", "Kisi A", {"eksternal": True})
+    assert i["rangka"] and i["pset"] == {"eksternal": True}
+    j = el.ganti_jenis(i, "cladding_panel")
+    assert j["jenis"] == "cladding_panel" and j["manual"] == "cladding_panel" and j["jenis_otomatis"] == "kisi"
+    assert j["rangka"] and j["eksternal"] is True  # dari teks & Pset yang tersimpan, tanpa membaca IFC
+    e = {"luas": 4.0, "info_lain": j}
+    assert {h.kode for h in el.item(e)} == {"CLD.PANEL", "CLD.RANGKA"}
+    k = el.ganti_jenis(j, None)  # kembali ke otomatis
+    assert k["jenis"] == "kisi" and "manual" not in k and "jenis_otomatis" not in k
+    s = el.ganti_jenis(i, "sanitair:SNT.WASTAFEL")
+    assert s["jenis"] == "sanitair" and s["kode"] == "SNT.WASTAFEL" and el.kunci_pilihan(s) == "sanitair:SNT.WASTAFEL"
+    assert [h.kode for h in el.item({"info_lain": s})] == ["SNT.WASTAFEL"]
+    t = el.ganti_jenis(i, el.TIDAK_DIHITUNG)
+    assert el.item({"luas": 4.0, "info_lain": t}) == []
+    kunci = [k for k, _l in el.pilihan_jenis()]
+    assert "sanitair" not in kunci and "sanitair:SNT.KLOSET_DUDUK" in kunci and kunci[-1] == el.TIDAK_DIHITUNG
+    # info_lain versi lama (tanpa "pset"/"nama_tipe" tersimpan) tetap bisa dikoreksi
+    lama = {"jenis": "beton_lansekap", "ifc": "IfcBuildingElementProxy", "teks": "Planter beton t=8cm", "tebal": 0.08}
+    b = el.ganti_jenis(lama, "media_tanam", nama="Planter")
+    assert b["jenis"] == "media_tanam" and b["nama_tipe"] == "Planter" and b["pset"]["tebal"] == 0.08
+
+
+def test_ubah_jenis_elemen_menghitung_ulang_elemen_dan_cat_dinding(db_sementara, tmp_path):
+    from database.estimasi_repository import get_hasil_estimasi_by_proyek
+    from database.proyek_repository import create_proyek
+    from estimasi_service import daftar_elemen_lain, jalankan_estimasi, ubah_jenis_elemen
+
+    pid = create_proyek("Uji Jenis", str(_model(tmp_path)))
+    jalankan_estimasi(pid)
+
+    def baris():
+        return [dict(x) for x in get_hasil_estimasi_by_proyek(pid)]
+
+    def per_elemen(nama):
+        return {x["kode_ahsp"]: x for x in baris() if x["nama_elemen"] == nama}
+
+    daftar = {d["nama"]: d for d in daftar_elemen_lain(pid)}
+    assert daftar["Cladding Fasad Depan"]["jenis"] == "cladding_batu" and not daftar["Cladding Fasad Depan"]["manual"]
+    cat_awal = per_elemen("Dinding Luar Y1")["CAT.EKSTERIOR"]["volume_pekerjaan"]
+    total_awal = sum(x["subtotal_biaya"] for x in baris())
+
+    # cladding batu dikecualikan: barisnya hilang, cat dinding di baliknya bertambah 6 m², harga khusus tetap
+    from database.estimasi_repository import _connect
+    conn = _connect()
+    conn.execute("UPDATE hasil_estimasi SET harga_manual = 99999, catatan = 'harga penawaran' "
+                 "WHERE id = ?", (per_elemen("Dinding Luar Y1")["PLS.DINDING"]["hasil_id"],))
+    conn.commit()
+    conn.close()
+    r = ubah_jenis_elemen(pid, {daftar["Cladding Fasad Depan"]["id"]: "tidak_dihitung"})
+    assert r["berubah"] == [daftar["Cladding Fasad Depan"]["id"]] and r["dinding"] == 1
+    assert per_elemen("Cladding Fasad Depan") == {}
+    dinding = per_elemen("Dinding Luar Y1")
+    assert dinding["CAT.EKSTERIOR"]["volume_pekerjaan"] == pytest.approx(cat_awal + 6.0, rel=0.02)
+    assert dinding["PLS.DINDING"]["harga_manual"] == 99999 and dinding["PLS.DINDING"]["catatan"] == "harga penawaran"
+    assert sum(x["subtotal_biaya"] for x in baris()) != total_awal
+
+    # kisi yang sebenarnya cladding panel; lemari jadi wastafel; nilai sama = tidak ada perubahan
+    r = ubah_jenis_elemen(pid, {daftar["Kisi-kisi Fasad"]["id"]: "cladding_panel",
+                                daftar["Lemari Pakaian"]["id"]: "sanitair:SNT.WASTAFEL",
+                                daftar["Talang Atap Depan"]["id"]: None})
+    assert sorted(r["berubah"]) == sorted([daftar["Kisi-kisi Fasad"]["id"], daftar["Lemari Pakaian"]["id"]])
+    assert set(per_elemen("Kisi-kisi Fasad")) == {"CLD.PANEL", "CLD.RANGKA"}
+    assert set(per_elemen("Lemari Pakaian")) == {"SNT.WASTAFEL"}
+    assert not any(x["kode_ahsp"].startswith("LAIN|") for x in baris())
+
+    # pilihan pengguna tetap berlaku setelah file IFC dibaca ulang (dicocokkan lewat GlobalId)
+    jalankan_estimasi(pid)
+    daftar = {d["nama"]: d for d in daftar_elemen_lain(pid)}
+    assert daftar["Cladding Fasad Depan"]["jenis"] == "tidak_dihitung" and daftar["Cladding Fasad Depan"]["manual"]
+    assert daftar["Kisi-kisi Fasad"]["jenis_otomatis"] == "kisi"
+    assert per_elemen("Dinding Luar Y1")["CAT.EKSTERIOR"]["volume_pekerjaan"] == pytest.approx(cat_awal + 6.0, rel=0.02)
+    assert set(per_elemen("Lemari Pakaian")) == {"SNT.WASTAFEL"}
+
+    # kembali ke otomatis: cladding kembali mengurangi cat dinding
+    ubah_jenis_elemen(pid, {daftar["Cladding Fasad Depan"]["id"]: None})
+    assert set(per_elemen("Cladding Fasad Depan")) == {"CLD.BATU"}
+    assert per_elemen("Dinding Luar Y1")["CAT.EKSTERIOR"]["volume_pekerjaan"] == pytest.approx(cat_awal, rel=0.02)

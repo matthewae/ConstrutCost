@@ -61,6 +61,37 @@ Beton lansekap memakai tebal yang tertulis di model (mis. "t=8cm"); bila tidak t
   di model.
 - **Waterproofing, plester, cat, dan galian** dihitung bila tertulis di model.
 
+## Mengoreksi jenis elemen
+
+Pengenalan jenis bergantung pada nama dan keterangan model. Bila penamaan model tidak lazim, pengguna dapat
+mengoreksi jenis elemen kelas LAINNYA:
+
+| Tempat | Cara |
+|---|---|
+| Model 3D | Klik elemen → seksi **Jenis elemen** di panel kanan (chip *otomatis* / *dikoreksi pengguna*) |
+| Menu **Proyek ▾ → Koreksi Jenis Elemen Lain...** | Daftar semua elemen lain: nama, kelas IFC, lantai, dimensi, jenis otomatis, jenis dipakai, dan biaya; dapat dicari dan dikembalikan semua ke otomatis |
+| Panel Rincian (tabel) | Tombol **Ubah Jenis Elemen...** membuka daftar di atas dengan elemen itu disorot |
+
+Pilihan berisi semua jenis pada tabel di atas, sanitair per alat (kloset duduk, wastafel, floor drain, ...), dan
+**Tidak dihitung** untuk elemen yang sudah termasuk pekerjaan lain atau di luar lingkup RAB.
+
+Cara kerja (`estimasi_service.ubah_jenis_elemen`, `elemen_lain.ganti_jenis`):
+- **Tanpa membaca file IFC.** Teks elemen, nama tipe, angka Pset, dan tapak disimpan di `info_lain` saat import,
+  sehingga info jenis baru dapat disusun ulang. Volume memakai dimensi yang sudah terbaca (luas, panjang, volume).
+- **Cat di balik cladding ikut diperbarui.** Saat import, kontribusi setiap elemen pelat tipis yang menempel pada
+  dinding disimpan di dinding (`tutup`: {GlobalId: [luas, sisi, nama]}). Hanya yang berjenis cladding yang
+  mengurangi cat. Bila sebuah elemen diubah menjadi atau dari cladding, luas tertutup dinding dihitung ulang.
+- **Yang dihitung ulang** hanya elemen yang berubah dan dinding di baliknya. Harga khusus dan catatan
+  dipertahankan, volume yang diedit manual pada dinding juga dipertahankan.
+- **Dapat diurungkan** (satu langkah per penyimpanan) dan dicatat di Riwayat Aktivitas dengan jenis *Ubah jenis
+  elemen*.
+- **Tetap berlaku saat IFC dibaca ulang.** Pilihan disimpan di `info_lain.manual`, lalu dipakai lagi lewat
+  GlobalId (`ekstrak_elemen(..., jenis_manual)`). Jenis otomatis disimpan di `info_lain.jenis_otomatis`.
+
+Batasan: elemen kelas utama (kolom, balok, pelat, dinding, ...) dan elemen yang **termasuk pekerjaan lain**
+(batang rangka atap, penutup atap, bagian tangga) tidak diubah dari sini, karena aturan perhitungannya bukan
+dari nama.
+
 ## Elemen yang tidak dihitung tersendiri (bukan hitung ganda)
 
 | Elemen | Mengapa | Di penampil 3D |
