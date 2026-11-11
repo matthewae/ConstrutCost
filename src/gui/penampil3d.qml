@@ -58,6 +58,24 @@ Item {
             }
         }
 
+        // besi beton (IfcReinforcingBar) per elemen induk; tampil di mode "Besi beton"
+        Repeater3D {
+            model: adeganBesi
+            delegate: Model {
+                property string gid: model.gid
+                geometry: model.geom
+                visible: model.tampil
+                pickable: model.klik
+                materials: PrincipledMaterial {
+                    baseColor: model.warna
+                    roughness: 0.45
+                    metalness: 0.35
+                    emissiveFactor: Qt.vector3d(model.warna.r * model.sinar, model.warna.g * model.sinar, model.warna.b * model.sinar)
+                    cullMode: Material.NoCulling
+                }
+            }
+        }
+
         TapHandler {
             acceptedButtons: Qt.LeftButton
             onTapped: (titik) => {

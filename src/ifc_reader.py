@@ -40,6 +40,7 @@ from kolom import analisis_model as analisis_kolom
 from kolom import baca_model as baca_kolom
 from kolom import teks_ringkasan as teks_ringkasan_kolom
 from relasi import KELAS_GEOMETRI, analisis_balok, fondasi_di_bawah_kolom, kotak_dunia
+import elemen_lain
 
 SKEMA_DIDUKUNG = {"IFC2X3": "IFC2x3", "IFC4": "IFC4"}
 PESAN_TIDAK_VALID = "File tidak valid. Pastikan file berformat IFC2x3 atau IFC4."
@@ -267,6 +268,42 @@ class _Pengukur:
         self._cache_lantai = {}
         self._bentuk = {}  # entity id -> _Geometri hasil siapkan_geometri (paralel)
         self._mode_cek = False
+        self._lain = {}  # entity id -> (teks, jenis) elemen kelas LAINNYA (elemen_lain.py)
+
+    def jenis_lain(self, entity) -> tuple:
+        """(teks, jenis) elemen lain, dihitung sekali per entitas."""
+        if entity.id() not in self._lain:
+            teks = elemen_lain.teks_elemen(entity)
+            self._lain[entity.id()] = (teks, elemen_lain.kenali(entity, teks))
+        return self._lain[entity.id()]
+
+    def angka_pset(self, entity) -> dict:
+        """Angka dari Pset non-Qto yang lazim ditulis perencana: panjang, tinggi, tebal, luas waterproofing,
+        volume galian (nama berakhiran _m / _m2 / _m3 dianggap meter; lainnya memakai satuan panjang model), serta
+        Pset_CoveringCommon.IsExternal."""
+        hasil = {}
+        try:
+            psets = element_util.get_psets(entity)
+        except Exception:
+            return hasil
+        pola = (("panjang", r"^(panjang|length)(_m)?$", r"^(panjang|length)"), ("tinggi", r"^(tinggi|height)(_m)?$",
+                r"^(tinggi|height)"), ("tebal", r"^(tebal|thickness)(_m)?$", r"^(tebal|thickness)"),
+                ("luas_waterproofing", r"luas.?water", None), ("volume_galian", r"volume.?galian|excavat", None))
+        for nama_set, isi in psets.items():
+            if _prioritas_set(nama_set) is not None:
+                continue  # quantity set dibaca terpisah
+            if nama_set == "Pset_CoveringCommon" and isinstance(isi.get("IsExternal"), bool):
+                hasil["eksternal"] = isi["IsExternal"]
+            for kunci, pasti, awalan in pola:
+                for k, v in isi.items():
+                    if kunci in hasil or not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+                        continue
+                    nk = k.lower()
+                    if re.search(pasti, nk) or (awalan and re.match(awalan, nk) and "standar" not in nk
+                                                  and "bilah" not in nk and "batang" not in nk):
+                        meter = re.search(r"_m[23]?$", nk) or kunci in ("luas_waterproofing", "volume_galian")
+                        hasil[kunci] = float(v) if meter else float(v) * self.s_panjang
+        return hasil
 
     @staticmethod
     def _settings():
@@ -776,6 +813,30 @@ def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
             d.isi("volume", g.volume, "geometri")
             d.isi("luas", g.tapak, "geometri")
 
+    elif kelas == ElementType.LAINNYA:
+        # cladding, kisi, lisplang, nok, talang, waterproofing, beton lansekap, ... (elemen_lain.py)
+        d.isi("luas", p.luas(q, "NetArea", "GrossArea", "NetSurfaceArea", "GrossSurfaceArea", "NetSideArea",
+                             "GrossSideArea", "Area"), "qto")
+        d.isi("panjang", p.panjang(q, "Length"), "qto")
+        d.isi("tinggi", p.panjang(q, "Height"), "qto")
+        d.isi("volume", p.volume(q, *vol), "qto")
+        a = p.angka_pset(entity)
+        d.isi("panjang", a.get("panjang"), "atribut")
+        d.isi("tinggi", a.get("tinggi"), "atribut")
+        lebar = p.panjang(q, "Width")
+        if d.kurang("panjang") and not d.kurang("luas") and lebar and lebar >= 0.05:
+            d.isi("panjang", d.nilai["luas"] / lebar, "qto")  # mis. nok genteng: luas / lebar
+        if d.kurang("luas") and not d.kurang("panjang", "tinggi"):
+            d.isi("luas", d.nilai["panjang"] * d.nilai["tinggi"], "qto")  # mis. kisi: Length x Height
+        _teks, jenis = p.jenis_lain(entity)
+        if jenis == "beton_lansekap" or d.kurang("luas", "panjang", "volume"):
+            g = p.geometri(entity)
+            d.isi("luas", max(g.sisi_x, g.sisi_y, g.tapak), "geometri")
+            d.isi("panjang", max(g.ext), "geometri")
+            d.isi("tinggi", g.ext[2], "geometri")
+            d.isi("volume", g.volume, "geometri")
+            d.nilai["tapak"] = g.tapak  # alas beton lansekap (tidak disimpan sebagai dimensi)
+
     elif kelas == ElementType.SPACE:
         d.isi("luas", p.luas(q, "NetFloorArea", "GrossFloorArea", "Area"), "qto")
         d.isi("keliling", p.panjang(q, "NetPerimeter", "GrossPerimeter", "Perimeter"), "qto")
@@ -788,6 +849,35 @@ def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
             d.isi("tinggi", g.ext[2], "geometri")
 
     return d
+
+
+def _cladding_dan_dinding(model, elemen: list, kotak: dict) -> None:
+    """Luas cat dinding yang tertutup cladding: cladding tegak yang menempel pada dinding mengurangi cat sisi
+    luar (cladding luar) atau sisi dalam dinding itu (info_lain dinding: tertutup_luar / tertutup_dalam)."""
+    cladding = [e for e in elemen if (e.get("info_lain") or {}).get("jenis") in elemen_lain.CLADDING and e.get("luas")]
+    dinding = {e["global_id"]: e for e in elemen if e["kelas"] == ElementType.WALL.value and e["global_id"] in kotak}
+    if not cladding or not dinding:
+        return
+    gid = {e["global_id"] for e in cladding}
+    ent = [x for x in model.by_type("IfcElement") if x.GlobalId in gid]
+    kotak_c = kotak_dunia(model, ent)
+    per = elemen_lain.luas_tertutup_cladding(
+        {e["global_id"]: (kotak_c[e["global_id"]], e["luas"]) for e in cladding if e["global_id"] in kotak_c},
+        {g: kotak[g] for g in dinding})
+    nama_c = {e["global_id"]: e for e in cladding}
+    for gc, bagian in per.items():
+        c = nama_c[gc]
+        c["info_lain"]["dinding"] = [dinding[gw]["nama"] for gw, _l in bagian]
+        for gw, luas in bagian:
+            w = dinding[gw]
+            luar = c["info_lain"].get("eksternal")
+            if luar is None:
+                luar = bool(w.get("eksternal"))
+            sisi = "tertutup_luar" if luar and w.get("eksternal") else "tertutup_dalam"
+            info = w.get("info_lain") or {}
+            info[sisi] = round(info.get(sisi, 0.0) + luas, 4)
+            info.setdefault("cladding", []).append(c["nama"])
+            w["info_lain"] = info
 
 
 def _dinding_luar(entity) -> bool | None:
@@ -920,6 +1010,20 @@ def ekstrak_elemen(model, progress=None):
         else:
             sumber_volume = None
 
+        info_lain = None
+        if kelas == ElementType.LAINNYA:
+            teks, jenis = p.jenis_lain(entity)
+            info_lain = elemen_lain.info(entity, teks, jenis, p.angka_pset(entity))
+            if d.nilai.get("tapak"):
+                info_lain["tapak"] = d.nilai["tapak"]
+        elif kelas in (ElementType.COLUMN, ElementType.BEAM, ElementType.SLAB, ElementType.ROOF, ElementType.STAIR):
+            try:  # bahan untuk elemen yang bukan beton bertulang (baja per kg / kayu per m³)
+                bahan = [m.Name for m in element_util.get_materials(entity) or [] if getattr(m, "Name", None)]
+            except Exception:
+                bahan = []
+            if bahan:
+                info_lain = {"material": ", ".join(dict.fromkeys(bahan))[:200]}
+
         elemen.append(
             {
                 "global_id": entity.GlobalId,
@@ -935,6 +1039,7 @@ def ekstrak_elemen(model, progress=None):
                 "eksternal": eksternal,
                 "sumber_volume": sumber_volume,
                 "sumber_dimensi": dict(d.sumber),
+                "info_lain": info_lain,
             }
         )
 
@@ -998,12 +1103,21 @@ def ekstrak_elemen(model, progress=None):
                      or any(n for f, n in hasil_kolom.ringkasan["per_fungsi"].items() if f != FUNGSI_UTAMA)):
             peringatan.append(f"Kolom: {teks}.")
 
+    try:
+        _cladding_dan_dinding(model, elemen, kotak)
+    except Exception as e:  # relasi gagal: cat dinding di balik cladding tidak dikurangi
+        peringatan.append(f"Letak cladding terhadap dinding tidak terbaca ({e}); cat di balik cladding tidak dikurangi.")
+
+    lain = [e for e in elemen if (e.get("info_lain") or {}).get("jenis") == "lain"]
+    if lain:
+        contoh = sorted({e["info_lain"].get("nama_tipe") or e["nama"] or e["ifc_type"] for e in lain})[:4]
+        peringatan.append(
+            f"{len(lain)} elemen model belum punya padanan analisa HSPK dan masuk RAB dengan harga 0, isi harga "
+            f"satuannya: {', '.join(contoh)}{'...' if len(lain) > 4 else ''}."
+        )
     tidak = hitung_tidak_dihitung(model)
     if tidak:
-        peringatan.append(
-            "Tidak dihitung otomatis (periksa apakah termasuk lingkup RAB, lalu tambahkan manual bila perlu): "
-            f"{teks_tidak_dihitung(tidak)}."
-        )
+        peringatan.append(f"Tidak dihitung tersendiri: {teks_tidak_dihitung(tidak)}.")
     if progress:
         progress(total, total, "Ekstraksi selesai")
     return elemen, peringatan

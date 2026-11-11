@@ -46,7 +46,9 @@ WARNA_JENIS = {
     "COLUMN": "#c9784a", "BEAM": "#6f8fb3", "SLAB": "#a7adb4", "FLOOR": "#bfc3c8", "ROOF": "#a0503f",
     "WALL": "#ddd3c2", "FOOTING": "#8c7355", "PILE": "#7a6249", "EARTHWORK": "#c2aa80", "DOOR": "#8a6040",
     "WINDOW": "#8fc9e6", "STAIR": "#9d8fc4", "RAILING": "#7b828a", "CEILING": "#ebe7e0", "WALL_TILE": "#cfe3e8",
+    "LAINNYA": "#b08968",
 }
+WARNA_TERMASUK = "#a3a3a3"  # batang rangka atap / bagian tangga: biayanya ada di pekerjaan lain
 WARNA_LAIN = "#8d8d8d"  # elemen yang tidak menghasilkan item RAB
 WARNA_PILIH = "#ffd43b"
 WARNA_TERKAIT = "#69db7c"
@@ -54,7 +56,7 @@ SKALA_BIAYA = ("#3b4cc0", "#88abfd", "#dddddd", "#f4987a", "#b40426")  # rendah 
 
 STRUKTUR = {"COLUMN", "BEAM", "SLAB", "FOOTING", "PILE", "STAIR", "EARTHWORK"}
 URUT_LEGENDA = ("FOOTING", "PILE", "EARTHWORK", "COLUMN", "BEAM", "SLAB", "STAIR", "WALL", "FLOOR", "WALL_TILE",
-                "DOOR", "WINDOW", "RAILING", "CEILING", "ROOF")
+                "DOOR", "WINDOW", "RAILING", "CEILING", "ROOF", "LAINNYA")
 KELAS_IFC = {
     "IfcWall": "WALL", "IfcWallStandardCase": "WALL", "IfcCurtainWall": "WALL", "IfcPlate": "WALL",
     "IfcColumn": "COLUMN", "IfcBeam": "BEAM", "IfcMember": "BEAM", "IfcSlab": "SLAB", "IfcRoof": "ROOF",
@@ -62,7 +64,9 @@ KELAS_IFC = {
     "IfcStairFlight": "STAIR", "IfcRamp": "STAIR", "IfcRampFlight": "STAIR", "IfcRailing": "RAILING",
     "IfcCovering": "CEILING",
 }
-TAMPIL_LENGKAP, TAMPIL_TEMBUS, TAMPIL_STRUKTUR = range(3)
+TAMPIL_LENGKAP, TAMPIL_TEMBUS, TAMPIL_STRUKTUR, TAMPIL_BESI = range(4)
+BETON = {"COLUMN", "BEAM", "SLAB", "FOOTING", "PILE", "STAIR", "ROOF"}  # ditampilkan tembus pandang di mode besi
+WARNA_BESI = "#d9480f"
 WARNA_JENIS_MODE, WARNA_BIAYA_MODE = range(2)
 
 PERAN_RINGKAS = {
@@ -95,6 +99,8 @@ def kelas_tampil(info: dict | None, ifc: str) -> str:
 
 def label_kelas(info: dict | None, ifc: str) -> str:
     kelas = kelas_tampil(info, ifc)
+    if kelas == "LAINNYA" and info and (info.get("info_lain") or {}).get("label"):
+        return info["info_lain"]["label"]
     if kelas == "COLUMN" and info and (info.get("info_kolom") or {}).get("fungsi"):
         return LABEL_FUNGSI.get(info["info_kolom"]["fungsi"], "Kolom")
     if kelas in ElementType._value2member_map_ and kelas != "UNKNOWN":
@@ -363,12 +369,22 @@ class Legenda(QFrame):
         self._skala = ("", "", "")
         self._kolom, self._lebar_kolom = 1, 160
 
-    def atur_jenis(self, kelas_ada: list, ada_lain: bool):
+    def atur_jenis(self, kelas_ada: list, ada_lain: bool, ada_termasuk: bool = False):
         self._mode = WARNA_JENIS_MODE
-        self._entri = [(WARNA_JENIS[k], LABEL[ElementType(k)]) for k in URUT_LEGENDA if k in kelas_ada]
+        self._judul = "Warna menurut jenis"
+        nama = {"LAINNYA": "Fasad, atap & lansekap lain"}
+        self._entri = [(WARNA_JENIS[k], nama.get(k) or LABEL[ElementType(k)]) for k in URUT_LEGENDA if k in kelas_ada]
+        if ada_termasuk:
+            self._entri.append((WARNA_TERMASUK, "Termasuk pekerjaan lain"))
         if ada_lain:
             self._entri.append((WARNA_LAIN, "Tidak dihitung di RAB"))
         self._entri += [(WARNA_PILIH, "Elemen dipilih"), (WARNA_TERKAIT, "Ikut dihitung")]
+        self._ukur()
+
+    def atur_entri(self, judul: str, entri: list):
+        self._mode = WARNA_JENIS_MODE
+        self._judul = judul
+        self._entri = list(entri)
         self._ukur()
 
     def atur_biaya(self, rendah: str, tengah: str, tinggi: str):
@@ -397,7 +413,8 @@ class Legenda(QFrame):
         f.setBold(True)
         p.setFont(f)
         p.setPen(QColor(tema.W["teks"]))
-        p.drawText(12, 20, "Warna menurut jenis" if self._mode == WARNA_JENIS_MODE else "Warna menurut biaya elemen")
+        p.drawText(12, 20, getattr(self, "_judul", "Warna menurut jenis") if self._mode == WARNA_JENIS_MODE
+                   else "Warna menurut biaya elemen")
         f.setBold(False)
         p.setFont(f)
         y = 30
@@ -588,6 +605,25 @@ class PanelBiaya3D(QFrame):
         self.lay_konten.addStretch()
         for b in (self.btn_tabel, self.btn_bahan):
             b.hide()
+
+    def termasuk(self, judul: str, label: str, lantai: str | None, data: dict):
+        """Elemen yang tidak dihitung tersendiri karena sudah termasuk pekerjaan lain (mis. batang rangka atap)."""
+        self._data = None
+        self._mulai()
+        self._kepala(label, lantai, judul, "")
+        kartu = tema.KartuStat("Termasuk dalam pekerjaan lain", utama=True)
+        nama = ", ".join(dict.fromkeys(b["baris"][0]["nama"] for b in data["bagian"] if b["baris"]))
+        kartu.set_data(tema.format_rupiah(data["total"]), f"{nama} pada {len(data['bagian'])} elemen (diberi warna hijau)")
+        kartu._ket.setWordWrap(True)
+        self.lay_konten.addWidget(kartu)
+        self.lay_konten.addWidget(tema.label(data["keterangan"], "subjudul", wrap=True))
+        for b in data["bagian"]:
+            self._judul_seksi(b["judul"], tema.format_rupiah(b["total"]))
+            for r in b["baris"]:
+                self.lay_konten.addWidget(_Baris(r))
+        self.lay_konten.addStretch()
+        for w in (self.btn_tabel, self.btn_bahan):
+            w.hide()
 
     def tampilkan(self, data: dict, opsi_harga: dict, terkait_aktif: bool, pesan: str = ""):
         self._data = data
@@ -818,23 +854,24 @@ def ada_di_cache(path: str) -> bool:
         return False
 
 
-class Penampil3D(QDialog):
-    """Jendela Model 3D: tampilan 3D (kiri) + panel kebutuhan biaya (kanan).
+class Penampil3D(QWidget):
+    """Mode Model 3D: tampilan 3D (kiri) + panel kebutuhan biaya (kanan).
 
-    `halaman` (opsional) = halaman estimasi pemilik jendela, untuk menyimpan perubahan bahan dengan riwayat urungkan
-    (`terapkan_perubahan`), membuka tabel RAB (`lihat_elemen`), dan Ctrl+Z (`riwayat`)."""
+    Dengan `halaman` (halaman estimasi), widget ini ditanam di halaman itu sebagai mode: tombol Kembali ke RAB,
+    Urungkan / Ulangi memakai riwayat halaman (`riwayat`), perubahan bahan lewat `terapkan_perubahan` (tersimpan
+    langsung ke database proyek, tabel RAB dan export memakai data yang sama), dan Lihat di Tabel RAB
+    (`lihat_elemen`). Tanpa `halaman` (uji mandiri, tes), widget ini dapat dibuka sebagai jendela sendiri."""
 
     def __init__(self, proyek_id: int, nama_proyek: str, model, halaman=None, parent=None):
         super().__init__(parent)
         self.proyek_id = proyek_id
         self.model3d = model
         self.halaman = halaman
-        self.setWindowTitle(f"Model 3D — {nama_proyek}")
-        self.setWindowFlags(Qt.Window | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint)
-        self.setWindowIcon(tema.ikon_aplikasi())
-        self.setAttribute(Qt.WA_QuitOnClose, False)  # menutup jendela utama tetap menutup aplikasi
-        self.resize(1380, 860)
-        self.setMinimumSize(980, 600)
+        self.setObjectName("halaman")
+        if halaman is None:
+            self.setWindowTitle(f"Model 3D — {nama_proyek}")
+            self.setWindowIcon(tema.ikon_aplikasi())
+            self.resize(1380, 860)
 
         self._e3d = model.per_gid()
         self._kotak = {g: e.kotak for g, e in self._e3d.items()}
@@ -847,11 +884,51 @@ class Penampil3D(QDialog):
         self._opsi = None
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 16)
+        if halaman is not None:
+            root.setContentsMargins(32, 22, 32, 20)  # sama dengan halaman estimasi
+        else:
+            root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(12)
-        kepala, _j, self.label_sub = tema.kepala_dialog(
-            "Model 3D Bangunan", "Klik elemen untuk melihat kebutuhan biayanya.", "kubus")
-        root.addWidget(kepala)
+        kepala = QHBoxLayout()
+        kepala.setSpacing(10)
+        riwayat = getattr(halaman, "riwayat", None)
+        if halaman is not None:
+            self.btn_kembali = tema.tombol("Kembali ke RAB", "ghost", "kembali",
+                                           "Kembali ke tabel RAB (Esc). Semua perubahan sudah tersimpan.")
+            self.btn_kembali.clicked.connect(self.kembali)
+            kepala.addWidget(self.btn_kembali, alignment=Qt.AlignTop)
+            kepala.addSpacing(6)
+        kol, _j, self.label_sub = tema.header_halaman(
+            f"Model 3D — {nama_proyek}", "Klik elemen untuk melihat kebutuhan biayanya.", potong=True)
+        kepala.addLayout(kol, stretch=1)
+        self.chip_simpan = tema.chip("✓ Tersimpan otomatis", "sukses")
+        self.chip_simpan.setToolTip(
+            "Setiap perubahan (bahan, volume, harga) langsung tersimpan ke database proyek. Tabel RAB, rekap, dan "
+            "Export RAB memakai data yang sama, jadi hasilnya selalu sama dengan yang tampil di sini. "
+            "Ctrl+S menyimpan salinan file proyek (.coststruct).")
+        kepala.addWidget(self.chip_simpan, alignment=Qt.AlignVCenter)
+        self.btn_urungkan = tema.tombol("↶ Urungkan", "ghost", None, "Batalkan perubahan terakhir (Ctrl+Z)")
+        self.btn_ulangi = tema.tombol("↷ Ulangi", "ghost", None, "Ulangi perubahan yang dibatalkan (Ctrl+Y)")
+        self.btn_urungkan.clicked.connect(self.urungkan)
+        self.btn_ulangi.clicked.connect(self.ulangi)
+        for b in (self.btn_urungkan, self.btn_ulangi):
+            kepala.addWidget(b, alignment=Qt.AlignTop)
+            b.setVisible(riwayat is not None)
+        if riwayat is not None:
+            # sinyal riwayat langsung ke tombol (tanpa memanggil riwayat lagi: aman saat halaman ditutup)
+            riwayat.canUndoChanged.connect(self.btn_urungkan.setEnabled)
+            riwayat.canRedoChanged.connect(self.btn_ulangi.setEnabled)
+            riwayat.undoTextChanged.connect(
+                lambda t: self.btn_urungkan.setToolTip(f"Batalkan: {t} (Ctrl+Z)" if t else "Belum ada perubahan"))
+            riwayat.redoTextChanged.connect(
+                lambda t: self.btn_ulangi.setToolTip(f"Ulangi: {t} (Ctrl+Y)" if t else "Tidak ada yang diulangi"))
+            self._perbarui_riwayat()
+        if halaman is not None and hasattr(halaman, "_buka_export"):
+            self.btn_export = tema.tombol("Export RAB", "primary", "unduh",
+                                          "Export ke Excel / PDF (Ctrl+E), termasuk perubahan dari mode 3D")
+            self.btn_export.clicked.connect(halaman._buka_export)
+            kepala.addWidget(self.btn_export, alignment=Qt.AlignTop)
+        root.addLayout(kepala)
 
         # --- baris alat
         alat = QHBoxLayout()
@@ -868,15 +945,19 @@ class Penampil3D(QDialog):
         self.combo_lantai.addItem("Semua lantai", None)
         for nama, elev in model.lantai:
             self.combo_lantai.addItem(f"s.d. {nama}", elev)
-        self.combo_lantai.currentIndexChanged.connect(lambda _i: self._warnai())
+        self.combo_lantai.currentIndexChanged.connect(lambda _i: (self._warnai(), self._warnai_besi()))
         alat.addWidget(self.combo_lantai)
         self.combo_tampil = QComboBox()
         self.combo_tampil.addItem("Tampilan lengkap", TAMPIL_LENGKAP)
         self.combo_tampil.addItem("Arsitektur tembus pandang", TAMPIL_TEMBUS)
         self.combo_tampil.addItem("Struktur saja", TAMPIL_STRUKTUR)
-        self.combo_tampil.setToolTip("Tembus pandang: dinding, atap, pintu, jendela dibuat transparan dan klik "
-                                     "menembus ke kolom/balok di baliknya.")
-        self.combo_tampil.currentIndexChanged.connect(lambda _i: self._warnai())
+        self.combo_tampil.addItem("Besi beton (pembesian)", TAMPIL_BESI)
+        self.combo_tampil.setToolTip(
+            "Tembus pandang: dinding, atap, pintu, jendela dibuat transparan dan klik menembus ke kolom/balok di "
+            "baliknya.\nBesi beton: beton dibuat tembus pandang sehingga besi beton yang dimodelkan "
+            "(IfcReinforcingBar) di dalamnya terlihat; klik besi untuk melihat pembesian elemennya.")
+        self._tampil_lama = TAMPIL_LENGKAP
+        self.combo_tampil.currentIndexChanged.connect(self._ganti_tampilan)
         alat.addWidget(self.combo_tampil)
         warna = QHBoxLayout()
         warna.setSpacing(0)
@@ -910,14 +991,20 @@ class Penampil3D(QDialog):
         self.backend = Backend(self)
         self.adegan = AdeganModel(self)
         self.adegan.atur([(e.gid, Geometri3D(e.posisi, e.normal)) for e in model.elemen])
+        self.adegan_besi = AdeganModel(self)  # diisi saat mode Besi beton pertama kali dipilih
+        self._besi = None  # {gid "besi:<induk>": Besi3D}; None = belum dibaca
+        self._pilih_besi = ""
+        self.path_ifc = None
         self.quick = QQuickWidget()
         self.quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
         self.quick.setMinimumWidth(520)
         # backend & adegan anak QQuickWidget: dihapus setelah mesin QML, bukan sebelumnya
         self.backend.setParent(self.quick)
         self.adegan.setParent(self.quick)
+        self.adegan_besi.setParent(self.quick)
         self.quick.rootContext().setContextProperty("backend", self.backend)
         self.quick.rootContext().setContextProperty("adegan", self.adegan)
+        self.quick.rootContext().setContextProperty("adeganBesi", self.adegan_besi)
         with tanpa_terjemahan_python():  # cegah macet: lihat gui/galat.py
             self.quick.setSource(QUrl.fromLocalFile(str(QML)))
         self.galat_qml = [e.toString() for e in self.quick.errors()]
@@ -961,19 +1048,42 @@ class Penampil3D(QDialog):
         self.splitter.setSizes([920, 460])
         root.addWidget(self.splitter, stretch=1)
 
-        self.toast = tema.Toast(self)
+        self._toast_sendiri = tema.Toast(self) if halaman is None else None
         self.backend.dipilih.connect(self.pilih)
         self.backend.disorot.connect(self._sorot_elemen)
         self.backend.fokus_diminta.connect(self.fokus)
-        if halaman is not None and hasattr(halaman, "riwayat"):
-            QShortcut(QKeySequence.Undo, self, activated=self.urungkan)
-            QShortcut(QKeySequence("Ctrl+Y"), self, activated=self.ulangi)
-            QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self.ulangi)
-        QShortcut(QKeySequence("Ctrl+F"), self, activated=lambda: (self.cari.setFocus(), self.cari.selectAll()))
+        if halaman is None:  # tertanam: pintasan (Ctrl+Z, Ctrl+F, Esc) ditangani halaman agar tidak bentrok
+            QShortcut(QKeySequence("Ctrl+F"), self, activated=self.fokus_cari)
 
         self.segarkan()
         self._siapkan_cari()
         self.pandangan("Iso", animasi=False)
+
+    # ------------------------------------------------------------ navigasi & riwayat
+
+    def kembali(self):
+        if self.halaman is not None and hasattr(self.halaman, "tutup_3d"):
+            self.halaman.tutup_3d()
+
+    def fokus_cari(self):
+        self.cari.setFocus()
+        self.cari.selectAll()
+
+    def toast(self, teks: str, jenis: str = "sukses"):
+        """Pesan singkat: di jendela utama bila tertanam, atau di widget ini bila berdiri sendiri."""
+        if self._toast_sendiri is not None:
+            self._toast_sendiri.tampilkan(teks, jenis)
+        else:
+            tema.toast(self, teks, jenis)
+
+    def _perbarui_riwayat(self):
+        r = getattr(self.halaman, "riwayat", None)
+        if r is None:
+            return
+        self.btn_urungkan.setEnabled(r.canUndo())
+        self.btn_ulangi.setEnabled(r.canRedo())
+        self.btn_urungkan.setToolTip(f"Batalkan: {r.undoText()} (Ctrl+Z)" if r.canUndo() else "Belum ada perubahan")
+        self.btn_ulangi.setToolTip(f"Ulangi: {r.redoText()} (Ctrl+Y)" if r.canRedo() else "Tidak ada yang diulangi")
 
     # ------------------------------------------------------------ data
 
@@ -1035,12 +1145,17 @@ class Penampil3D(QDialog):
         if cocok:
             self._cari_pilih(cocok)
         else:
-            self.toast.tampilkan(f'Elemen "{self.cari.text()}" tidak ditemukan', "peringatan")
+            self.toast(f'Elemen "{self.cari.text()}" tidak ditemukan', "peringatan")
 
     # ------------------------------------------------------------ pilih, sorot, warna
 
     @Slot(str)
     def pilih(self, gid: str):
+        if self._besi and gid in self._besi:  # klik besi beton -> elemen induknya (pembesian ada di rinciannya)
+            self._pilih_besi = gid
+            gid = self._besi[gid].host or ""
+        else:
+            self._pilih_besi = ""
         gid = gid if gid in self._e3d else ""
         self._pilih = gid
         if not gid:
@@ -1049,35 +1164,75 @@ class Penampil3D(QDialog):
         else:
             self._isi_panel()
         self._warnai()
+        self._warnai_besi()
 
     def _isi_panel(self):
         gid = self._pilih
         e = self._e3d[gid]
         info = self._peta.get(gid)
         if info is None or not info["baris"]:
+            from elemen_lain import LABEL_TERMASUK, POLA_LANTAI_ATAP, RANGKA_ATAP
+
             self._terkait = set()
+            termasuk = e.termasuk
+            if termasuk is None and info and info["kelas"] in ("BEAM", "COLUMN") and POLA_LANTAI_ATAP.search(e.lantai or ""):
+                termasuk = RANGKA_ATAP  # gording / kuda-kuda bukan beton di lantai atap
+            if termasuk:
+                from biaya_elemen import rincian_termasuk
+
+                data = rincian_termasuk(self.proyek_id, termasuk, e.kotak, self._peta, self._kotak)
+                if data:
+                    self._terkait = set(data["gids"])
+                    self.panel.termasuk(e.nama, LABEL_TERMASUK.get(termasuk, "Termasuk pekerjaan lain"), e.lantai,
+                                        data)
+                    return
             self.panel.tidak_dihitung(
                 (info or {}).get("nama") or e.nama, label_kelas(info, e.ifc), e.lantai, self._alasan(info, e))
             return
         data = rincian(self.proyek_id, gid, self._kotak, self._termasuk_terkait, self._peta)
         self._terkait = set(data["terkait"]) if self._termasuk_terkait else set()
         pesan = ""
-        if info.get("kolom_grup") and (info.get("info_kolom") or {}).get("n", 1) > 1:
+        if self._pilih_besi and self._besi and self._pilih_besi in self._besi:
+            pesan = (f"Besi beton elemen ini: {self._besi[self._pilih_besi].n_batang} batang dimodelkan "
+                     "(IfcReinforcingBar). Baris pembesiannya ada di tahap Pekerjaan Beton / Fondasi di bawah.")
+        elif info.get("kolom_grup") and (info.get("info_kolom") or {}).get("n", 1) > 1:
             pesan = ("Kolom ini tersusun dari beberapa objek IFC (mis. pedestal + kolom) dan dihitung sebagai satu "
                      "kolom fisik.")
         self.panel.tampilkan(data, self._opsi_harga(), self._termasuk_terkait, pesan)
 
     @staticmethod
     def _alasan(info, e) -> str:
+        if info is None and e.termasuk:
+            from elemen_lain import TERMASUK
+
+            return TERMASUK[e.termasuk][1]
         if info is None:
-            return (f"{e.ifc.replace('Ifc', '')} ini ada di model tetapi tidak termasuk elemen yang dihitung aplikasi "
-                    "(mis. perabot, aksesori, atau elemen bantu), sehingga tidak masuk RAB.")
+            return (f"{e.ifc.replace('Ifc', '')} ini ada di model tetapi tidak tersimpan di estimasi proyek. Jalankan "
+                    "Hitung Ulang dari File IFC agar elemen ini ikut dihitung.")
+        if info["kelas"] == "SLAB":
+            return ("Pelat ini lapisan finishing (penutup lantai). Penutup lantainya sudah dihitung dari penutup lantai, "
+                    "ruang, atau luas pelat struktur, jadi tidak dihitung dua kali.")
         ik = info.get("info_kolom") or {}
         if ik.get("peran") == "duplikat":
             return (f"Objek ganda: menempati tempat yang sama dengan {ik.get('nama_duplikat') or 'kolom lain'}. "
                     "Biayanya sudah dihitung pada kolom itu, jadi tidak dihitung dua kali.")
         return ("Elemen ini dikenali tetapi tidak menghasilkan item pekerjaan, misalnya karena pekerjaannya sudah "
                 "diwakili elemen lain atau digantikan pilihan jenis fondasi.")
+
+    def _baris_besi(self, host: str) -> list:
+        """Baris pembesian (BSI.*) elemen induk, dari hasil estimasi tersimpan."""
+        info = self._peta.get(host)
+        if not info:
+            return []
+        from biaya_elemen import _connect
+
+        conn = _connect()
+        try:
+            return [dict(r) for r in conn.execute(
+                """SELECT he.subtotal_biaya AS jumlah FROM hasil_estimasi he JOIN pekerjaan p ON p.id = he.pekerjaan_id
+                   WHERE he.elemen_id = ? AND p.kode_ahsp LIKE 'BSI.%'""", (info["id"],))]
+        finally:
+            conn.close()
 
     def _atur_terkait(self, aktif: bool):
         self._termasuk_terkait = aktif
@@ -1087,17 +1242,95 @@ class Penampil3D(QDialog):
 
     def _sorot_elemen(self, gid: str):
         lama = self._sorot
+        if self._besi and gid in self._besi:
+            self._sorot = gid
+            b = self._besi[gid]
+            info = self._peta.get(b.host) or {}
+            besi = sum(r["jumlah"] for r in self._baris_besi(b.host)) if b.host else 0
+            self.backend.set_teks_sorot(f"<b>Besi beton: {_html(info.get('nama') or b.nama)}</b><br>{b.n_batang} batang "
+                                        f"dimodelkan<br>pembesian {tema.format_rupiah(besi)}")
+            self._warnai_besi({lama, gid} - {""})
+            self._warnai({lama} & set(self._e3d))
+            return
         self._sorot = gid if gid in self._e3d else ""
+        if lama and self._besi and lama in self._besi:
+            self._warnai_besi({lama})
         if self._sorot:
             e = self._e3d[self._sorot]
             info = self._peta.get(self._sorot)
             nama = (info or {}).get("nama") or e.nama
             bagian = [label_kelas(info, e.ifc)] + ([e.lantai] if e.lantai else [])
-            biaya = tema.format_rupiah(info["total"]) if info and info["baris"] else "tidak dihitung di RAB"
+            biaya = tema.format_rupiah(info["total"]) if info and info["baris"] else (
+                "termasuk pekerjaan lain" if e.termasuk else "tidak dihitung di RAB")
             self.backend.set_teks_sorot(f"<b>{_html(nama)}</b><br>{_html(' · '.join(bagian))}<br>{biaya}")
         else:
             self.backend.set_teks_sorot("")
         self._warnai({lama, self._sorot} - {""})
+
+    # ------------------------------------------------------------ besi beton
+
+    def _ganti_tampilan(self, _i=None):
+        mode = self.combo_tampil.currentData()
+        if mode == TAMPIL_BESI and self._besi is None and not self._siapkan_besi():
+            self.combo_tampil.blockSignals(True)
+            self.combo_tampil.setCurrentIndex(self.combo_tampil.findData(self._tampil_lama))
+            self.combo_tampil.blockSignals(False)
+            return
+        self._tampil_lama = mode
+        self._warnai_besi()
+        self._warnai()
+
+    def _siapkan_besi(self) -> bool:
+        """Baca besi beton yang dimodelkan (sekali, di latar). False bila model tidak memuatnya."""
+        from gui.proses_latar import jalankan_di_latar
+        from model3d import muat_besi
+
+        path = self.path_ifc
+        if path is None and self.halaman is not None:
+            from database.proyek_repository import get_proyek
+
+            path = (get_proyek(self.proyek_id) or {}).get("path_file_ifc")
+        try:
+            besi = jalankan_di_latar(self, "Menyiapkan besi beton 3D (sekali saja)...", muat_besi, path,
+                                     self.model3d.geser, pakai_progress=True) if path else []
+        except Exception as e:
+            self.toast(f"Besi beton tidak dapat dibaca dari file IFC: {e}", "peringatan")
+            return False
+        if not besi:
+            QMessageBox.information(
+                self, "Besi beton",
+                "Model ini tidak memuat besi beton (IfcReinforcingBar), jadi tidak ada besi yang dapat ditampilkan.\n\n"
+                "Pembesiannya tetap dihitung di RAB dari Tipe Penulangan (menu Proyek ▾ › Tipe Penulangan).")
+            self._besi = {}
+            return False
+        self._besi = {b.gid: b for b in besi}
+        self.adegan_besi.atur([(b.gid, Geometri3D(b.posisi, b.normal)) for b in besi])
+        return True
+
+    def _warnai_besi(self, gids=None):
+        if not self._besi:
+            return
+        mode_besi = self.combo_tampil.currentData() == TAMPIL_BESI
+        batas = self.combo_lantai.currentData()
+        keadaan = {}
+        for g in (self._besi if gids is None else gids):
+            b = self._besi.get(g)
+            if b is None:
+                continue
+            induk = self._e3d.get(b.host)
+            tampil = mode_besi and not (batas is not None and induk is not None and induk.elevasi is not None
+                                        and induk.elevasi > batas + 0.01)
+            sinar = 0.0
+            if g == self._pilih_besi or (b.host and b.host == self._pilih):
+                warna, sinar = QColor(WARNA_PILIH), 0.30
+            elif b.host and b.host in self._terkait:
+                warna, sinar = QColor(WARNA_TERKAIT), 0.20
+            else:
+                warna = QColor(WARNA_BESI)
+                if g == self._sorot:
+                    warna = warna.lighter(135)
+            keadaan[g] = {"warna": warna, "buram": 1.0, "tampil": tampil, "klik": tampil, "sinar": sinar}
+        self.adegan_besi.perbarui(keadaan)
 
     def _keadaan(self, gid: str) -> dict:
         e = self._e3d[gid]
@@ -1111,16 +1344,24 @@ class Penampil3D(QDialog):
             tampil = False
         if tampil_mode == TAMPIL_STRUKTUR and kelas not in STRUKTUR:
             tampil = False
-        if not dihitung and not self.cb_lain.isChecked():
+        if tampil_mode == TAMPIL_BESI and kelas not in BETON:
             tampil = False
+        if not dihitung and not e.termasuk and not self.cb_lain.isChecked():
+            tampil = False
+        if e.termasuk == "rangka_atap" and tampil_mode == TAMPIL_STRUKTUR:
+            tampil = True  # rangka atap bagian struktur
         buram, klik, sinar = 1.0, True, 0.0
-        if gid == self._pilih:
+        if gid == self._pilih and tampil_mode == TAMPIL_BESI:
+            warna, sinar, buram, klik = QColor(WARNA_PILIH), 0.10, 0.22, False  # besinya yang disorot
+        elif gid in self._terkait and tampil_mode == TAMPIL_BESI:
+            warna, sinar, buram, klik = QColor(WARNA_TERKAIT), 0.05, 0.22, False
+        elif gid == self._pilih:
             warna, sinar = QColor(WARNA_PILIH), 0.30
         elif gid in self._terkait:
             warna, sinar = QColor(WARNA_TERKAIT), 0.18
         else:
             if not dihitung:
-                warna = QColor(WARNA_LAIN)
+                warna = QColor(WARNA_TERMASUK if e.termasuk else WARNA_LAIN)
             elif self.grup_warna.checkedId() == WARNA_BIAYA_MODE:
                 warna = warna_skala(self._peringkat.get(gid, 0.0))
             else:
@@ -1129,6 +1370,8 @@ class Penampil3D(QDialog):
                 buram = 0.55
             if tampil_mode == TAMPIL_TEMBUS and kelas not in STRUKTUR:
                 buram, klik = 0.12, False
+            if tampil_mode == TAMPIL_BESI:  # beton tembus pandang: besi di dalamnya terlihat dan dapat diklik
+                buram, klik = 0.10, False
             if gid == self._sorot and klik:
                 warna = warna.lighter(128)
         return {"warna": warna, "buram": buram, "tampil": tampil, "klik": tampil and klik, "sinar": sinar}
@@ -1141,7 +1384,12 @@ class Penampil3D(QDialog):
             self._perbarui_legenda()
 
     def _perbarui_legenda(self):
-        if self.grup_warna.checkedId() == WARNA_BIAYA_MODE:
+        if self.combo_tampil.currentData() == TAMPIL_BESI and self._besi:
+            self.legenda.atur_entri("Besi beton (dimodelkan)", [
+                (WARNA_BESI, f"Besi beton ({sum(b.n_batang for b in self._besi.values())} batang)"),
+                ("#a7adb4", "Beton (tembus pandang)"), (WARNA_PILIH, "Elemen dipilih"),
+                (WARNA_TERKAIT, "Ikut dihitung")])
+        elif self.grup_warna.checkedId() == WARNA_BIAYA_MODE:
             nilai = sorted(x["total"] for g, x in self._peta.items() if x["total"] > 0 and g in self._e3d)
             if nilai:
                 self.legenda.atur_biaya(rupiah_ringkas(nilai[0]), rupiah_ringkas(nilai[len(nilai) // 2]),
@@ -1151,8 +1399,9 @@ class Penampil3D(QDialog):
         else:
             kelas = {kelas_tampil(self._peta.get(g), e.ifc) for g, e in self._e3d.items()
                      if g in self._peta and self._peta[g]["baris"]}
-            lain = any(not (g in self._peta and self._peta[g]["baris"]) for g in self._e3d)
-            self.legenda.atur_jenis(sorted(kelas), lain)
+            lain = any(not (g in self._peta and self._peta[g]["baris"]) and not e.termasuk for g, e in self._e3d.items())
+            termasuk = any(e.termasuk for e in self._e3d.values())
+            self.legenda.atur_jenis(sorted(kelas), lain, termasuk)
         self._posisikan_overlay()
 
     # ------------------------------------------------------------ kamera
@@ -1189,22 +1438,21 @@ class Penampil3D(QDialog):
             pesan = self.halaman.terapkan_perubahan(aksi, keterangan, ringkas) if lewat_halaman else (
                 ringkas if aksi() else None)
         except ValueError as e:
-            self.toast.tampilkan(str(e), "peringatan")
+            self.toast(str(e), "peringatan")
             self.segarkan()
             return
         if pesan:
             if not lewat_halaman:
                 self.segarkan()
-            self.toast.tampilkan(pesan)
+            self.toast(pesan)
 
     def _ganti_bahan(self, elemen_id: int, slot: str, kunci: str, nama: str):
         from database.material_repository import simpan_material_elemen
 
         label = SLOT[slot].cari(kunci).label
 
-        def aksi():
-            simpan_material_elemen(elemen_id, {slot: kunci})
-            return True
+        def aksi():  # True hanya bila bahan benar-benar berubah (tanpa pesan / riwayat untuk pilihan yang sama)
+            return bool(simpan_material_elemen(elemen_id, {slot: kunci})["berubah"])
 
         self._terapkan(aksi, f"Ganti bahan {nama}: {label}".strip(), f"{SLOT[slot].judul} {nama} → {label}")
 
@@ -1220,18 +1468,14 @@ class Penampil3D(QDialog):
         self._terapkan(aksi, f"Ganti bahan elemen {nama}".strip(), f"Bahan {nama} diganti")
 
     def urungkan(self):
-        r = self.halaman.riwayat
-        if r.canUndo():
-            teks = r.undoText()
-            r.undo()  # halaman memuat ulang RAB lalu memanggil segarkan()
-            self.toast.tampilkan(f"Diurungkan: {teks}")
+        r = getattr(self.halaman, "riwayat", None)
+        if r is not None and r.canUndo():
+            r.undo()  # halaman memulihkan data, memuat ulang RAB (segarkan() widget ini), dan menampilkan pesan
 
     def ulangi(self):
-        r = self.halaman.riwayat
-        if r.canRedo():
-            teks = r.redoText()
+        r = getattr(self.halaman, "riwayat", None)
+        if r is not None and r.canRedo():
             r.redo()
-            self.toast.tampilkan(f"Diulangi: {teks}")
 
     def _lihat_tabel(self, nama: str):
         if self.halaman is not None and hasattr(self.halaman, "lihat_elemen"):
@@ -1282,9 +1526,15 @@ class Penampil3D(QDialog):
         self._label_galat.move((self.quick.width() - self._label_galat.width()) // 2, 70)
         self._label_galat.show()
 
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Escape and self._pilih:
+    def esc(self) -> bool:
+        """Esc: batal pilih elemen. Return False bila tidak ada yang dipilih (halaman lalu kembali ke RAB)."""
+        if self._pilih:
             self.pilih("")
+            return True
+        return False
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape and self.halaman is None and self.esc():
             return
         super().keyPressEvent(event)
 
@@ -1322,6 +1572,7 @@ def buka_penampil(halaman, proyek_id: int, nama_proyek: str, path_ifc: str | Non
         QMessageBox.information(halaman, "Model 3D", "File IFC ini tidak berisi geometri elemen bangunan.")
         return None
     jendela = Penampil3D(proyek_id, nama_proyek, model, halaman)
+    jendela.path_ifc = path_ifc
     if jendela.galat_qml:
         QMessageBox.warning(halaman, "Model 3D", "Tampilan 3D gagal disiapkan:\n\n" + "\n".join(jendela.galat_qml[:5]))
         jendela.deleteLater()

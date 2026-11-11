@@ -49,8 +49,9 @@ _KOLOM_ELEMEN = (
     "info_balok",
     "info_fondasi",
     "di_luar_bangunan",
+    "info_lain",
 )
-_KOLOM_JSON = ("sumber_dimensi", "besi_model", "info_kolom", "info_balok", "info_fondasi")
+_KOLOM_JSON = ("sumber_dimensi", "besi_model", "info_kolom", "info_balok", "info_fondasi", "info_lain")
 RULES_PEMBESIAN = [r for r in RULES if r.kode.startswith("BSI.")]
 
 
@@ -75,6 +76,8 @@ def _simpan_hasil(conn, proyek_id, elemen_id, hasil, harga, kode, peringatan, ma
     n = 0
     for h in hasil:
         pid = peta.get(h.kode)
+        if pid is None and h.kode.startswith("LAIN|"):
+            pid = _pekerjaan_lain(conn, h.kode, kode[1])
         if pid is None:
             peringatan.append(f"Kode pekerjaan '{h.kode}' belum ada di tabel pekerjaan (jalankan seed).")
             continue
@@ -87,6 +90,21 @@ def _simpan_hasil(conn, proyek_id, elemen_id, hasil, harga, kode, peringatan, ma
         )
         n += 1
     return n
+
+
+def _pekerjaan_lain(conn, kode: str, kode_ke_id: dict) -> int:
+    """Pekerjaan untuk elemen model tanpa padanan analisa HSPK (elemen_lain.py): dibuat sekali, tanpa komponen
+    (harga 0) sehingga muncul di peringatan "belum punya harga satuan" dan harganya diisi pengguna."""
+    from elemen_lain import pekerjaan_lain
+
+    if kode not in kode_ke_id:
+        nama, kategori, satuan = pekerjaan_lain(kode)
+        kode_ke_id[kode] = conn.execute(
+            "INSERT INTO pekerjaan (kode_ahsp, nama_pekerjaan, kategori, satuan, catatan) VALUES (?,?,?,?,?)",
+            (kode, nama, kategori, satuan, "Elemen dari model IFC tanpa padanan analisa HSPK: isi harga satuannya "
+                                           "(Harga Satuan) atau harga khusus baris di tabel RAB."),
+        ).lastrowid
+    return kode_ke_id[kode]
 
 
 def jalankan_estimasi(proyek_id: int, model=None, progress=None, parameter=None) -> dict:
@@ -176,7 +194,7 @@ def _baris_ke_elemen(row) -> dict:
         el["sumber_dimensi"] = json.loads(el.get("sumber_dimensi") or "{}")
     except ValueError:
         el["sumber_dimensi"] = {}
-    for k in ("besi_model", "info_kolom", "info_balok", "info_fondasi"):
+    for k in ("besi_model", "info_kolom", "info_balok", "info_fondasi", "info_lain"):
         try:
             el[k] = json.loads(el[k]) if el.get(k) else None
         except ValueError:

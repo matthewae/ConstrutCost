@@ -9,7 +9,8 @@ Mesin aturannya sudah benar sejak awal:
 - satuan yang sama dengan analisa HSPK.
 
 Audit pada tiga model uji menemukan beberapa **asumsi konstruksi** yang membuat RAB menyimpang. Dokumen ini
-mencatat setiap koreksi, alasannya, dan dampaknya. Jumlah aturan bertambah dari 52 menjadi 69, lalu 77 setelah uji model Rumah Tipe 120, dan 85 setelah sumuran model dan pilihan jenis fondasi kolom (16 kelas elemen).
+mencatat setiap koreksi, alasannya, dan dampaknya. Jumlah aturan bertambah dari 52 menjadi 69, lalu 77 setelah uji model Rumah Tipe 120, 85 setelah sumuran model dan pilihan jenis fondasi kolom (16 kelas elemen), lalu 91 setelah semua elemen model
+masuk RAB (kelas LAINNYA dan struktur bukan beton, 17 kelas; lihat `docs/Elemen-Lain.md`).
 
 ## Ringkasan koreksi
 

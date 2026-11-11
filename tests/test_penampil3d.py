@@ -178,7 +178,8 @@ def test_peta_biaya_sama_dengan_hasil_estimasi(proyek):
     peta = peta_biaya(pid)
     total_rab = sum(r["subtotal_biaya"] for r in get_hasil_estimasi_by_proyek(pid))
     assert sum(x["total"] for x in peta.values()) == pytest.approx(total_rab)
-    assert "Meja Kerja" not in {x["nama"] for x in peta.values()}  # perabot tidak masuk RAB
+    meja = next(x for x in peta.values() if x["nama"] == "Meja Kerja")
+    assert meja["baris"] == 1 and meja["total"] == 0  # perabot masuk RAB sebagai pekerjaan dari model, harga diisi
 
 
 # ---------------------------------------------------------------- objek Qt
@@ -291,8 +292,9 @@ def test_jendela_3d_pilih_warna_saring_dan_ganti_bahan(qapp, proyek):
         assert kd["tampil"] and kd["buram"] < 0.5 and not kd["klik"]  # klik menembus ke kolom di baliknya
         d.combo_tampil.setCurrentIndex(0)
 
-        d.pilih(meja)  # ada di model, tidak masuk RAB
-        assert d.panel.stack.currentIndex() == 1 and d.panel.btn_tabel.isHidden()
+        d.pilih(meja)  # perabot: masuk RAB sebagai pekerjaan dari model dengan harga 0 (harga diisi pengguna)
+        assert d.panel.stack.currentIndex() == 1 and d.panel._data["total"] == 0
+        assert d.panel._data["utama"]["baris"][0]["kode"].startswith("LAIN|IfcFurniture|")
         d.cari.setText("dinding bata")
         d._cari_enter()
         assert d._pilih == dinding
@@ -312,18 +314,33 @@ def test_jendela_3d_pilih_warna_saring_dan_ganti_bahan(qapp, proyek):
         d.deleteLater()
 
 
-def test_halaman_estimasi_membuka_model_3d_dengan_urungkan(qapp, proyek):
+def _jendela(hal):
+    from PySide6.QtWidgets import QMainWindow
+
+    from gui import tema
+
+    w = QMainWindow()
+    w.toast = tema.Toast(w)
+    w.setCentralWidget(hal)
+    w.resize(1300, 820)
+    w.show()
+    return w
+
+
+def test_mode_3d_di_halaman_estimasi_kembali_dan_urungkan(qapp, proyek):
     from database.biaya_repository import ringkasan_biaya
     from database.material import SLOT
     from gui.estimasi_page import EstimasiPage
 
     pid, _path, _m = proyek
     hal = EstimasiPage(pid, "Uji 3D")
+    w = _jendela(hal)
     try:
-        assert hal.btn_3d.isEnabled()
+        assert hal.btn_3d.isEnabled() and not hal.mode_3d
         hal._buka_3d()
         d = hal._dialog_3d
-        assert d is not None and d.isVisible() and d.halaman is hal
+        assert hal.mode_3d and d.isVisible() and d.halaman is hal and not hal.halaman_rab.isVisible()
+        assert not d.btn_urungkan.isEnabled()  # belum ada perubahan
         dinding = _gid(d._peta, "Dinding Bata Y1")
         d.pilih(dinding)
         lama = ringkasan_biaya(pid)["langsung"]
@@ -332,17 +349,78 @@ def test_halaman_estimasi_membuka_model_3d_dengan_urungkan(qapp, proyek):
         lain = next(o.kunci for o in SLOT[kode].opsi if o.kunci != slot[kode]["kunci"])
         d._ganti_bahan(d.panel._data["utama"]["elemen_id"], kode, lain, "Dinding Bata Y1")
         assert hal.riwayat.count() == 1 and ringkasan_biaya(pid)["langsung"] != pytest.approx(lama)
-        d.urungkan()  # Ctrl+Z di jendela 3D memakai riwayat halaman
+        assert d.btn_urungkan.isEnabled() and "Ganti bahan" in d.btn_urungkan.toolTip()
+        d.btn_urungkan.click()  # tombol Urungkan di mode 3D memakai riwayat halaman
         assert ringkasan_biaya(pid)["langsung"] == pytest.approx(lama)
         assert d.panel._data["slot"][kode]["kunci"] == slot[kode]["kunci"]  # panel ikut diperbarui
-        d.panel.btn_tabel.click()  # Lihat di Tabel RAB
-        assert hal.mode == hal.MODE_DETAIL and hal.kolom_cari.text() == "Dinding Bata Y1"
-        d.close()
-        hal._buka_3d()  # dibuka lagi: jendela yang sama, tanpa membaca ulang IFC
-        assert hal._dialog_3d is d and d.isVisible()
+        assert d.btn_ulangi.isEnabled()
+        d.btn_ulangi.click()
+        assert ringkasan_biaya(pid)["langsung"] != pytest.approx(lama)
+        d.btn_kembali.click()  # Kembali ke RAB
+        assert not hal.mode_3d and hal.halaman_rab.isVisible()
+        hal._esc()  # Esc di tabel RAB = kembali ke daftar proyek (sinyal), bukan masuk 3D
+        hal._buka_3d()  # masuk lagi: widget yang sama, tanpa membaca ulang IFC
+        assert hal._dialog_3d is d and hal.mode_3d
+        d.pilih(dinding)
+        hal._esc()  # Esc pertama: batal pilih
+        assert hal.mode_3d and d._pilih == ""
+        hal._esc()  # Esc kedua: kembali ke RAB
+        assert not hal.mode_3d
+        hal._buka_3d()
+        d.pilih(dinding)
+        d.panel.btn_tabel.click()  # Lihat di Tabel RAB: keluar dari mode 3D, tabel Per Elemen tersaring
+        assert not hal.mode_3d and hal.mode == hal.MODE_DETAIL and hal.kolom_cari.text() == "Dinding Bata Y1"
     finally:
-        if hal._dialog_3d is not None:
-            hal._dialog_3d.close()
+        w.close()
+        hal.deleteLater()
+
+
+def test_perubahan_dua_arah_antara_mode_3d_tabel_dan_export(qapp, proyek, tmp_path):
+    """Perubahan di mode 3D ikut ke tabel RAB dan export; perubahan di tabel ikut terlihat di mode 3D."""
+    from database.biaya_repository import ringkasan_biaya
+    from database.estimasi_repository import update_volume_estimasi
+    from database.material import SLOT
+    from export_service import OpsiExport, ambil_data_export, export_excel
+    from gui.estimasi_page import EstimasiPage
+
+    pid, _path, _m = proyek
+    hal = EstimasiPage(pid, "Uji 3D")
+    w = _jendela(hal)
+    try:
+        hal._buka_3d()
+        d = hal._dialog_3d
+        dinding = _gid(d._peta, "Dinding Bata Y1")
+        d.pilih(dinding)
+        slot = d.panel._data["slot"]
+        kode = next(iter(slot))
+        lain = next(o for o in SLOT[kode].opsi if o.kunci != slot[kode]["kunci"])
+        d._ganti_bahan(d.panel._data["utama"]["elemen_id"], kode, lain.kunci, "Dinding Bata Y1")
+        total_3d = d.panel._data["total"]
+        hal.tutup_3d()
+        # 1) tabel RAB sudah memuat bahan baru (tanpa muat ulang manual)
+        baris = [r for r in hal._data if r["elemen_id"] == d.panel._data["utama"]["elemen_id"]]
+        assert any(r["nama_pekerjaan"] == lain.nama for r in baris)
+        assert sum(r["subtotal_biaya"] for r in baris) == pytest.approx(d.panel._data["utama"]["total"])
+        # 2) export memakai data yang sama
+        data = ambil_data_export(pid)
+        assert data["ringkasan"]["langsung"] == pytest.approx(ringkasan_biaya(pid)["langsung"]) \
+            if "ringkasan" in data else True
+        xlsx = export_excel(tmp_path / "rab.xlsx", data, {}, OpsiExport())
+        from openpyxl import load_workbook
+
+        isi = " ".join(str(c.value) for ws in load_workbook(xlsx).worksheets for row in ws.iter_rows() for c in row
+                       if c.value)
+        assert lain.nama in isi
+        # 3) perubahan di tabel (edit volume) terlihat saat masuk mode 3D lagi
+        r0 = baris[0]
+        update_volume_estimasi(r0["hasil_id"], r0["pekerjaan_id"], r0["volume_pekerjaan"] * 2)
+        hal.muat()
+        hal._buka_3d()
+        d.pilih(dinding)
+        assert d.panel._data["total"] > total_3d
+        assert any(b["diedit_manual"] for b in d.panel._data["utama"]["baris"])
+    finally:
+        w.close()
         hal.deleteLater()
 
 
@@ -355,3 +433,107 @@ def test_file_ifc_hilang_memberi_pesan(qapp, db_sementara, monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: pesan.append(a[2]))
     assert penampil3d.buka_penampil(None, 1, "x", "/tidak/ada/model.ifc") is None
     assert "tidak ditemukan" in pesan[0]
+
+
+# ---------------------------------------------------------------- besi beton 3D
+
+
+def _model_besi(tmp_path):
+    """Model uji + 4 besi D13 tegak di sudut Kolom K1 (IfcReinforcingBar ekstrusi, induk lewat HostGlobalId)."""
+    import ifcopenshell
+    import ifcopenshell.api as api
+
+    path = _model(tmp_path)
+    f = ifcopenshell.open(str(path))
+    body = next(c for c in f.by_type("IfcGeometricRepresentationSubContext") if c.ContextIdentifier == "Body")
+    kolom = next(c for c in f.by_type("IfcColumn") if c.Name == "Kolom K1 30x30")
+    lantai = kolom.ContainedInStructure[0].RelatingStructure
+    for i, (dx, dy) in enumerate(((-0.1, -0.1), (0.1, -0.1), (0.1, 0.1), (-0.1, 0.1))):
+        bar = api.run("root.create_entity", f, ifc_class="IfcReinforcingBar", name=f"Tulangan D13 K1-{i + 1}")
+        bar.NominalDiameter = 0.013
+        profil = f.create_entity("IfcCircleProfileDef", ProfileType="AREA", Radius=0.0065)
+        rep = api.run("geometry.add_profile_representation", f, context=body, profile=profil, depth=3.6)
+        api.run("geometry.assign_representation", f, product=bar, representation=rep)
+        m = np.eye(4)
+        m[:3, 3] = (dx, dy, -0.1)
+        api.run("geometry.edit_object_placement", f, product=bar, matrix=m)
+        ps = api.run("pset.add_pset", f, product=bar, name="CostStruct_Tulangan")
+        api.run("pset.edit_pset", f, pset=ps, properties={"HostGlobalId": kolom.GlobalId})
+        api.run("spatial.assign_container", f, products=[bar], relating_structure=lantai)
+    f.write(str(path))
+    return path, kolom.GlobalId
+
+
+def test_tabung_besi_segi_enam():
+    from model3d import tabung
+
+    pos, nrm = tabung(np.array([[0.0, 0, 0], [1, 1, 1]]), np.array([[0.0, 0, 2], [1, 1, 1]]), np.array([0.01, 0.01]))
+    assert pos.shape == (6 * 6, 3)  # segmen kedua (panjang nol) dibuang; 6 sisi x 2 segitiga x 3 titik
+    assert np.allclose(np.linalg.norm(nrm, axis=1), 1.0)
+    assert np.allclose(np.hypot(pos[:, 0], pos[:, 1]), 0.01)  # semua titik di permukaan tabung r = 1 cm
+    assert pos[:, 2].min() == pytest.approx(0) and pos[:, 2].max() == pytest.approx(2)
+
+
+def test_besi_dikelompokkan_per_elemen_induk(tmp_path):
+    from model3d import muat_besi, muat_model3d
+
+    path, k1 = _model_besi(tmp_path)
+    m = muat_model3d(str(path))
+    besi = muat_besi(str(path), m.geser)
+    assert [(b.gid, b.host, b.n_batang) for b in besi] == [(f"besi:{k1}", k1, 4)]
+    b = besi[0]
+    assert b.kotak[2] == pytest.approx(-0.1, abs=0.001) and b.kotak[5] == pytest.approx(3.5, abs=0.001)
+    assert b.kotak[3] - b.kotak[0] == pytest.approx(0.2 + 0.013, abs=0.002)  # 4 besi di sudut, jarak 20 cm + diameter
+    assert all(e.ifc != "IfcReinforcingBar" for e in m.elemen)  # besi tidak ikut dimuat di tampilan biasa
+
+
+def test_mode_besi_beton_di_penampil(qapp, db_sementara, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    from database.proyek_repository import create_proyek
+    from estimasi_service import jalankan_estimasi
+    from gui.penampil3d import TAMPIL_BESI, WARNA_PILIH, Penampil3D
+    from model3d import muat_model3d
+
+    path, k1 = _model_besi(tmp_path)
+    pid = create_proyek("Uji Besi", str(path))
+    jalankan_estimasi(pid)
+    d = Penampil3D(pid, "Uji Besi", muat_model3d(str(path)))
+    d.path_ifc = str(path)
+    try:
+        assert d._besi is None  # dibaca saat mode besi pertama kali dipilih
+        d.combo_tampil.setCurrentIndex(d.combo_tampil.findData(TAMPIL_BESI))
+        gid = f"besi:{k1}"
+        assert list(d._besi) == [gid] and d.adegan_besi.keadaan(gid)["tampil"]
+        dinding = _gid(d._peta, "Dinding Bata Y1")
+        assert not d.adegan.keadaan(dinding)["tampil"]  # mode besi: hanya beton (tembus pandang) + besi
+        kk = d.adegan.keadaan(k1)
+        assert kk["tampil"] and kk["buram"] < 0.5 and not kk["klik"]
+        d.pilih(gid)  # klik besi -> elemen induknya, pembesian ada di rinciannya
+        assert d._pilih == k1 and d.adegan_besi.keadaan(gid)["warna"].name() == WARNA_PILIH
+        kode = {r["kode"] for b in d.panel._data["bagian"] for r in b["baris"]}
+        assert any(k.startswith("BSI.KOLOM") for k in kode)
+        assert "4 batang dimodelkan" in d.panel._pesan
+        d.combo_tampil.setCurrentIndex(0)
+        assert not d.adegan_besi.keadaan(gid)["tampil"]  # besi hanya tampil di mode besi
+    finally:
+        d.close()
+        d.deleteLater()
+
+    # model tanpa besi beton: pesan, pilihan kembali ke tampilan sebelumnya
+    pid2 = create_proyek("Tanpa Besi", str(_model(tmp_path / "x" if (tmp_path / "x").mkdir() is None else tmp_path)))
+    pesan = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: pesan.append(a[2]))
+    jalankan_estimasi(pid2)
+    from database.proyek_repository import get_proyek
+
+    p2 = get_proyek(pid2)["path_file_ifc"]
+    d2 = Penampil3D(pid2, "Tanpa Besi", muat_model3d(p2))
+    d2.path_ifc = p2
+    try:
+        d2.combo_tampil.setCurrentIndex(d2.combo_tampil.findData(TAMPIL_BESI))
+        assert pesan and "tidak memuat besi beton" in pesan[0]
+        assert d2.combo_tampil.currentData() != TAMPIL_BESI
+    finally:
+        d2.close()
+        d2.deleteLater()

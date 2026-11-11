@@ -1,8 +1,28 @@
 # Penampil Model 3D dan Kebutuhan Biaya per Elemen
 
-Tombol **Model 3D** (kanan atas halaman estimasi, atau Ctrl+3) membuka bangunan dalam 3D. Klik sebuah elemen,
-misalnya Kolom K1 A1, dan panel kanan menampilkan berapa biaya untuk membangunnya. Isinya dimulai dari pekerjaan
-tanah dan fondasi di bawahnya, lalu kolom itu sendiri, beserta pilihan bahannya.
+Tombol **Model 3D** (kanan atas halaman estimasi, atau Ctrl+3) mengganti tampilan halaman estimasi ke mode 3D,
+di jendela yang sama. Klik sebuah elemen, misalnya Kolom K1 A1, dan panel kanan menampilkan berapa biaya untuk
+membangunnya. Isinya dimulai dari pekerjaan tanah dan fondasi di bawahnya, lalu kolom itu sendiri, beserta pilihan
+bahannya.
+
+## Kembali, urungkan, dan tersimpan otomatis
+
+Bagian atas mode 3D berisi:
+
+| Kontrol | Fungsi |
+|---|---|
+| **← Kembali ke RAB** (atau Esc) | Kembali ke tabel RAB. Esc pertama membatalkan pilihan elemen, Esc kedua kembali |
+| **✓ Tersimpan otomatis** | Setiap perubahan (bahan, volume, harga) langsung tersimpan ke database proyek. Tidak ada tombol simpan terpisah, dan tidak ada perubahan yang hilang saat kembali. Ctrl+S tetap menyimpan salinan file .coststruct |
+| **↶ Urungkan / ↷ Ulangi** (Ctrl+Z / Ctrl+Y) | Riwayatnya sama dengan tabel RAB. Perubahan yang dibuat di mode 3D bisa diurungkan dari tabel, dan sebaliknya. Tooltip menyebut langkah yang akan dibatalkan |
+| **Export RAB** (Ctrl+E) | Export Excel / PDF langsung dari mode 3D |
+
+**Sinkron dua arah.** Mode 3D dan tabel RAB membaca data yang sama (`hasil_estimasi`), jadi:
+- bahan yang diganti di mode 3D langsung tampil di tabel RAB, rekap, kebutuhan bahan, dan **Export RAB**;
+- perubahan di luar mode 3D tampil saat masuk mode 3D lagi, misalnya edit volume, harga khusus, ganti bahan proyek,
+  parameter aturan / jenis fondasi, atau hitung ulang.
+
+Mode 3D dibangun sekali per halaman proyek. Masuk lagi berikutnya langsung tampil dengan data terbaru. Bila file
+IFC proyek diganti, bentuk 3D dibaca ulang.
 
 Kode program:
 - `src/model3d.py`: geometri dari IFC;
@@ -13,6 +33,7 @@ Kode program:
 
 1. **Buka.** Klik **Model 3D**. File IFC proyek dibaca sekali di latar, dengan jendela progres (±3–7 detik untuk
    rumah tipe 120). Membuka lagi berikutnya langsung tampil karena bentuk 3D disimpan selama aplikasi terbuka.
+   **Kembali ke RAB** untuk kembali ke tabel.
 2. **Lihat.**
 
    | Aksi | Kontrol |
@@ -58,9 +79,11 @@ sumuran turunan, atau galian, sudah menjadi baris RAB elemen itu sendiri. Baris 
 tambahan. Kotak centang *Termasuk pedestal, fondasi & pekerjaan tanah di bawahnya* dapat dimatikan untuk melihat
 biaya elemen itu saja.
 
-Elemen yang ada di model tetapi tidak masuk RAB (perabot, aksesori) tampil abu-abu. Saat diklik, panel
-menjelaskan alasannya. Objek kolom ganda menyebut kolom tempat biayanya sudah dihitung, jadi tidak dihitung dua
-kali.
+Semua elemen model masuk RAB, termasuk cladding, kisi, lisplang, nok, talang, waterproofing, lansekap, dan
+sanitair (`docs/Elemen-Lain.md`). Elemen yang **sudah termasuk pekerjaan lain** tampil abu-abu muda: batang rangka
+atap, penutup atap, dan bagian tangga. Saat diklik, panel menampilkan pekerjaan yang mencakupnya. Contoh: kasau /
+kuda-kuda → baris Rangka Atap per m² pada bidang atap di atasnya, dan atap itu diberi warna hijau. Objek kolom ganda
+menyebut kolom tempat biayanya sudah dihitung, jadi tidak dihitung dua kali.
 
 ## Pilihan tampilan
 
@@ -68,9 +91,29 @@ kali.
 |---|---|
 | **Cari elemen** (Ctrl+F) | ketik mis. "K1", "dinding", "fondasi"; pilih dari daftar untuk memilih dan memfokuskan elemen |
 | **Lantai: s.d. …** | sembunyikan lantai di atasnya, mis. *s.d. 00 Fondasi* menampilkan denah fondasi dan sloof saja |
-| **Tampilan lengkap / Arsitektur tembus pandang / Struktur saja** | Tembus pandang: dinding, atap, pintu, dan jendela dibuat transparan, dan klik menembus ke kolom/balok di baliknya. Struktur saja: hanya kolom, balok, pelat, fondasi, tangga, dan pekerjaan tanah |
+| **Tampilan lengkap / Arsitektur tembus pandang / Struktur saja / Besi beton** | Tembus pandang: dinding, atap, pintu, dan jendela dibuat transparan, dan klik menembus ke kolom/balok di baliknya. Struktur saja: hanya kolom, balok, pelat, fondasi, tangga, dan pekerjaan tanah. Besi beton: beton dibuat tembus pandang sehingga besi beton yang dimodelkan (IfcReinforcingBar) di dalamnya terlihat; lihat bagian di bawah |
 | **Warna jenis / Warna biaya** | Warna biaya: biru = elemen murah, merah = elemen mahal (peringkat persentil); legenda menampilkan biaya terendah, median, dan tertinggi |
 | **Elemen tak dihitung** | tampilkan atau sembunyikan elemen yang tidak masuk RAB |
+
+## Mode besi beton (pembesian)
+
+Pilih **Besi beton (pembesian)** di combo tampilan:
+- kolom, balok, pelat, fondasi, dan tangga menjadi tembus pandang, elemen lain disembunyikan, dan besi beton yang
+  dimodelkan terlihat di dalamnya (oranye);
+- besi dikelompokkan per elemen induk (relasi agregasi IFC atau properti `HostGlobalId`). Klik besi sebuah kolom →
+  besi kolom itu kuning, panel menampilkan rincian biaya kolom (baris pembesian per diameter), dan besi pedestal /
+  footplate di bawahnya hijau;
+- sorot kursor pada besi menampilkan jumlah batang dan biaya pembesian elemen itu;
+- saringan **s.d. lantai** juga berlaku, mis. *s.d. 01 Lantai 1* untuk melihat besi kolom, sloof, dan fondasi
+  lantai 1.
+
+Besi dibaca sekali saat mode ini pertama dipilih (±6 detik untuk 5.740 batang model 3 lantai, dengan jendela
+progres). Penampang besi digambar sebagai tabung segi-6 langsung dari sumbu segmen dan diameter nominalnya, sekitar
+300 ribu segitiga untuk 5.740 batang (bentuk asli 711 ribu segitiga, ±20 detik). Besi berbentuk lain (mis.
+IfcSweptDiskSolid lengkung dari Revit) dibaca dengan pembaca geometri IfcOpenShell.
+
+Model yang tidak memuat besi beton menampilkan pesan bahwa pembesiannya dihitung dari Tipe Penulangan, lalu
+tampilan kembali ke pilihan sebelumnya.
 
 ## Catatan teknis
 
@@ -97,7 +140,7 @@ kali.
 
 ## Pengujian
 
-`tests/test_penampil3d.py` (13 tes) memakai model IFC buatan. Isinya: kolom = pedestal + kolom di atas footplate
+`tests/test_penampil3d.py` (17 tes) memakai model IFC buatan. Isinya: kolom = pedestal + kolom di atas footplate
 dan lantai kerja, dinding di atas sloof, dan perabot. Yang diuji:
 
 - **Geometri:** lantai, koordinat dunia vs koordinat tampilan, dan penghapusan segitiga tanpa luas.
@@ -111,5 +154,10 @@ dan lantai kerja, dinding di atas sloof, dan perabot. Yang diuji:
   - warna pilih dan terkait;
   - saringan lantai, struktur saja, dan tembus pandang (klik menembus);
   - pencarian dan ganti bahan.
-- **Dari halaman estimasi:** ganti bahan, Ctrl+Z, dan Lihat di Tabel RAB.
+- **Mode 3D di halaman estimasi:**
+  - Kembali ke RAB, Esc dua tahap, tombol Urungkan / Ulangi, dan Lihat di Tabel RAB;
+  - **sinkron dua arah**: ganti bahan di 3D → tabel RAB dan file Excel hasil Export memuat bahan baru; edit volume di
+    tabel → panel 3D memuat volume baru.
 - **File hilang:** pesan file IFC tidak ditemukan.
+- **Besi beton:** tabung segi-6, besi dikelompokkan per elemen induk, mode besi (beton tembus pandang, klik besi →
+  pembesian elemen induk), dan model tanpa besi (pesan, tampilan kembali).

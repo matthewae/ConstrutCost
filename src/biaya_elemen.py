@@ -43,7 +43,7 @@ def peta_biaya(proyek_id: int) -> dict:
     try:
         rows = conn.execute(
             """SELECT ep.id, ep.global_id, ep.nama, ep.kelas, ep.lantai, ep.predefined_type, ep.kolom_grup,
-                      ep.info_kolom, ep.info_fondasi, COALESCE(SUM(he.subtotal_biaya), 0) AS total,
+                      ep.info_kolom, ep.info_fondasi, ep.info_lain, COALESCE(SUM(he.subtotal_biaya), 0) AS total,
                       COUNT(he.id) AS baris
                FROM elemen_proyek ep LEFT JOIN hasil_estimasi he ON he.elemen_id = ep.id
                WHERE ep.proyek_id = ? GROUP BY ep.id""", (proyek_id,)).fetchall()
@@ -54,6 +54,7 @@ def peta_biaya(proyek_id: int) -> dict:
         d = dict(r)
         d["info_kolom"] = _json(d["info_kolom"])
         d["info_fondasi"] = _json(d["info_fondasi"])
+        d["info_lain"] = _json(d["info_lain"])
         hasil[r["global_id"]] = d
     return hasil
 
@@ -162,6 +163,11 @@ def _dimensi(r) -> str:
             bagian.append(f"tinggi {m(h)} m")
         if t:
             bagian.append(f"tebal {cm(t)} cm")
+    elif k == "LAINNYA":
+        if L and (r["predefined_type"] or "") not in ("CLADDING", "MEMBRANE"):
+            bagian.append(f"panjang {m(L)} m")
+        if A:
+            bagian.append(f"luas {m(A)} m²")
     elif k in ("SLAB", "ROOF", "FLOOR", "CEILING", "SPACE", "WALL_TILE") and A:
         bagian.append(f"luas {m(A)} m²" + (f", tebal {cm(t)} cm" if t and k in ("SLAB", "ROOF") else ""))
     elif k == "FOOTING" and L and b and (r["predefined_type"] or "") == "CAISSON_FOUNDATION":
@@ -189,11 +195,48 @@ def _bagian(conn, elemen_id: int, peran: str) -> dict:
     label = LABEL.get(ElementType(kelas), kelas) if kelas in ElementType._value2member_map_ else kelas
     if kelas == "COLUMN" and info_kolom.get("fungsi"):
         label = LABEL_FUNGSI.get(info_kolom["fungsi"], label)
+    if kelas == "LAINNYA":
+        label = (_json(r["info_lain"]) or {}).get("label") or label
     return {
         "elemen_id": elemen_id, "gid": r["global_id"], "judul": r["nama"] or r["ifc_type"], "peran": peran,
         "kelas": kelas, "label_kelas": label, "lantai": r["lantai"], "ifc_type": r["ifc_type"],
         "dimensi": _dimensi(r), "baris": baris, "total": sum(b["jumlah"] for b in baris),
     }
+
+
+def rincian_termasuk(proyek_id: int, jenis: str, kotak_elemen: tuple, peta: dict, kotak: dict) -> dict | None:
+    """Pekerjaan yang sudah mencakup elemen yang tidak dihitung tersendiri (elemen_lain.TERMASUK), mis. batang
+    rangka atap -> baris Rangka Atap pada atap di atasnya. {'keterangan', 'bagian', 'total', 'gids'} atau None."""
+    from elemen_lain import TERMASUK
+
+    kode_awal, keterangan = TERMASUK[jenis]
+    kelas = "STAIR" if kode_awal == "BTN.TANGGA" else "ROOF"
+    calon = [g for g, x in peta.items() if x["kelas"] == kelas and g in kotak and x["baris"]
+             and _tumpang(kotak[g], kotak_elemen, 0.3, 1.5)]
+    if not calon:
+        return None
+    conn = _connect()
+    try:
+        bagian = []
+        for g in calon:
+            b = _bagian(conn, peta[g]["id"], "Pekerjaan yang mencakup elemen ini")
+            if kelas == "ROOF":
+                b["baris"] = [r for r in b["baris"] if r["kode"].split("~")[0] == kode_awal]
+                b["total"] = sum(r["jumlah"] for r in b["baris"])
+            if b["baris"]:
+                bagian.append(b)
+    finally:
+        conn.close()
+    if not bagian:
+        return None
+    return {"keterangan": keterangan, "bagian": bagian, "total": sum(b["total"] for b in bagian),
+            "gids": [b["gid"] for b in bagian]}
+
+
+def _tumpang(a: tuple, b: tuple, tol_denah: float, tol_z: float) -> bool:
+    """Kotak a dan b bertumpuk di denah (toleransi tol_denah) dan berdekatan secara vertikal (tol_z)."""
+    return (a[0] - tol_denah <= b[3] and b[0] <= a[3] + tol_denah and a[1] - tol_denah <= b[4]
+            and b[1] <= a[4] + tol_denah and a[2] - tol_z <= b[5] and b[2] <= a[5] + tol_z)
 
 
 def rincian(proyek_id: int, gid: str, kotak: dict | None = None, termasuk_terkait: bool = True,

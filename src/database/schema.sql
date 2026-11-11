@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS elemen_proyek (
     info_kolom TEXT,               -- JSON fungsi kolom (utama/kanopi/praktis/arsitektur), urutan segmen, objek ganda
     info_balok TEXT,               -- JSON relasi balok: panjang alas di atas dinding, tebal pelat di atasnya
     info_fondasi TEXT,             -- JSON fondasi setempat: kolom fisik yang dipikulnya
-    di_luar_bangunan INTEGER       -- pelat/penutup lantai/ruang di luar selubung bangunan (carport, jalan masuk): 1/0
+    di_luar_bangunan INTEGER,      -- pelat/penutup lantai/ruang di luar selubung bangunan (carport, jalan masuk): 1/0
+    info_lain TEXT                 -- JSON elemen lain (jenis cladding/kisi/talang/...), atau luas dinding tertutup cladding
 );
 
 -- hasil_estimasi: output rule-engine, per elemen per pekerjaan

@@ -12,6 +12,10 @@ Satu entitas IFC hanya masuk ke satu kelas. Aturan khusus:
 - IfcBuildingElementProxy urugan pasir / lantai kerja / aanstamping -> EARTHWORK (pekerjaan yang dimodelkan
   menggantikan versi turunan); proxy lain dilaporkan sebagai tidak dihitung.
 - IfcCovering keramik dinding (CLADDING bernama keramik dinding / backsplash) -> WALL_TILE.
+- Semua IfcElement lain yang punya bentuk -> LAINNYA (cladding, kisi, roster, lisplang, nok, talang, waterproofing,
+  beton lansekap, media tanam, sanitair, atau elemen tanpa padanan HSPK; lihat elemen_lain.py), kecuali batang
+  rangka atap dan penutup atap IfcCovering ROOFING yang sudah termasuk pekerjaan rangka / penutup atap per m²,
+  serta bagian dari elemen yang sudah dihitung.
 """
 
 import re
@@ -37,6 +41,7 @@ class ElementType(str, Enum):
     RAILING = "RAILING"
     EARTHWORK = "EARTHWORK"  # urugan pasir, lantai kerja, aanstamping yang dimodelkan
     WALL_TILE = "WALL_TILE"  # keramik dinding yang dimodelkan sebagai IfcCovering
+    LAINNYA = "LAINNYA"  # cladding, kisi, lisplang, nok, talang, waterproofing, lansekap, sanitair, ... (elemen_lain.py)
     UNKNOWN = "UNKNOWN"
 
 
@@ -57,6 +62,7 @@ LABEL = {
     ElementType.RAILING: "Railing",
     ElementType.EARTHWORK: "Urugan & lantai kerja",
     ElementType.WALL_TILE: "Keramik dinding",
+    ElementType.LAINNYA: "Elemen lain (fasad, atap, lansekap, sanitair)",
     ElementType.UNKNOWN: "Tidak dikenal",
 }
 
@@ -77,6 +83,7 @@ TIPE_IFC_DIBACA = [
     "IfcStair",
     "IfcRailing",
     "IfcBuildingElementProxy",
+    "IfcElement",  # sisanya: elemen lain (elemen_lain.py)
 ]
 
 # Entitas bangunan yang tidak dihitung rule engine: dilaporkan ke pengguna (ringkasan import & peringatan)
@@ -102,14 +109,14 @@ TIPE_TIDAK_DIHITUNG = {
 # Bukan pekerjaan fisik tersendiri: lubang/tonjolan, elemen virtual, tulangan (dibaca terpisah), rakitan.
 _TIDAK_DILAPORKAN = ("IfcFeatureElement", "IfcVirtualElement", "IfcReinforcingBar", "IfcElementAssembly")
 # Keterangan tambahan supaya pengguna tidak menghitung ganda.
-_CATATAN_TIDAK_DIHITUNG = {
-    "IfcMember": "rangka atap baja ringan sudah dihitung per m² luas atap",
+_CATATAN_TIDAK_DIHITUNG = {}
+_CATATAN_TERMASUK = {
+    "rangka_atap": "sudah termasuk pekerjaan rangka atap per m² luas atap (bukan hitung ganda)",
+    "penutup_atap": "sudah termasuk pekerjaan penutup atap per m² luas atap",
+    "bagian_tangga": "sudah termasuk pekerjaan tangga",
 }
 # Catatan menurut nama elemen: pekerjaan yang sebenarnya sudah dihitung dari elemen lain (jangan ditambah lagi).
-_CATATAN_NAMA = [
-    (re.compile(r"talang|gutter", re.IGNORECASE), "talang dapat ditambahkan dari katalog HSPK (3.3.x)"),
-    (re.compile(r"waterproof|membran", re.IGNORECASE), "waterproofing dapat ditambahkan dari katalog HSPK (3.4.x)"),
-]
+_CATATAN_NAMA = []  # talang, waterproofing, cladding, dll. kini dihitung otomatis (elemen_lain.py)
 
 
 def _catatan(tipe: str, entitas) -> str | None:
@@ -143,15 +150,24 @@ def hitung_tidak_dihitung(model) -> dict:
                 "jumlah": len(entitas), "contoh": _contoh(entitas), "catatan": _catatan(tipe, entitas),
             }
 
+    from elemen_lain import LABEL_TERMASUK, TERMASUK, kenali
+
     dihitung = {entity.id() for entity, _t, _k in kumpulkan_elemen(model)}
-    per_tipe = {}
+    per_tipe, termasuk = {}, {}
     for e in model.by_type("IfcElement"):
         if e.id() in dihitung or any(e.is_a(t) for t in _TIDAK_DILAPORKAN):
             continue
         if any(rel.RelatedObjects for rel in getattr(e, "IsDecomposedBy", None) or ()):
             continue  # dihitung/dilaporkan dari bagiannya (mis. IfcRoof dipecah menjadi IfcSlab)
         tipe = next(t for t in TIPE_TIDAK_DIHITUNG if e.is_a(t))
-        per_tipe.setdefault(tipe, []).append(e)
+        jenis = kenali(e) if getattr(e, "Representation", None) is not None else None
+        if jenis in TERMASUK:  # sudah termasuk pekerjaan lain (rangka atap, penutup atap, bagian tangga)
+            termasuk.setdefault((jenis, tipe), []).append(e)
+        else:
+            per_tipe.setdefault(tipe, []).append(e)
+    for (jenis, tipe), entitas in termasuk.items():
+        hasil[f"{LABEL_TERMASUK[jenis].lower()} ({tipe})"] = {
+            "jumlah": len(entitas), "contoh": _contoh(entitas), "catatan": _CATATAN_TERMASUK[jenis]}
     for tipe, label in TIPE_TIDAK_DIHITUNG.items():
         tambah(label, tipe, per_tipe.get(tipe, []))
     return hasil
@@ -243,7 +259,21 @@ def klasifikasi(entity, tipe_ifc: str):
         return ElementType.STAIR
     if tipe_ifc == "IfcRailing":
         return ElementType.RAILING
+    if tipe_ifc == "IfcElement":
+        return _elemen_lain(entity)
     return None
+
+
+def _elemen_lain(entity):
+    """LAINNYA untuk IfcElement berbentuk yang belum masuk kelas lain, kecuali yang sudah termasuk pekerjaan lain
+    (rangka / penutup atap) atau bukan pekerjaan fisik tersendiri (lubang, elemen virtual, tulangan, rakitan)."""
+    from elemen_lain import TERMASUK, kenali
+
+    if any(entity.is_a(t) for t in _TIDAK_DILAPORKAN) or getattr(entity, "Representation", None) is None:
+        return None
+    if any(rel.RelatedObjects for rel in getattr(entity, "IsDecomposedBy", None) or ()):
+        return None  # dihitung dari bagiannya
+    return None if kenali(entity) in TERMASUK else ElementType.LAINNYA
 
 
 def kumpulkan_elemen(model):
@@ -253,6 +283,10 @@ def kumpulkan_elemen(model):
         for entity in model.by_type(tipe_ifc):
             if entity.id() in sudah:
                 continue
+            if tipe_ifc == "IfcElement":
+                induk = element_util.get_aggregate(entity)
+                if induk is not None and induk.id() in sudah:
+                    continue  # bagian elemen yang sudah dihitung (mis. baluster railing, anak tangga)
             kelas = klasifikasi(entity, tipe_ifc)
             if kelas is None:
                 continue

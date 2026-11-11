@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QToolButton,
     QSplitter,
+    QStackedLayout,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -214,7 +215,13 @@ class EstimasiPage(QWidget):
         self.riwayat.setUndoLimit(50)
         self._dialog_3d = None  # jendela Model 3D (gui/penampil3d.py), dibuat saat pertama dibuka
 
-        root = QVBoxLayout(self)
+        # Halaman ini berisi dua mode bertumpuk: tabel RAB (halaman_rab) dan Model 3D (dibuat saat pertama dibuka).
+        # Keduanya membaca database proyek yang sama, jadi perubahan di satu mode langsung terlihat di mode lain.
+        self._tumpuk = QStackedLayout(self)
+        self._tumpuk.setContentsMargins(0, 0, 0, 0)
+        self.halaman_rab = QWidget()
+        self._tumpuk.addWidget(self.halaman_rab)
+        root = QVBoxLayout(self.halaman_rab)
         root.setContentsMargins(32, 22, 32, 20)
         root.setSpacing(14)
 
@@ -446,14 +453,14 @@ class EstimasiPage(QWidget):
         root.addWidget(self.baris_bawah)
 
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self._fokus_cari)
-        QShortcut(QKeySequence("Ctrl+B"), self, activated=self.btn_panel.toggle)
+        QShortcut(QKeySequence("Ctrl+B"), self, activated=lambda: self.mode_3d or self.btn_panel.toggle())
         QShortcut(QKeySequence("Ctrl+E"), self, activated=self._pintasan_export)
-        QShortcut(QKeySequence("Ctrl+3"), self, activated=lambda: self.btn_3d.isEnabled() and self._buka_3d())
+        QShortcut(QKeySequence("Ctrl+3"), self, activated=self._pintasan_3d)
         QShortcut(QKeySequence.Undo, self, activated=self.riwayat.undo)
         QShortcut(QKeySequence.Save, self, activated=self._simpan_file)
         QShortcut(QKeySequence("Ctrl+Y"), self, activated=self.riwayat.redo)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self.riwayat.redo)
-        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.minta_kembali.emit)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self._esc)
 
         self.muat()
 
@@ -1400,8 +1407,18 @@ class EstimasiPage(QWidget):
         if kotak.clickedButton() is btn_ya:
             self._jalankan_estimasi()
 
+    def _esc(self):
+        """Esc: di mode 3D batal pilih elemen lalu kembali ke RAB; di tabel RAB kembali ke daftar proyek."""
+        if self.mode_3d:
+            if not self._dialog_3d.esc():
+                self.tutup_3d()
+        else:
+            self.minta_kembali.emit()
+
     def _fokus_cari(self):
-        if self.baris_alat.isVisible():
+        if self.mode_3d:
+            self._dialog_3d.fokus_cari()
+        elif self.baris_alat.isVisible():
             self.kolom_cari.setFocus()
             self.kolom_cari.selectAll()
 
@@ -1507,30 +1524,50 @@ class EstimasiPage(QWidget):
 
     # ---------------------------------------------------------------- Model 3D
 
+    @property
+    def mode_3d(self) -> bool:
+        return self._dialog_3d is not None and self._tumpuk.currentWidget() is self._dialog_3d
+
+    def _pintasan_3d(self):
+        if self.mode_3d:
+            self.tutup_3d()
+        elif self.btn_3d.isEnabled():
+            self._buka_3d()
+
     def _buka_3d(self):
-        """Jendela Model 3D: klik elemen untuk melihat kebutuhan biayanya (gui/penampil3d.py)."""
-        if self._dialog_3d is not None:
-            self._dialog_3d.segarkan()
-            self._dialog_3d.showNormal() if self._dialog_3d.isMinimized() else self._dialog_3d.show()
-            self._dialog_3d.raise_()
-            self._dialog_3d.activateWindow()
-            return
-        try:
-            from gui.penampil3d import buka_penampil
-        except ImportError as e:  # modul Qt Quick 3D tidak terpasang
-            tema.toast(self, f"Penampil 3D tidak tersedia: {e}", "peringatan")
-            return
+        """Masuk mode Model 3D: klik elemen untuk melihat kebutuhan biayanya (gui/penampil3d.py). Model dibaca
+        sekali; masuk lagi berikutnya langsung tampil dengan data RAB terbaru (perubahan di tabel ikut terlihat)."""
         proyek = get_proyek(self.proyek_id) or {}
-        jendela = buka_penampil(self, self.proyek_id, self.nama_proyek, proyek.get("path_file_ifc"))
-        if jendela is None:
-            return
-        self._dialog_3d = jendela
-        self.destroyed.connect(jendela.close)  # halaman ditutup / proyek lain dibuka: jendela 3D ikut tertutup
-        jendela.show()
+        path = proyek.get("path_file_ifc")
+        if self._dialog_3d is not None and getattr(self._dialog_3d, "path_ifc", None) != path:
+            self._tumpuk.removeWidget(self._dialog_3d)  # file IFC proyek diganti: bentuk 3D dibaca ulang
+            self._dialog_3d.deleteLater()
+            self._dialog_3d = None
+        if self._dialog_3d is None:
+            try:
+                from gui.penampil3d import buka_penampil
+            except ImportError as e:  # modul Qt Quick 3D tidak terpasang
+                tema.toast(self, f"Penampil 3D tidak tersedia: {e}", "peringatan")
+                return
+            tampilan = buka_penampil(self, self.proyek_id, self.nama_proyek, path)
+            if tampilan is None:
+                return
+            tampilan.path_ifc = path
+            self._dialog_3d = tampilan
+            self._tumpuk.addWidget(tampilan)
+        self._dialog_3d.segarkan()
+        self._tumpuk.setCurrentWidget(self._dialog_3d)
+        self._dialog_3d.setFocus()
+
+    def tutup_3d(self):
+        """Kembali dari mode 3D ke tabel RAB. Perubahan dari mode 3D sudah tersimpan dan sudah dimuat di tabel."""
+        if self.mode_3d:
+            self._tumpuk.setCurrentWidget(self.halaman_rab)
+            self.tabel.setFocus()
 
     def _segarkan_3d(self):
-        if self._dialog_3d is not None and self._dialog_3d.isVisible():
-            self._dialog_3d.segarkan()
+        if self.mode_3d:
+            self._dialog_3d.segarkan()  # di mode RAB: disegarkan saat masuk mode 3D lagi
 
     def terapkan_perubahan(self, aksi, keterangan: str, ringkas: str):
         """Perubahan dari jendela lain (Model 3D): `aksi()` menyimpan perubahan dan mengembalikan True bila ada yang
@@ -1555,12 +1592,8 @@ class EstimasiPage(QWidget):
         self.kolom_cari.blockSignals(True)
         self.kolom_cari.setText(nama)
         self.kolom_cari.blockSignals(False)
+        self.tutup_3d()
         self._isi_ulang()
-        jendela = self.window()
-        if jendela.isMinimized():
-            jendela.showNormal()
-        jendela.raise_()
-        jendela.activateWindow()
 
     def _buka_export(self):
         dialog = ExportDialog(self.proyek_id, self.nama_proyek, self)

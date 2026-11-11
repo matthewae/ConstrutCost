@@ -245,11 +245,14 @@ def test_dinding_luar_dibaca_dan_elemen_tidak_dihitung_dilaporkan(ekstrak_cache)
     luar = [e for e in elemen if e["kelas"] == "WALL" and e["eksternal"]]
     dalam = [e for e in elemen if e["kelas"] == "WALL" and e["eksternal"] is False]
     assert luar and dalam
-    # tangga & railing Duplex sekarang dihitung; yang tersisa batang rangka (stringer tangga kayu) dan perabot
-    # (semua IfcElement yang tidak dihitung dilaporkan supaya pengguna bisa menilai sendiri)
-    assert list(info.tidak_dihitung) == ["batang rangka (IfcMember)", "perabot (IfcFurnishingElement)"]
-    assert {"STAIR", "RAILING"} <= {e["kelas"] for e in elemen}
-    assert any(p.startswith("Tidak dihitung otomatis") for p in peringatan)
+    # tangga & railing Duplex dihitung; perabot masuk RAB sebagai elemen lain (wastafel = sanitair, lemari/sofa =
+    # pekerjaan dari model dengan harga 0). Yang tidak dihitung tersendiri hanya stringer bagian tangga.
+    assert list(info.tidak_dihitung) == ["bagian tangga (IfcMember)"]
+    assert "sudah termasuk pekerjaan tangga" in info.tidak_dihitung["bagian tangga (IfcMember)"]["catatan"]
+    assert {"STAIR", "RAILING", "LAINNYA"} <= {e["kelas"] for e in elemen}
+    assert any(p.startswith("Tidak dihitung tersendiri") for p in peringatan)
+    jenis = {(e.get("info_lain") or {}).get("jenis") for e in elemen if e["kelas"] == "LAINNYA"}
+    assert jenis == {"sanitair", "lain"}
 
 
 # ---------------------------------------------------------------- antarmuka
@@ -392,12 +395,13 @@ def test_tangga_railing_dan_catatan_ringkas(tmp_path):
 
     info = buka_dan_validasi(_model_gevel(tmp_path))
     assert {"STAIR", "RAILING"} <= {k.value for k in info.jumlah_per_kelas}
-    assert list(info.tidak_dihitung) == ["batang rangka (IfcMember)"]
-    assert info.tidak_dihitung["batang rangka (IfcMember)"]["contoh"] == ["Rangka Carport 50x50"]
+    assert not info.tidak_dihitung  # rangka carport kini dihitung sebagai baja profil per kg
     elemen, peringatan = ekstrak_elemen(info.model)
-    assert len([p for p in peringatan if "Tidak dihitung otomatis" in p]) == 1  # satu kalimat ringkas
-    assert "'Rangka Carport 50x50'" in peringatan[-1] and "3 batang rangka" in peringatan[-1]
+    assert not any("Tidak dihitung" in p for p in peringatan)
+    rangka = [e for e in elemen if e["nama"].startswith("Rangka Carport")]
+    assert len(rangka) == 3 and all(e["info_lain"]["jenis"] == "rangka_baja" for e in rangka)
     total, _ = _total(elemen)
+    assert total["BJA.PROFIL"] == pytest.approx(sum(e["volume"] for e in rangka) * 7850)
     assert total["BTN.TANGGA"] == pytest.approx(3.0 * 1.8 * 1.0, rel=1e-3)
     assert total["BSI.TANGGA"] == pytest.approx(total["BTN.TANGGA"] * P.rasio_besi_tangga)
     assert total["BSK.TANGGA"] > 0
@@ -411,9 +415,11 @@ def test_aturan_tangga_dan_railing():
     assert h["BTN.TANGGA"].volume == pytest.approx(1.6)
     assert h["BSK.TANGGA"].volume == pytest.approx(1.0 * math.hypot(3.0, 1.8) + 1.0 * 1.8)
     kayu = _el("STAIR", nama="Tangga Kayu Jati", panjang=3.0, lebar=1.0, tinggi=1.8, volume=1.6)
-    assert not terapkan_rules(kayu)[0]
+    assert {x.kode: x.volume for x in terapkan_rules(kayu)[0]} == {"KYU.KONSTRUKSI": pytest.approx(1.6)}  # bukan beton
     baja = _el("STAIR", nama="Tangga putar", panjang=2.0, lebar=2.0, tinggi=3.0, volume=0.2)  # 2 % isi
-    assert "baja/kayu" in bukan_beton(baja) and not terapkan_rules(baja)[0]
+    assert "baja/kayu" in bukan_beton(baja)
+    hasil = terapkan_rules(baja)[0]  # bahan tidak diketahui: tetap masuk RAB, harga diisi pengguna
+    assert [x.kode.split("|")[0] for x in hasil] == ["LAIN"] and not any(x.kode.startswith("BTN") for x in hasil)
 
     def kode(e):
         return {x.kode for x in terapkan_rules(e)[0]}
@@ -513,8 +519,8 @@ def test_catatan_nama_untuk_pekerjaan_yang_sudah_dihitung():
         def __init__(self, n):
             self.Name = n
 
-    # lantai kerja & keramik dinding yang dimodelkan kini dihitung (test_elemen_dimodelkan.py); catatan nama
-    # tersisa untuk pekerjaan yang bisa ditambahkan dari katalog HSPK
-    assert "katalog HSPK (3.3.x)" in _catatan("IfcPipeSegment", [E("Talang Box Galvalum")])
-    assert "katalog HSPK (3.4.x)" in _catatan("IfcCovering", [E("Waterproofing Coating Atas Kanopi")])
+    # talang, waterproofing, lisplang kini dihitung otomatis (elemen_lain.py, test_elemen_lain.py): tidak ada lagi
+    # catatan "tambahkan dari katalog HSPK"
+    assert _catatan("IfcPipeSegment", [E("Talang Box Galvalum")]) is None
+    assert _catatan("IfcCovering", [E("Waterproofing Coating Atas Kanopi")]) is None
     assert _catatan("IfcPlate", [E("Listplank WPC")]) is None

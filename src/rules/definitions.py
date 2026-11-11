@@ -24,6 +24,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
+import elemen_lain
 from klasifikasi import ElementType as T
 
 from . import fondasi_kolom, penulangan, tanah
@@ -229,17 +230,28 @@ def _luas_dinding_kali(nama_sisi, nama):
 def _cat_interior(e, p):
     # dinding luar: satu sisi dicat eksterior (aturan CAT.EKSTERIOR), sisanya cat interior
     sisi = p.jumlah_sisi_cat - (1 if e.get("eksternal") and p.jumlah_sisi_cat >= 2 else 0)
-    nilai = e["luas"] * sisi
+    kotor = e["luas"] * sisi
+    tertutup = min(elemen_lain.jumlah_tertutup(e, "dalam"), kotor)  # bidang yang dilapis cladding tidak dicat
+    nilai = kotor - tertutup
     bukaan = e.get("luas_bukaan") or 0.0
     catatan = f"; luas bukaan {_n(bukaan, 2)} m² sudah dikurangkan" if bukaan else ""
     luar = " (dinding luar: sisi luar dicat eksterior)" if sisi < p.jumlah_sisi_cat else ""
+    if tertutup > 0:
+        return nilai, (
+            f"A_cat interior = A_dinding bersih × {sisi} sisi − A_cladding = {_n(e['luas'])} × {sisi} − "
+            f"{_n(tertutup, 2)} = {_n(nilai)} m²{luar}{catatan}"
+        )
     return nilai, (
         f"A_cat interior = A_dinding bersih × {sisi} sisi = {_n(e['luas'])} × {sisi} = {_n(nilai)} m²{luar}{catatan}"
     )
 
 
 def _cat_eksterior(e, p):
-    nilai = e["luas"]
+    tertutup = min(elemen_lain.jumlah_tertutup(e, "luar"), e["luas"])
+    nilai = e["luas"] - tertutup
+    if tertutup > 0:
+        return nilai, (f"A_cat eksterior = A_dinding bersih − A_cladding = {_n(e['luas'])} − {_n(tertutup, 2)} = "
+                       f"{_n(nilai)} m² (bidang yang dilapis cladding tidak dicat)")
     return nilai, f"A_cat eksterior = A_dinding bersih × 1 sisi luar = {_n(nilai)} m²"
 
 
@@ -501,7 +513,25 @@ def catatan_bukan_beton(e, k, p) -> str | None:
     if alasan is None:
         return None
     label = {"COLUMN": "Kolom", "BEAM": "Balok", "SLAB": "Pelat", "ROOF": "Dak", "STAIR": "Tangga"}[kelas]
+    if elemen_lain.rangka_atap_nonbeton(e, alasan):
+        alasan += "; dianggap bagian rangka atap (sudah termasuk Rangka Atap per m² luas atap)"
     return f"{label} '{e.get('nama')}' tidak dihitung sebagai beton bertulang: {alasan}."
+
+
+def _nonbeton(e, k, p) -> bool:
+    """Elemen struktur yang tidak dihitung sebagai beton bertulang tetap masuk RAB (elemen_lain.item_nonbeton),
+    kecuali objek kolom ganda, atap miring (rangka + penutup), dan pelat lapisan finishing bila penutup lantai sudah
+    dihitung dari sumber lain: penutup lantai, ruang, atau luas pelat struktur (menghindari hitung ganda)."""
+    alasan = bukan_beton(e)
+    if alasan is None or (e.get("info_kolom") or {}).get("duplikat"):
+        return False
+    if e.get("kelas") == T.ROOF.value and _atap_miring(e, k, p):
+        return False
+    if elemen_lain.lapisan_finishing(e, alasan) and k.sumber_lantai is not None:
+        return False  # penutup lantai sudah dihitung dari penutup lantai / ruang / pelat struktur
+    if elemen_lain.rangka_atap_nonbeton(e, alasan):
+        return False  # gording / kuda-kuda kayu di lantai atap: termasuk rangka atap per m²
+    return True
 
 
 def _pre(*nilai):
@@ -657,6 +687,11 @@ RULES = [
         )
     ],
     Rule("KRM.DINDING", T.WALL_TILE, _luas_keramik_dinding, ("luas",), keterangan="Keramik dinding (dimodelkan)"),
+    # ===== Elemen lain dari model: cladding, kisi, roster, lisplang, nok, talang, waterproofing, lansekap, sanitair =====
+    Rule("LAINNYA", T.LAINNYA, elemen_lain.item, keterangan="Elemen lain dari model"),
+    # ===== Kolom / balok / tangga / pelat / dak bukan beton bertulang: baja per kg, kayu per m³, finishing = lantai =====
+    *[Rule("NONBETON", kelas, elemen_lain.item_nonbeton, syarat=_nonbeton, keterangan="Elemen struktur bukan beton")
+      for kelas in (T.COLUMN, T.BEAM, T.STAIR, T.SLAB, T.ROOF)],
     # ===== Atap miring: rangka baja ringan + genteng (Rumus 2.22 / 2.23 / 2.42) =====
     Rule("ATP.RANGKA", T.ROOF, _luas_atap, ("luas",), syarat=_atap_miring, keterangan="Rangka atap baja ringan per m² luas atap"),
     Rule("ATP.PENUTUP", T.ROOF, _luas_atap, ("luas",), syarat=_atap_miring, keterangan="Penutup atap genteng"),

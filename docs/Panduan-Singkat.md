@@ -46,7 +46,10 @@ Tombol **Model 3D** (Ctrl+3) → klik elemen pada bangunan, mis. Kolom K1 A1.
 - Dinding dan elemen lain yang punya pilihan bahan menampilkan combo box bahan dengan harga tiap pilihan untuk
   elemen itu.
 - Seret kiri untuk memutar, seret kanan untuk menggeser, roda mouse untuk zoom.
-- **Lantai: s.d. …** dan **Arsitektur tembus pandang** membantu memilih kolom di dalam bangunan.
+- **Lantai: s.d. …** dan **Arsitektur tembus pandang** membantu memilih kolom di dalam bangunan; **Besi beton** menampilkan
+  besi yang dimodelkan di dalam beton tembus pandang.
+- **← Kembali ke RAB** (Esc) kembali ke tabel. Semua perubahan tersimpan otomatis dan ikut ke tabel dan Export RAB.
+  **Urungkan / Ulangi** tersedia di bagian atas.
 - Rincian: `docs/Model-3D.md`.
 
 Semua perubahan bisa dibatalkan dengan **Urungkan** (Ctrl+Z). Pengaturan lain ada di menu **Proyek ▾**: biaya

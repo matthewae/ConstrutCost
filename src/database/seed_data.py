@@ -22,7 +22,7 @@ from database.hspk_bandung_2027 import AHSP, HSD, SATUAN, SUMBER
 from database.init_db import pastikan_skema
 from database.material import SLOT, kode_varian
 
-SEED_VERSI = "13-hspk-bdg-2027-cakar-ayam"
+SEED_VERSI = "15-hspk-bdg-2027-elemen-lain"
 
 SUMBER_HSPK = "HSPK Kota Bandung 2027"
 
@@ -95,6 +95,36 @@ PEMETAAN = {
     # ---------------- Atap ----------------
     "ATP.RANGKA": ("Rangka Atap Pelana Baja Ringan C75", "Atap", "m2", "2.1.1.1"),
     "ATP.PENUTUP": ("Penutup Atap Genteng Beton", "Atap", "m2", "3.1.1.4"),
+    "ATP.NOK": ("Nok / Bubung Genteng Beton", "Atap", "m'", "3.1.1.8"),
+    "ATP.LISPLANG": ("Lisplang Non Kayu (GRC / Serat Semen) Lebar 20 cm", "Atap", "m'", "3.3.6"),
+    "ATP.TALANG": ("Talang ½ Lingkaran D-15 cm Seng Plat BJLS 30", "Atap", "m'", "3.3.2"),
+    "ATP.TALANG_TEGAK": ("Talang Tegak Pipa PVC D 3\" (Padanan Rantai Hujan)", "Atap", "m'", "6.4.1.21"),
+    "WTP.LAPISAN": ("Waterproofing Membran Bakar", "Atap", "m2", "3.4.1"),
+    # ---------------- Struktur bukan beton (elemen_lain.item_nonbeton) ----------------
+    "BJA.PROFIL": ("Pabrikasi dan Ereksi Baja Profil", "Struktur Baja", "kg", "2.3.1.1"),
+    "KYU.KONSTRUKSI": ("Konstruksi Kayu Kelas II (Pendekatan Analisa Gording Kayu)", "Struktur Kayu", "m3", "2.1.2.3"),
+    "LNT.PARKET": ("Lantai Parket Kayu Solid", "Lantai", "m2", "3.9.9.4"),
+    # ---------------- Fasad (elemen_lain.py) ----------------
+    "CLD.BATU": ("Pasangan Cladding Batu Alam (Batu Paras)", "Fasad", "m2", "3.10.4.2"),
+    "CLD.BATA": ("Pasangan Cladding Bata Tempel / Bata Pelapis 3x7x24 cm", "Fasad", "m2", "3.10.4.1"),
+    "CLD.PANEL": ("Cladding Panel WPC / Kayu (Pendekatan Lambrisering Papan Kayu Kelas I)", "Fasad", "m2", "3.10.5.3"),
+    "CLD.KISI": ("Kisi-kisi / Louver Fasad (Profil Jalusi Aluminium)", "Fasad", "m2", "3.13.2"),
+    "CLD.RANGKA": ("Rangka Besi Hollow Galvanis 20x40 mm", "Fasad", "m2", "3.10.6.3"),
+    "DND.ROSTER": ("Pasangan Roster / Kerawang 20x20 (1SP : 3PP)", "Fasad", "m2", "3.6.3.5"),
+    # ---------------- Sanitair & lansekap (elemen_lain.py) ----------------
+    "SNT.KLOSET_DUDUK": ("Kloset Duduk / Monoblock", "Sanitair", "buah", "3.18.3.1"),
+    "SNT.KLOSET_JONGKOK": ("Kloset Jongkok", "Sanitair", "buah", "3.18.3.2"),
+    "SNT.WASTAFEL": ("Wastafel", "Sanitair", "buah", "3.18.1.1"),
+    "SNT.BAK_CUCI": ("Bak Cuci Piring Stainless Steel", "Sanitair", "buah", "3.18.2.1"),
+    "SNT.URINOIR": ("Urinoir", "Sanitair", "buah", "3.18.4.1"),
+    "SNT.FLOOR_DRAIN": ("Floor Drain Stainless Steel", "Sanitair", "buah", "3.18.6.1"),
+    "SNT.KRAN": ("Kran Air ½\" atau ¾\"", "Sanitair", "buah", "3.18.6.2.1"),
+    "SNT.SHOWER": ("Shower Set", "Sanitair", "buah", "3.18.6.9"),
+    "LSK.BETON": ("Beton Planter / Kolam / Bak f'c 15 MPa (±K-175)", "Lansekap", "m3", "2.2.1.4.3"),
+    "LSK.BEKISTING": ("Bekisting Dinding Planter / Kolam / Bak", "Lansekap", "m2", "2.2.1.3.6"),
+    "LSK.BESI": ("Pembesian Planter / Kolam / Bak Besi Polos (BjTP) Ø < 12 mm", "Lansekap", "kg", "2.2.1.1.1"),
+    "LSK.WIREMESH": ("Pembesian Planter / Kolam / Bak Wiremesh M6-M10", "Lansekap", "kg", "2.2.1.1.5"),
+    "LSK.MEDIA_TANAM": ("Urugan Tanah Subur / Media Tanam", "Lansekap", "m3", "1.3.1.7"),
     # ---------------- Plafon ----------------
     "PLF.RANGKA": ("Rangka Plafon Besi Hollow 40.40 Modul 60x60 cm", "Plafon", "m2", "3.5.3.1"),
     "PLF.GYPSUM": ("Plafon Papan Gypsum Tebal 9 mm", "Plafon", "m2", "3.5.2.1"),
@@ -110,6 +140,12 @@ PEMETAAN = {
 # Catatan tambahan pada pekerjaan (ditampilkan di Harga Satuan) bila pemetaan menyimpang dari item HSPK
 # aslinya atau harga dasarnya perlu diverifikasi. Diisi dari pilihan material di bawah.
 CATATAN_PEMETAAN = {}
+# Analisa yang hitungan koefisiennya berbeda dengan harga F dokumen HSPK: aplikasi memakai hitungan koefisien
+# (komponen dapat diperiksa dan diubah di Harga Satuan); selisihnya dicatat pada pekerjaan.
+SELISIH_DOKUMEN = {
+    "3.18.3.1": "hitungan koefisien HSPK = Rp 3.118.171, harga F dokumen = Rp 3.188.599; aplikasi memakai hitungan "
+                "koefisien",
+}
 
 # Pilihan material (database/material.py): pilihan bawaan memakai kode slot, pilihan lain "slot~kunci".
 # Kategori dan satuan varian sama dengan pekerjaan slotnya.
@@ -248,6 +284,8 @@ def seed_pekerjaan():
             catatan = f"{SUMBER} · {kode_hspk} · {uraian} (harga satuan dokumen Rp {harga_f:,.0f})".replace(",", ".")
             if kode in CATATAN_PEMETAAN:
                 catatan += f" · {CATATAN_PEMETAAN[kode]}"
+            if kode_hspk in SELISIH_DOKUMEN:
+                catatan += f" · Selisih dokumen: {SELISIH_DOKUMEN[kode_hspk]}"
             ada = conn.execute("SELECT id FROM pekerjaan WHERE kode_ahsp = ?", (kode,)).fetchone()
             if ada:
                 pid = ada["id"]

@@ -34,6 +34,7 @@ KOLOM_TAMBAHAN = {
         "info_balok": "TEXT",
         "info_fondasi": "TEXT",
         "di_luar_bangunan": "INTEGER",
+        "info_lain": "TEXT",
     },
     "hasil_estimasi": {"rumus": "TEXT", "uraian": "TEXT", "diameter": "REAL", "harga_manual": "REAL", "catatan": "TEXT",
                        "lantai": "TEXT", "item_tambahan": "INTEGER DEFAULT 0"},

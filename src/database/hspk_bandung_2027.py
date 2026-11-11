@@ -28334,3 +28334,9 @@ BAB = {
     '9': 'Pekerjaan Jaringan Pipa Luar Gedung',
     '10': 'Sistem Struktur Risha',
 }
+
+
+# Koreksi satuan workbook: nok/bubung genteng 3.1.1.5-3.1.1.8 tertulis "m2" padahal uraian analisanya "1 m'"
+# (nok diukur per meter panjang, sama dengan nok metal / aspal 3.1.3.13-3.1.3.14). Data mentah di atas tidak diubah.
+KOREKSI_SATUAN = {k: "m'" for k in ("3.1.1.5", "3.1.1.6", "3.1.1.7", "3.1.1.8")}
+SATUAN.update(KOREKSI_SATUAN)

@@ -21,7 +21,8 @@ import re
 from rules.penulangan import URUTAN, label_tipe
 
 URUTAN_KATEGORI = [
-    "Persiapan", "Tanah", "Fondasi", "Beton", "Dinding", "Lantai", "Tangga & Railing", "Pintu & Jendela", "Atap", "Plafon", "Cat", "Air Limbah",
+    "Persiapan", "Tanah", "Fondasi", "Beton", "Struktur Baja", "Struktur Kayu", "Dinding", "Lantai", "Tangga & Railing", "Pintu & Jendela", "Atap", "Plafon", "Cat",
+    "Fasad", "Sanitair", "Air Limbah", "Lansekap", "Lain-lain",
 ]
 _AWALAN_STRUKTUR = ("BTN.", "BSK.", "BSI.")
 _URUTAN_ITEM = {"BTN": 0, "BSK": 1, "BSI": 2}

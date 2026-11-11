@@ -168,6 +168,69 @@ _DAFTAR = [
         Opsi("bitumen", "Aspal / bitumen", "3.1.3.6", "Penutup Atap Aspal / Bitumen"),
         Opsi("upvc", "UPVC", "3.1.3.5", "Penutup Atap UPVC"),
     ), "beton"),
+    Slot("ATP.NOK", "Nok / bubungan", "Atap", (
+        Opsi("beton", "Nok genteng beton", "3.1.1.8", "Nok / Bubung Genteng Beton"),
+        Opsi("plk", "Nok genteng palentong kecil", "3.1.1.5", "Nok / Bubung Genteng Palentong Kecil"),
+        Opsi("plb", "Nok genteng palentong besar", "3.1.1.7", "Nok / Bubung Genteng Palentong Besar"),
+        Opsi("kodok", "Nok genteng kodok glazuur", "3.1.1.6", "Nok / Bubung Genteng Kodok Glazuur"),
+        Opsi("metal", "Nok genteng metal", "3.1.3.14", "Nok / Bubung Genteng Metal"),
+        Opsi("bitumen", "Nok atap aspal / bitumen", "3.1.3.13", "Nok / Bubung Atap Aspal / Bitumen"),
+    ), "beton"),
+    Slot("ATP.LISPLANG", "Lisplang", "Atap", (
+        Opsi("grc20", "GRC / serat semen lebar 20 cm", "3.3.6", "Lisplang Non Kayu (GRC / Serat Semen) Lebar 20 cm",
+             "Lisplang WPC tidak ada di HSPK Bandung 2027; GRC / serat semen dipakai sebagai padanan terdekat."),
+        Opsi("grc30", "GRC / serat semen lebar 30 cm", "3.3.5", "Lisplang Non Kayu (GRC / Serat Semen) Lebar 30 cm"),
+        Opsi("kayu20", "Kayu kelas I/II 3×20 cm", "3.3.3", "Lisplang Kayu Kelas I/II 3x20 cm"),
+        Opsi("kayu30", "Kayu kelas I/II 3×30 cm", "3.3.4", "Lisplang Kayu Kelas I/II 3x30 cm"),
+    ), "grc20"),
+    Slot("ATP.TALANG", "Talang", "Atap", (
+        Opsi("setengah", "Talang ½ lingkaran D-15 cm seng BJLS 30", "3.3.2", "Talang ½ Lingkaran D-15 cm Seng Plat BJLS 30",
+             "Talang galvalum belum ada di HSPK Bandung 2027; talang seng dipakai sebagai padanan terdekat."),
+        Opsi("datar", "Talang datar / box seng BJLS 28 lebar 90 cm", "3.3.1", "Talang Datar / Box Seng BJLS 28 Lebar 90 cm"),
+    ), "setengah"),
+    Slot("ATP.TALANG_TEGAK", "Talang tegak / rantai hujan", "Atap", (
+        Opsi("pvcd3", "Pipa PVC D 3\"", "6.4.1.21", "Talang Tegak Pipa PVC D 3\" (Padanan Rantai Hujan)",
+             "Rantai hujan tidak ada di HSPK Bandung 2027; dipakai talang tegak pipa PVC 3\" sebagai padanan."),
+        Opsi("pvcaw3", "Pipa PVC AW 3\"", "6.4.1.8", "Talang Tegak Pipa PVC AW 3\""),
+        Opsi("pvcd4", "Pipa PVC D 4\"", "6.4.1.22", "Talang Tegak Pipa PVC D 4\""),
+    ), "pvcd3"),
+    Slot("WTP.LAPISAN", "Waterproofing", "Atap", (
+        Opsi("membran", "Membran bakar", "3.4.1", "Waterproofing Membran Bakar"),
+        Opsi("kristalin", "Coating kristalin", "3.4.2", "Waterproofing Coating Kristalin"),
+        Opsi("semen", "Coating semen base", "3.4.3", "Waterproofing Coating Semen Base"),
+        Opsi("akrilik", "Coating akrilik", "3.4.4", "Waterproofing Coating Acrylic Base"),
+    ), "membran"),
+    # ---------------- Fasad ----------------
+    Slot("CLD.BATU", "Cladding batu alam", "Fasad", (
+        Opsi("paras", "Batu paras / batu alam", "3.10.4.2", "Pasangan Cladding Batu Alam (Batu Paras)",
+             "Dipakai untuk batu alam umum (travertine, paras, batu putih, andesit); ganti bila jenis batunya lain."),
+        Opsi("tempel", "Batu tempel hitam", "3.10.4.3", "Pasangan Cladding Batu Tempel Hitam"),
+        Opsi("marmerbasah", "Marmer 100×100 tebal 2 cm, pasang basah", "3.10.5.7", "Pasangan Cladding Marmer (Basah)"),
+        Opsi("marmerkering", "Marmer 100×100 tebal 2 cm, pasang kering", "3.10.5.6", "Pasangan Cladding Marmer (Kering)"),
+        Opsi("homogen", "Homogeneous tile 60×60", "3.10.2.3", "Pasangan Cladding Homogeneous Tile 60x60"),
+    ), "paras"),
+    Slot("CLD.PANEL", "Cladding panel", "Fasad", (
+        Opsi("lambrisering", "Panel WPC / papan kayu (pendekatan: lambrisering papan kayu kelas I)", "3.10.5.3",
+             "Cladding Panel WPC / Kayu (Pendekatan Lambrisering Papan Kayu Kelas I)", 'HSPK Bandung 2027 belum memuat analisa panel WPC; dipakai analisa terdekat. Ganti pilihan, ubah komponen di Harga Satuan, atau isi harga khusus bila ada penawaran.'),
+        Opsi("plywood", "Plywood rangkap, rangka kayu", "3.10.5.2", "Cladding Panel Plywood Rangkap"),
+        Opsi("jalusi", "Profil aluminium", "3.13.2", "Cladding Panel Profil Aluminium"),
+    ), "lambrisering"),
+    Slot("CLD.KISI", "Kisi-kisi / louver", "Fasad", (
+        Opsi("jalusi", "Profil jalusi aluminium", "3.13.2", "Kisi-kisi / Louver Fasad (Profil Jalusi Aluminium)",
+             "Kisi WPC tidak ada di HSPK Bandung 2027; profil jalusi aluminium dipakai sebagai padanan terdekat."),
+        Opsi("kayu", "Bilah kayu (lambrisering papan kayu kelas I)", "3.10.5.3", "Kisi-kisi Bilah Kayu Kelas I"),
+    ), "jalusi"),
+    Slot("CLD.RANGKA", "Rangka cladding / kisi", "Fasad", (
+        Opsi("hollow2040", "Besi hollow galvanis 20×40 mm", "3.10.6.3", "Rangka Besi Hollow Galvanis 20x40 mm"),
+        Opsi("hollow4040", "Besi hollow galvanis 40×40 mm modul 60×120", "3.10.6.1", "Rangka Besi Hollow Galvanis 40x40 mm"),
+        Opsi("bajaringan", "Baja ringan C75 modul 60×120", "3.10.6.4", "Rangka Baja Ringan C75"),
+        Opsi("kayu", "Kayu kelas II/III modul 60×120", "3.10.6.2", "Rangka Kayu Kelas II/III"),
+    ), "hollow2040"),
+    Slot("DND.ROSTER", "Roster / kerawang", "Fasad", (
+        Opsi("r2020", "Roster 20×20, 1SP : 3PP", "3.6.3.5", "Pasangan Roster / Kerawang 20x20 (1SP : 3PP)"),
+        Opsi("r1224s", "Roster 12×11×24, 1SP : 3PP", "3.6.3.1", "Pasangan Roster / Kerawang 12x11x24 (1SP : 3PP)"),
+        Opsi("r1224n", "Roster 12×11×24, 1SP : 4PP", "3.6.3.2", "Pasangan Roster / Kerawang 12x11x24 (1SP : 4PP)"),
+    ), "r2020"),
     # ---------------- Plafon ----------------
     Slot("PLF.RANGKA", "Rangka plafon", "Plafon", (
         Opsi("hollow", "Besi hollow 40.40, modul 60×60 cm", "3.5.3.1", "Rangka Plafon Besi Hollow 40.40 Modul 60x60 cm"),
