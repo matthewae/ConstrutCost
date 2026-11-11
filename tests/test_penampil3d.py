@@ -537,3 +537,30 @@ def test_mode_besi_beton_di_penampil(qapp, db_sementara, tmp_path, monkeypatch):
     finally:
         d2.close()
         d2.deleteLater()
+
+
+def test_struktur_saja_dengan_saringan_lantai_menyembunyikan_rangka_atap(qapp, db_sementara):
+    """Rangka atap ikut tampil di mode Struktur saja, tetapi saringan "s.d. lantai" tetap berlaku: batang rangka
+    atap di lantai atap tidak boleh melayang di atas denah lantai 1."""
+    from conftest import AC20
+    from database.proyek_repository import create_proyek
+    from estimasi_service import jalankan_estimasi
+    from gui.penampil3d import TAMPIL_STRUKTUR, Penampil3D
+    from model3d import muat_model3d
+
+    pid = create_proyek("AC20", str(AC20))
+    jalankan_estimasi(pid)
+    m = muat_model3d(str(AC20))
+    rangka = [e for e in m.elemen if e.termasuk == "rangka_atap"]
+    assert rangka
+    d = Penampil3D(pid, "AC20", m)
+    try:
+        d.combo_tampil.setCurrentIndex(d.combo_tampil.findData(TAMPIL_STRUKTUR))
+        assert all(d.adegan.keadaan(e.gid)["tampil"] for e in rangka)  # semua lantai: rangka atap tampil
+        d.combo_lantai.setCurrentIndex(1)  # lantai terbawah saja
+        batas = d.combo_lantai.currentData()
+        di_atas = [e for e in rangka if e.elevasi is not None and e.elevasi > batas + 0.01]
+        assert di_atas and not any(d.adegan.keadaan(e.gid)["tampil"] for e in di_atas)
+    finally:
+        d.close()
+        d.deleteLater()

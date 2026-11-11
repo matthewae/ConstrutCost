@@ -140,7 +140,7 @@ tampilan kembali ke pilihan sebelumnya.
 
 ## Pengujian
 
-`tests/test_penampil3d.py` (17 tes) memakai model IFC buatan. Isinya: kolom = pedestal + kolom di atas footplate
+`tests/test_penampil3d.py` (18 tes) memakai model IFC buatan. Isinya: kolom = pedestal + kolom di atas footplate
 dan lantai kerja, dinding di atas sloof, dan perabot. Yang diuji:
 
 - **Geometri:** lantai, koordinat dunia vs koordinat tampilan, dan penghapusan segitiga tanpa luas.
@@ -152,7 +152,8 @@ dan lantai kerja, dinding di atas sloof, dan perabot. Yang diuji:
 - **Panel:** urutan pekerjaan vs per bagian, combo bahan, kondisi kosong, dan elemen tak dihitung.
 - **Jendela 3D:**
   - warna pilih dan terkait;
-  - saringan lantai, struktur saja, dan tembus pandang (klik menembus);
+  - saringan lantai, struktur saja, dan tembus pandang (klik menembus); saringan lantai juga berlaku untuk rangka
+    atap di mode Struktur saja;
   - pencarian dan ganti bahan.
 - **Mode 3D di halaman estimasi:**
   - Kembali ke RAB, Esc dua tahap, tombol Urungkan / Ulangi, dan Lihat di Tabel RAB;

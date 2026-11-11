@@ -1339,9 +1339,8 @@ class Penampil3D(QWidget):
         dihitung = bool(info and info["baris"])
         tampil_mode = self.combo_tampil.currentData()
         batas = self.combo_lantai.currentData()
-        tampil = True
-        if batas is not None and e.elevasi is not None and e.elevasi > batas + 0.01:
-            tampil = False
+        di_lantai = not (batas is not None and e.elevasi is not None and e.elevasi > batas + 0.01)
+        tampil = di_lantai
         if tampil_mode == TAMPIL_STRUKTUR and kelas not in STRUKTUR:
             tampil = False
         if tampil_mode == TAMPIL_BESI and kelas not in BETON:
@@ -1349,7 +1348,7 @@ class Penampil3D(QWidget):
         if not dihitung and not e.termasuk and not self.cb_lain.isChecked():
             tampil = False
         if e.termasuk == "rangka_atap" and tampil_mode == TAMPIL_STRUKTUR:
-            tampil = True  # rangka atap bagian struktur
+            tampil = di_lantai  # rangka atap bagian struktur; saringan lantai tetap berlaku
         buram, klik, sinar = 1.0, True, 0.0
         if gid == self._pilih and tampil_mode == TAMPIL_BESI:
             warna, sinar, buram, klik = QColor(WARNA_PILIH), 0.10, 0.22, False  # besinya yang disorot
