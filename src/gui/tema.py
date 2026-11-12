@@ -540,8 +540,12 @@ QHeaderView::section:first {{ border-top-left-radius: 13px; }}
 QHeaderView::section:last {{ border-top-right-radius: 13px; }}
 QHeaderView::section:hover {{ color: {c['teks_kuat']}; }}
 QTableCornerButton::section {{ background-color: {c['permukaan_2']}; border: none; }}
-QTableWidget QDoubleSpinBox {{ background-color: {c['permukaan_3']}; border-radius: 6px; padding: 3px 8px; margin: 5px 6px; }}
-QTableWidget QDoubleSpinBox:focus {{ background-color: {c['fokus_latar']}; }}
+/* isian volume / harga di tabel: tampil seperti teks biasa, kotak isian hanya muncul setelah diklik (fokus) */
+QTableWidget QDoubleSpinBox {{
+    background-color: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px 8px; margin: 5px 6px;
+}}
+QTableWidget QDoubleSpinBox:hover {{ border: 1px solid transparent; }}
+QTableWidget QDoubleSpinBox:focus {{ background-color: {c['fokus_latar']}; border: 1px solid {c['aksen']}; }}
 
 /* ---------- scrollbar ---------- */
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 4px 2px; }}

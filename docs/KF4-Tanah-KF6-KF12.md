@@ -55,8 +55,8 @@ umum: setiap analisa yang dipakai dan memakai harga berbeda untuk nama yang sama
 
 | Kebutuhan | Implementasi |
 |---|---|
-| Edit volume | Kolom *Volume (Edit)* pada mode Detail per Elemen |
-| Edit harga satuan | Kolom *Harga Satuan (Edit)* per baris; panel rekap memiliki tombol **Pakai Harga Ini** untuk semua baris satu pekerjaan di proyek ini (mis. harga negosiasi). Harga master tidak berubah, dan "Terapkan Harga Terbaru" tidak menimpa harga khusus. Tombol **Kembalikan Harga Master** tersedia |
+| Edit volume | Kolom *Volume (Edit)* pada mode Detail per Elemen. Sel tampil sebagai teks biasa dan tidak tersorot saat kursor lewat; klik sel untuk mengubah, ketik nilai baru, Enter menyimpan (satu langkah urungkan), Esc membatalkan |
+| Edit harga satuan | Kolom *Harga Satuan (Edit)* per baris, diedit dengan cara yang sama (klik dulu); panel rekap memiliki tombol **Pakai Harga Ini** untuk semua baris satu pekerjaan di proyek ini (mis. harga negosiasi). Harga master tidak berubah, dan "Terapkan Harga Terbaru" tidak menimpa harga khusus. Tombol **Kembalikan Harga Master** tersedia |
 | Catatan | Kolom catatan per baris di panel rincian (maks. 500 karakter), ikut di sheet *Detail Elemen* |
 | Subtotal & total otomatis | Langsung dihitung ulang setelah setiap perubahan |
 | Input tidak valid (Alternatif A) | Volume tidak bisa negatif, harga harus > 0. Nilai dikembalikan dan muncul pesan |

@@ -17,9 +17,10 @@ Halaman Hasil Estimasi QTO & RAB satu proyek (UC-02 / UC-03).
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QKeySequence, QShortcut, QUndoCommand, QUndoStack
+from PySide6.QtCore import QEvent, QPointF, Qt, QTimer, Signal
+from PySide6.QtGui import QHoverEvent, QKeySequence, QShortcut, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QAbstractSpinBox,
     QButtonGroup,
     QComboBox,
@@ -130,10 +131,14 @@ JENIS_CHIP_SUMBER = {"Qto IFC": "info", "Manual": "peringatan"}
 
 
 class SpinVolume(QDoubleSpinBox):
-    """Kolom volume: rata kanan, tanpa panah, dan tidak berubah karena scroll kecuali sedang difokuskan."""
+    """Kolom volume: rata kanan, tanpa panah, dan tidak berubah karena scroll kecuali sedang difokuskan.
+
+    Di tabel, sel tampil sebagai teks biasa (gaya `QTableWidget QDoubleSpinBox` di tema): kursor yang lewat tidak
+    membuatnya tampak terpilih. Kotak isian baru muncul setelah diklik; Enter menyimpan, Esc membatalkan."""
 
     def __init__(self, nilai: float, satuan: str):
         super().__init__()
+        self._nilai_awal = nilai
         self.setRange(0, 10_000_000)
         self.setDecimals(3)
         if satuan:
@@ -144,7 +149,8 @@ class SpinVolume(QDoubleSpinBox):
         self.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setKeyboardTracking(False)
-        self.setToolTip("Klik lalu ketik volume baru, tekan Enter untuk menyimpan")
+        self.setToolTip("Klik untuk mengubah volume, ketik nilai baru, lalu Enter (Esc = batal)")
+        self.lineEdit().setCursor(Qt.PointingHandCursor)  # kursor teks hanya saat sedang diedit
 
     def wheelEvent(self, event):
         if self.hasFocus():
@@ -154,7 +160,52 @@ class SpinVolume(QDoubleSpinBox):
 
     def focusInEvent(self, event):
         super().focusInEvent(event)
+        self._nilai_awal = self.value()
+        self.lineEdit().setCursor(Qt.IBeamCursor)
         QTimer.singleShot(0, self.selectAll)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.lineEdit().setCursor(Qt.PointingHandCursor)
+
+    def event(self, event):
+        # Esc dipakai untuk membatalkan isian, bukan pintasan halaman (mis. keluar dari mode 3D / hapus pencarian)
+        if event.type() == QEvent.ShortcutOverride and event.key() == Qt.Key_Escape and self.hasFocus():
+            event.accept()
+            return True
+        return super().event(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.setValue(self._nilai_awal)  # nilai lama: editingFinished saat fokus lepas tidak menyimpan apa pun
+            self._selesai_edit()
+            return
+        super().keyPressEvent(event)
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self._selesai_edit()  # tersimpan (editingFinished); sel kembali tampil sebagai teks
+
+    def _selesai_edit(self):
+        w = self.parentWidget()
+        while w is not None and not isinstance(w, QAbstractItemView):
+            w = w.parentWidget()
+        if w is not None:
+            w.setFocus()
+        else:
+            self.clearFocus()
+
+
+class TabelRab(QTableWidget):
+    """Tabel hasil estimasi. Sel yang berisi isian (volume, harga satuan, combo bahan) tidak disorot saat kursor
+    lewat, agar tidak tampak terpilih sebelum diklik; sel lain tetap disorot seperti biasa. Sorotan sel digambar
+    tabel sebelum isinya (gaya ::item:hover), jadi kursor di atas sel isian diperlakukan seperti keluar tabel."""
+
+    def viewportEvent(self, event):
+        if event.type() in (QEvent.HoverEnter, QEvent.HoverMove):
+            index = self.indexAt(event.position().toPoint())
+            if index.isValid() and self.indexWidget(index) is not None:
+                luar = QPointF(-1, -1)
+                return super().viewportEvent(QHoverEvent(QEvent.HoverLeave, luar, luar, luar))
+        return super().viewportEvent(event)
 
 
 class SpinHarga(SpinVolume):
@@ -166,7 +217,8 @@ class SpinHarga(SpinVolume):
         self.setDecimals(0)
         self.setPrefix("Rp ")
         self.setValue(nilai)
-        self.setToolTip("Klik lalu ketik harga satuan khusus baris ini, tekan Enter untuk menyimpan")
+        self._nilai_awal = nilai
+        self.setToolTip("Klik untuk mengubah harga satuan khusus baris ini, ketik nilai baru, lalu Enter (Esc = batal)")
 
 
 class _PerintahPotret(QUndoCommand):
@@ -410,7 +462,7 @@ class EstimasiPage(QWidget):
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(14)
-        self.tabel = QTableWidget()
+        self.tabel = TabelRab()
         self._urut = {}  # KF-16: mode -> (kolom, Qt.SortOrder)
         self.tabel.horizontalHeader().setSectionsClickable(True)
         self.tabel.horizontalHeader().sectionClicked.connect(self._klik_judul)

@@ -101,6 +101,8 @@ Penandanya `versi_tema` di preferensi.
   - isian kop dokumen menjadi satu kolom;
   - opsi disusun dua kolom, sehingga tidak perlu menggulir ke samping.
 - Ubah Dimensi: isian kosong (–) langsung kosong saat diklik, siap diketik.
+- Isian volume / harga satuan di tabel Per Elemen tampil seperti teks biasa (tanpa kotak, tanpa sorotan saat
+  kursor lewat); kotak isian beraksen baru muncul setelah sel diklik.
 
 Logo perusahaan belum dimasukkan ke aplikasi (aplikasi masih untuk penelitian). Hanya warna kuning logo yang dipakai di tema.
 Tes: `tests/test_ui_modern.py`.

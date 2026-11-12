@@ -94,7 +94,8 @@ sama dengan harga F dokumen (selisih ≤ Rp 1).
   penanda file IFC yang hilang, dan menu klik kanan.
 - **Hasil Estimasi**:
   - Mode *Rekap RAB*: dikelompokkan per kategori dengan angka romawi, jumlah per kategori, dan persentase.
-  - Mode *Detail per Elemen*: volume bisa diedit.
+  - Mode *Detail per Elemen*: volume dan harga satuan bisa diedit. Selnya tampil sebagai teks biasa; kursor
+    yang lewat tidak menyorot atau mengubahnya. Klik sel untuk mengubah, Enter menyimpan, Esc membatalkan.
   - Panel rincian: dimensi elemen beserta asalnya (Qto IFC / geometri) dan rumus rule engine. Pada mode
     rekap, panel menampilkan analisa harga satuan pekerjaan.
   - Tombol *Hitung Ulang dari IFC* dengan konfirmasi.
