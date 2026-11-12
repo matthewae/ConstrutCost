@@ -368,7 +368,9 @@ def test_mode_3d_di_halaman_estimasi_kembali_dan_urungkan(qapp, proyek):
         hal._buka_3d()
         d.pilih(dinding)
         d.panel.btn_tabel.click()  # Lihat di Tabel RAB: keluar dari mode 3D, tabel Per Elemen tersaring
-        assert not hal.mode_3d and hal.mode == hal.MODE_DETAIL and hal.kolom_cari.text() == "Dinding Bata Y1"
+        assert not hal.mode_3d and hal.mode == hal.MODE_DETAIL
+        assert hal.saring.jenis_terpilih() == {"Dinding"} and hal.saring.ringkasan() == "Dinding Bata Y1"
+        assert {r["nama_elemen"] for r in hal._data if hal.saring.cocok(r)} == {"Dinding Bata Y1"}
     finally:
         w.close()
         hal.deleteLater()

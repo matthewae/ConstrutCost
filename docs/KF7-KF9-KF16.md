@@ -76,7 +76,7 @@ Validasi (KF-14):
 | Halaman | Cari | Filter | Urut (klik judul kolom) |
 |---|---|---|---|
 | Daftar Proyek | nama / file | – | semua kolom |
-| Hasil Estimasi | pekerjaan, elemen, lantai, kode, tipe | kategori, lantai (KF-12) | Rekap: item di dalam tiap kategori. Per Lantai: lantai & kategori. Detail: semua kolom |
+| Hasil Estimasi | tanpa kotak teks: **checkbox Jenis elemen** lalu **radio button Nama elemen** (lihat di bawah) | kategori pekerjaan, lantai (KF-12) | Rekap: item di dalam tiap kategori. Per Lantai: lantai & kategori. Detail: semua kolom |
 | Harga Satuan → Harga Dasar | nama | jenis, hanya yang dipakai | semua kolom |
 | Harga Satuan → Analisa | kode / uraian | kategori | semua kolom |
 
@@ -88,9 +88,27 @@ Kolom angka (volume, harga, jumlah) diurutkan sebagai angka, bukan teks. Contoh:
 
 Mode RAB Rinci tetap mengikuti susunan tipe elemen.
 
+### Saring elemen di Hasil Estimasi (`gui/saring_elemen.py`)
+
+Kotak cari teks diganti penyaring yang dipilih dengan klik:
+
+- **Jenis elemen** (checkbox): Urugan & lantai kerja, Fondasi, Kolom, Balok, Pelat lantai, Dinding, Pintu, Jendela,
+  Tangga, Atap, Elemen lain, Pekerjaan tambahan, …, masing-masing dengan jumlah elemennya, urut dari fondasi ke atap.
+  Boleh dicentang lebih dari satu; tanpa centang = semua elemen.
+- **Nama elemen** (radio button): muncul setelah ada jenis yang dicentang dan hanya berisi elemen jenis itu yang lolos
+  filter kategori & lantai, urut lantai lalu nama alami (A1, A2, …, A10), mis. *Kolom K1 30x30 Lt.1 A1*,
+  *Dinding Bata 1/2 Batu Lt.1 XA-23*, *Sloof S1 20/30 As 4 (A-B)*. Pilihan pertama *Semua (n elemen)*. Nama kembar
+  diberi keterangan lantai (dan #1, #2 bila masih sama).
+- Saringan berlaku di semua tab (RAB, RAB Rinci, Per Lantai, Per Elemen, Kebutuhan Bahan) dan di panel rincian;
+  baris jumlah menulis *disaring: …*. **Hapus Saringan** melepas semua centang. Ctrl+F memindahkan fokus ke checkbox
+  jenis pertama.
+- Pekerjaan seperti pengecatan dipilih lewat combo **kategori pekerjaan** (mis. Pekerjaan Pengecatan), karena cat
+  adalah pekerjaan pada dinding/plafon, bukan jenis elemen.
+- **Lihat di Tabel RAB** dari Model 3D mencentang jenis elemen itu dan memilih radio namanya.
+
 ## Pengujian
 
 | Berkas | Isi |
 |---|---|
 | `tests/test_kf7_kf9_proyek.py` | parameter per proyek + validasi, hitung ulang dari elemen (harga khusus, catatan & dimensi dipertahankan), undo parameter, simpan/buka `.coststruct` (data, IFC, parameter, tipe, biaya, total sama), file tidak valid, duplikat terpisah, validasi info proyek |
-| `tests/test_kf16_urut.py` | urut angka vs teks, urut Detail naik/turun/asal, urut Rekap per kategori, urut harga dasar |
+| `tests/test_kf16_urut.py` | urut angka vs teks, urut Detail naik/turun/asal, urut Rekap per kategori, urut harga dasar, saring elemen (checkbox jenis, radio nama, beberapa jenis, tab RAB, Hapus Saringan, dari Model 3D) |

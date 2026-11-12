@@ -70,6 +70,7 @@ from gui.import_dialog import tampilkan_hasil_proses
 from database.katalog import hapus_item
 from database.material_repository import simpan_material_elemen
 from gui.katalog_dialog import KatalogDialog
+from gui.saring_elemen import SaringElemen
 from gui.material_dialog import MaterialDialog, MaterialElemenDialog, angka_bahan
 from gui.parameter_dialog import ParameterDialog
 from gui.penulangan_dialog import PenulanganDialog
@@ -372,10 +373,11 @@ class EstimasiPage(QWidget):
             kartu.addWidget(k, stretch=1)
         root.addWidget(self.baris_kartu)
 
-        # --- Toolbar: mode + cari + kategori ---
+        # --- Toolbar: mode + saringan elemen + kategori ---
         self.baris_alat = QWidget()
         # Dua baris agar tidak berdesakan di laptop / skala tampilan Windows 125-150%:
-        # baris 1 = mode tampilan + urungkan/ulangi, baris 2 = cari + filter kategori & lantai.
+        # baris 1 = mode tampilan + urungkan/ulangi, baris 2 = saringan elemen (checkbox jenis, radio nama) + kategori
+        # & lantai.
         dua_baris = QVBoxLayout(self.baris_alat)
         dua_baris.setContentsMargins(0, 0, 0, 0)
         dua_baris.setSpacing(10)
@@ -404,27 +406,20 @@ class EstimasiPage(QWidget):
         self.grup_mode.button(self.MODE_REKAP).setChecked(True)
         self.grup_mode.idClicked.connect(lambda _: self._isi_ulang())
         alat.addStretch()
-        self.kolom_cari = QLineEdit()
-        tema.pasang_ikon_cari(self.kolom_cari)
-        self.kolom_cari.setMinimumWidth(220)
-        self.kolom_cari.setPlaceholderText("Cari pekerjaan, elemen, atau lantai...   (Ctrl+F)")
-        self.kolom_cari.setClearButtonEnabled(True)
-        # cari ditunda 250 ms setelah berhenti mengetik: mode Detail bisa berisi ribuan baris
-        self._tunda_cari = QTimer(self)
-        self._tunda_cari.setSingleShot(True)
-        self._tunda_cari.setInterval(250)
-        self._tunda_cari.timeout.connect(self._isi_ulang)
-        self.kolom_cari.textChanged.connect(lambda _: self._tunda_cari.start())
-        alat2.addWidget(self.kolom_cari, stretch=1)
+        # KF-16: saring per elemen tanpa mengetik: checkbox jenis elemen lalu radio button nama elemen
+        self.saring = SaringElemen()
+        self.saring.berubah.connect(self._isi_ulang)
+        alat2.addWidget(self.saring, stretch=1)
         self.combo_kategori = QComboBox()
         self.combo_kategori.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.combo_kategori.setToolTip("Tampilkan satu kategori pekerjaan saja, mis. Pekerjaan Pengecatan")
         self.combo_kategori.currentIndexChanged.connect(self._isi_ulang)
-        alat2.addWidget(self.combo_kategori)
+        alat2.addWidget(self.combo_kategori, 0, Qt.AlignTop)
         self.combo_lantai = QComboBox()  # KF-12
         self.combo_lantai.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.combo_lantai.setToolTip("Tampilkan dan hitung pekerjaan satu lantai saja (KF-12)")
         self.combo_lantai.currentIndexChanged.connect(self._isi_ulang)
-        alat2.addWidget(self.combo_lantai)
+        alat2.addWidget(self.combo_lantai, 0, Qt.AlignTop)
         self.label_jumlah = tema.label("", "subjudul")  # ditempatkan di baris bawah tabel
         self.btn_urungkan = tema.tombol("↶ Urungkan", "ghost", None, "Batalkan perubahan terakhir (Ctrl+Z)")
         self.btn_ulangi = tema.tombol("↷ Ulangi", "ghost", None, "Ulangi perubahan yang dibatalkan (Ctrl+Y)")
@@ -494,7 +489,8 @@ class EstimasiPage(QWidget):
             )
         )
         self.kosong_cari = tema.KondisiKosong(
-            "Item tidak ditemukan", 'Ubah kata kunci atau pilih "Semua kategori".', simbol="file"
+            "Item tidak ditemukan", 'Lepas centang jenis elemen (Hapus Saringan) atau pilih "Semua kategori".',
+            simbol="file"
         )
         self.stack.addWidget(self.kosong_cari)
 
@@ -573,6 +569,7 @@ class EstimasiPage(QWidget):
         idx = self.combo_lantai.findText(lama)
         self.combo_lantai.setCurrentIndex(max(idx, 0))
         self.combo_lantai.blockSignals(False)
+        self.saring.isi_jenis(self._data)
 
         self._perbarui_banner()
         self._perbarui_ringkasan()
@@ -633,23 +630,19 @@ class EstimasiPage(QWidget):
         self.k_total.set_data(tema.format_rupiah(r["dibulatkan"]), "termasuk PPN, dibulatkan")
         self.k_total.setToolTip(r["terbilang"])
 
-    def _cocok(self, r, kata: str, kategori: str, lantai: str = SEMUA_LANTAI) -> bool:
+    def _cocok(self, r, kategori: str, lantai: str = SEMUA_LANTAI) -> bool:
         if kategori and kategori != SEMUA_KATEGORI and r["kategori"] != kategori:
             return False
-        if lantai and lantai != SEMUA_LANTAI and (r.get("lantai") or TANPA_LANTAI) != lantai:
-            return False
-        if not kata:
-            return True
-        teks = " ".join(str(r.get(k) or "") for k in ("nama_pekerjaan", "nama_elemen", "lantai", "kode_ahsp", "uraian", "kode_tipe"))
-        return kata in teks.lower()
+        return not (lantai and lantai != SEMUA_LANTAI and (r.get("lantai") or TANPA_LANTAI) != lantai)
 
     def _isi_ulang(self, *_):
         if not self._data:
             return
-        kata = self.kolom_cari.text().strip().lower()
         kategori = self.combo_kategori.currentText()
         lantai = self.combo_lantai.currentText()
-        baris = [r for r in self._data if self._cocok(r, kata, kategori, lantai)]
+        dasar = [r for r in self._data if self._cocok(r, kategori, lantai)]
+        self.saring.perbarui_nama(dasar)  # radio nama elemen: hanya jenis tercentang di kategori & lantai ini
+        baris = [r for r in dasar if self.saring.cocok(r)]
         judul_mode, isi_mode = KETERANGAN_MODE[self.mode]
         self.label_mode.setText(f"<b>{judul_mode}</b> — {isi_mode}")
         if self.mode == self.MODE_REKAP:
@@ -682,6 +675,8 @@ class EstimasiPage(QWidget):
                 "Ganti bahan di kolom Bahan, atau ubah Volume / Harga lalu tekan Enter. Total RAB langsung dihitung ulang."
             )
         teks = f"{n} {satuan}"
+        if self.saring.aktif():
+            teks += f"  ·  disaring: {self.saring.ringkasan()}"
         if lantai and lantai != SEMUA_LANTAI:
             teks += f"  ·  {lantai}: {tema.format_rupiah(sum(r['subtotal_biaya'] for r in baris))}"
         self.label_jumlah.setText(teks)
@@ -1371,8 +1366,8 @@ class EstimasiPage(QWidget):
             # RAB Rinci / rincian lantai: hanya baris tipe elemen yang dipilih, bukan semua tipe pekerjaan itu
             pid, saring = kunci if isinstance(kunci, tuple) else (kunci, None)
             lantai = self.combo_lantai.currentText()  # KF-12: ikut filter lantai
-            baris_pekerjaan = [r for r in self._data if r["pekerjaan_id"] == pid and self._cocok(r, "", "", lantai)
-                               and cocok_saring(r, saring)]
+            baris_pekerjaan = [r for r in self._data if r["pekerjaan_id"] == pid and self._cocok(r, "", lantai)
+                               and self.saring.cocok(r) and cocok_saring(r, saring)]
             self.panel.tampilkan_pekerjaan(pid, baris_pekerjaan, self.komponen())
         else:
             self._panel_bawaan()
@@ -1473,8 +1468,7 @@ class EstimasiPage(QWidget):
         if self.mode_3d:
             self._dialog_3d.fokus_cari()
         elif self.baris_alat.isVisible():
-            self.kolom_cari.setFocus()
-            self.kolom_cari.selectAll()
+            self.saring.fokus()
 
     def _pintasan_export(self):
         if self.btn_export.isEnabled():
@@ -1652,16 +1646,18 @@ class EstimasiPage(QWidget):
         self._pilih_kunci(kunci)
         return self._pesan_total(lama, ringkas)
 
-    def lihat_elemen(self, nama: str):
-        """Tampilkan baris RAB satu elemen: mode Per Elemen, semua kategori & lantai, cari nama elemen."""
+    def lihat_elemen(self, nama: str, elemen_id: int | None = None):
+        """Tampilkan baris RAB satu elemen: mode Per Elemen, semua kategori & lantai, jenis elemen itu dicentang dan
+        radio nama elemennya dipilih."""
         for combo in (self.combo_kategori, self.combo_lantai):
             combo.blockSignals(True)
             combo.setCurrentIndex(0)
             combo.blockSignals(False)
         self.grup_mode.button(self.MODE_DETAIL).setChecked(True)
-        self.kolom_cari.blockSignals(True)
-        self.kolom_cari.setText(nama)
-        self.kolom_cari.blockSignals(False)
+        r = next((x for x in self._data if elemen_id and x.get("elemen_id") == elemen_id), None) or next(
+            (x for x in self._data if x.get("elemen_id") and x.get("nama_elemen") == nama), None)
+        if r is not None:
+            self.saring.pilih_elemen(r["elemen_id"], jenis_elemen(r))
         self.tutup_3d()
         self._isi_ulang()
 

@@ -521,6 +521,13 @@ QCheckBox::indicator:hover {{ border: 1px solid {c['aksen']}; }}
 QCheckBox::indicator:checked {{ background-color: {c['aksen']}; border: 1px solid {c['aksen']}; image: {centang}; }}
 QCheckBox::indicator:checked:disabled {{ background-color: {c['garis_kuat']}; border: 1px solid {c['garis_kuat']}; }}
 QCheckBox:disabled {{ color: {c['teks_samar']}; }}
+QRadioButton {{ spacing: 8px; }}
+QRadioButton::indicator {{ width: 16px; height: 16px; border-radius: 9px; border: 1px solid {c['garis_kuat']}; background-color: {c['permukaan']}; }}
+QRadioButton::indicator:hover {{ border: 1px solid {c['aksen']}; }}
+QRadioButton::indicator:checked {{
+    border: 1px solid {c['aksen']};
+    background-color: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5, stop:0 {c['aksen']}, stop:0.5 {c['aksen']}, stop:0.62 {c['permukaan']}, stop:1 {c['permukaan']});
+}}
 
 /* ---------- tabel ---------- */
 QTableWidget, QListWidget {{

@@ -1678,7 +1678,8 @@ class Penampil3D(QWidget):
 
     def _lihat_tabel(self, nama: str):
         if self.halaman is not None and hasattr(self.halaman, "lihat_elemen"):
-            self.halaman.lihat_elemen(nama)
+            utama = (self.panel._data or {}).get("utama") or {}
+            self.halaman.lihat_elemen(nama, utama.get("elemen_id"))
 
     # ------------------------------------------------------------ Qt
 
