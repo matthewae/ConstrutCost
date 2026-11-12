@@ -20,6 +20,7 @@ from bahan_bekisting import (
     cari,
     ganti_komponen,
     kode_varian_bekisting,
+    koefisien,
     nama_pendek,
     urai_varian,
 )
@@ -48,21 +49,42 @@ def muat_pilihan(proyek_id: int, conn=None) -> dict:
 
 
 def pilihan_elemen(teks: str | None) -> dict:
-    """Pilihan khusus elemen yang sah: {slot: kunci}."""
-    return {k: v for k, v in _baca(teks).items()
-            if k in SLOT and k not in SLOT_BAHAN and any(o.kunci == v for o in SLOT[k].opsi)}
+    """Pilihan khusus elemen yang sah: {slot: kunci} (termasuk kayu / triplek bekisting elemen itu)."""
+    return {k: v for k, v in _baca(teks).items() if k in SLOT and any(o.kunci == v for o in SLOT[k].opsi)}
 
 
-def kode_elemen(kode_proyek_peta: dict, kode_ke_id: dict, material_elemen: str | None) -> dict:
-    """Peta kode -> pekerjaan_id untuk satu elemen: peta proyek ditimpa pilihan khusus elemen."""
+def _bahan_bekisting_proyek(kode_proyek_peta: dict, kode_ke_id: dict) -> tuple:
+    """(kayu, triplek) bekisting proyek, dibaca dari varian yang dipetakan untuk pekerjaan bekisting."""
+    id_ke_kode = {v: k for k, v in kode_ke_id.items()}
+    for kode in KODE_BEKISTING:
+        urai = urai_varian(id_ke_kode.get(kode_proyek_peta.get(kode), ""))
+        if urai:
+            return urai[1], urai[2]
+    return KAYU_BAWAAN, TRIPLEK_BAWAAN
+
+
+def kode_elemen(kode_proyek_peta: dict, kode_ke_id: dict, material_elemen: str | None, conn=None) -> dict:
+    """Peta kode -> pekerjaan_id untuk satu elemen: peta proyek ditimpa pilihan khusus elemen. Kayu / triplek
+    bekisting khusus elemen mengarahkan semua pekerjaan bekisting elemen itu ke variannya (dibuat bila perlu)."""
     khusus = pilihan_elemen(material_elemen)
     if not khusus:
         return kode_proyek_peta
     peta = dict(kode_proyek_peta)
     for slot, kunci in khusus.items():
+        if slot in SLOT_BAHAN:
+            continue
         pid = kode_ke_id.get(kode_varian(slot, kunci))
         if pid is not None:
             peta[slot] = pid
+    if any(k in khusus for k in SLOT_BAHAN):
+        kayu, triplek = _bahan_bekisting_proyek(kode_proyek_peta, kode_ke_id)
+        kayu, triplek = khusus.get(SLOT_KAYU, kayu), khusus.get(SLOT_TRIPLEK, triplek)
+        for kode in KODE_BEKISTING:
+            varian = kode_varian_bekisting(kode, kayu, triplek)
+            if varian not in kode_ke_id and conn is not None:
+                pastikan_varian_bekisting(conn, varian, kode_ke_id)
+            if varian in kode_ke_id:
+                peta[kode] = kode_ke_id[varian]
     return peta
 
 
@@ -183,7 +205,11 @@ def simpan_pilihan(proyek_id: int, pilihan: dict) -> dict:
         }
         n = 0
         if any(k in SLOT_BAHAN for k in berubah):
-            n += _ganti_bekisting(conn, "proyek_id = ?", (proyek_id,), baru[SLOT_KAYU], baru[SLOT_TRIPLEK], id_kode)
+            khusus = [e for e, m in elemen_khusus.items() if any(k in m for k in SLOT_BAHAN)]
+            syarat = "proyek_id = ?"
+            if khusus:
+                syarat += f" AND (elemen_id IS NULL OR elemen_id NOT IN ({', '.join('?' * len(khusus))}))"
+            n += _ganti_bekisting(conn, syarat, (proyek_id, *khusus), baru[SLOT_KAYU], baru[SLOT_TRIPLEK], id_kode)
         for slot in berubah:
             if slot in SLOT_BAHAN:
                 continue
@@ -231,7 +257,7 @@ def material_elemen(elemen_id: int) -> dict:
         khusus = pilihan_elemen(el["material"])
         hasil = {}
         for r in conn.execute(
-            """SELECT p.kode_ahsp, p.satuan, SUM(he.volume_pekerjaan) AS v FROM hasil_estimasi he
+            """SELECT p.id, p.kode_ahsp, p.satuan, SUM(he.volume_pekerjaan) AS v FROM hasil_estimasi he
                JOIN pekerjaan p ON p.id = he.pekerjaan_id WHERE he.elemen_id = ? GROUP BY p.kode_ahsp""",
             (elemen_id,),
         ):
@@ -240,6 +266,15 @@ def material_elemen(elemen_id: int) -> dict:
                 d = hasil.setdefault(slot, {"kunci": khusus.get(slot, proyek[slot]), "khusus": slot in khusus,
                                             "volume": 0.0, "satuan": r["satuan"]})
                 d["volume"] += r["v"] or 0.0
+            elif urai_varian(r["kode_ahsp"]):  # bekisting: kayu (m³) & triplek (lembar) elemen ini
+                kom = conn.execute("SELECT tipe, nama_komponen, satuan, koefisien FROM komponen_harga "
+                                   "WHERE pekerjaan_id = ?", (r["id"],)).fetchall()
+                koef = koefisien([(k["tipe"], k["nama_komponen"], k["satuan"], k["koefisien"]) for k in kom])
+                for sl, kf, sat in ((SLOT_KAYU, koef[0], "m3"), (SLOT_TRIPLEK, koef[1], "lembar")):
+                    if kf > 0:
+                        d = hasil.setdefault(sl, {"kunci": khusus.get(sl, proyek[sl]), "khusus": sl in khusus,
+                                                  "volume": 0.0, "satuan": sat})
+                        d["volume"] += (r["v"] or 0.0) * kf
         return dict(sorted(hasil.items(), key=lambda x: list(SLOT).index(x[0])))
     finally:
         conn.close()
@@ -249,33 +284,58 @@ def simpan_material_elemen(elemen_id: int, pilihan: dict) -> dict:
     """Pilihan khusus satu elemen. Slot yang pilihannya sama dengan pilihan proyek tidak disimpan sebagai
     pilihan khusus (elemen kembali mengikuti proyek). Baris RAB elemen ini langsung diganti pekerjaannya;
     volume, harga khusus, dan catatan tetap. Return {"berubah": [slot], "baris": n}."""
+    return simpan_material_elemen_banyak([elemen_id], pilihan)
+
+
+def simpan_material_elemen_banyak(elemen_ids: list, pilihan: dict) -> dict:
+    """Pilihan khusus untuk beberapa elemen sekaligus (mis. semua kolom yang tersaring di Kebutuhan Bahan), dalam
+    satu transaksi. Kayu / triplek bekisting juga dapat dipilih per elemen. Return {"berubah": [slot], "baris": n,
+    "elemen": jumlah elemen yang berubah}."""
     tidak_dikenal = [k for k in pilihan if k not in SLOT]
     if tidak_dikenal:
         raise ValueError(f"Pilihan material tidak dikenal: {', '.join(tidak_dikenal)}")
-    pilihan = {k: v for k, v in pilihan.items() if k not in SLOT_BAHAN}  # bahan bekisting: per proyek saja
     conn = _connect()
+    berubah_semua, n, n_elemen, proyek_id, nama = [], 0, 0, None, []
     try:
-        el = conn.execute("SELECT proyek_id, nama, material FROM elemen_proyek WHERE id = ?", (elemen_id,)).fetchone()
-        if el is None:
-            raise ValueError("Elemen tidak ditemukan. Muat ulang hasil estimasi.")
-        proyek = muat_pilihan(el["proyek_id"], conn)
-        lama = {**proyek, **pilihan_elemen(el["material"])}
-        khusus = {**pilihan_elemen(el["material"]), **pilihan}
-        khusus = {k: v for k, v in khusus.items() if v != proyek[k] and any(o.kunci == v for o in SLOT[k].opsi)}
-        baru = {**proyek, **khusus}
         id_kode = {r["kode_ahsp"]: r["id"] for r in conn.execute("SELECT id, kode_ahsp FROM pekerjaan")}
-        berubah = [k for k in SLOT if baru[k] != lama[k]]
-        n = sum(_ganti_baris(conn, "elemen_id = ?", (elemen_id,), k, baru[k], id_kode) for k in berubah)
-        conn.execute("UPDATE elemen_proyek SET material = ? WHERE id = ?",
-                     (json.dumps(khusus, ensure_ascii=False) if khusus else None, elemen_id))
-        conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (el["proyek_id"],))
+        proyek_cache = {}
+        for elemen_id in dict.fromkeys(elemen_ids):
+            el = conn.execute("SELECT proyek_id, nama, material FROM elemen_proyek WHERE id = ?",
+                              (elemen_id,)).fetchone()
+            if el is None:
+                raise ValueError("Elemen tidak ditemukan. Muat ulang hasil estimasi.")
+            proyek_id = el["proyek_id"]
+            if proyek_id not in proyek_cache:
+                proyek_cache[proyek_id] = muat_pilihan(proyek_id, conn)
+            proyek = proyek_cache[proyek_id]
+            lama = {**proyek, **pilihan_elemen(el["material"])}
+            khusus = {**pilihan_elemen(el["material"]), **pilihan}
+            khusus = {k: v for k, v in khusus.items() if v != proyek[k] and any(o.kunci == v for o in SLOT[k].opsi)}
+            baru = {**proyek, **khusus}
+            berubah = [k for k in SLOT if baru[k] != lama[k]]
+            if not berubah:
+                continue
+            for k in berubah:
+                if k not in SLOT_BAHAN:
+                    n += _ganti_baris(conn, "elemen_id = ?", (elemen_id,), k, baru[k], id_kode)
+            if any(k in SLOT_BAHAN for k in berubah):
+                n += _ganti_bekisting(conn, "elemen_id = ?", (elemen_id,), baru[SLOT_KAYU], baru[SLOT_TRIPLEK],
+                                      id_kode)
+            conn.execute("UPDATE elemen_proyek SET material = ? WHERE id = ?",
+                         (json.dumps(khusus, ensure_ascii=False) if khusus else None, elemen_id))
+            berubah_semua += [k for k in berubah if k not in berubah_semua]
+            n_elemen += 1
+            nama.append(el["nama"] or str(elemen_id))
+            ringkas = "; ".join(f"{SLOT[k].judul}: {SLOT[k].cari(baru[k]).label}" for k in berubah)
+        if proyek_id is not None and n_elemen:
+            conn.execute("UPDATE proyek SET tanggal_diubah = CURRENT_TIMESTAMP WHERE id = ?", (proyek_id,))
         conn.commit()
     finally:
         conn.close()
-    if berubah:
-        ringkas = "; ".join(f"{SLOT[k].judul}: {SLOT[k].cari(baru[k]).label}" for k in berubah)
-        catat("material", f"Material elemen {el['nama'] or elemen_id} diubah: {ringkas}", el["proyek_id"])
-    return {"berubah": berubah, "baris": n}
+    if n_elemen:
+        siapa = nama[0] if n_elemen == 1 else f"{n_elemen} elemen ({nama[0]}, ...)"
+        catat("material", f"Material elemen {siapa} diubah: {ringkas}", proyek_id)
+    return {"berubah": berubah_semua, "baris": n, "elemen": n_elemen}
 
 
 def ringkasan_opsi(conn=None) -> dict:

@@ -169,10 +169,35 @@ kebutuhan selalu mengikuti pilihan material proyek dan elemen.
 | Keramik (m² atau buah) | ≈ n dus @ 0,96 m² / @ 6 buah | isi per dus menurut ukuran |
 | Bata ringan (buah) | ≈ m³ | 60 × 20 × tebal cm |
 | Pipa, rangka aluminium, hollow, besi siku, UNP/CNP (m') | ≈ n btg @ 6 m (pipa PVC @ 4 m) | panjang batang di pasaran |
+| Pasir, kerikil, batu belah, tanah (m³) | ≈ n truk @ 7 m³ (< 3 m³: pick-up @ 1,5 m³) | isi kendaraan |
+| Lem kayu (kg) | ≈ n kaleng @ 2,5 kg | kemasan |
+| Wiremesh M6 / M8 (kg) | ≈ n lembar @ 2,1 × 5,4 m (± 33,6 / 59,7 kg) | berat lembar dari diameter, jarak 150 mm dua arah |
+| Paku (kg) ≥ 15 kg | ≈ n dus @ 30 kg + jumlah batang | kebutuhan kecil: eceran per kg |
+| Self drilling screw, paku rivet (buah) | ≈ n dus @ 1.000 buah | isi dus |
+| Baja ringan, reng (batang) | ≈ n btg @ 6 m; dolken @ 4 m (dari nama) | panjang batang |
+| Papan kayu tanpa ukuran (m³) | ≈ n lbr papan 2/20 @ 4 m (asumsi 2/20) | |
+| Besi strip a × b mm (kg) | ≈ n btg @ 6 m | berat = a·b·7.850 per m |
+| Membran bakar (m') | ≈ n rol @ 1 × 10 m | ukuran rol |
+| Minyak bekisting dalam m³ (satuan HSPK analisa sloof) | ⚠ kemungkinan liter: ≈ n jeriken | satuan HSPK tidak lazim, ditandai |
 | Air (liter) | ≈ m³ | 1.000 liter = 1 m³ |
 | Tenaga kerja (OH) | orang-hari | |
 
-Ukuran kemasan dan berat isi adalah angka yang lazim di pasaran dan dapat berbeda per merek / pemasok.
+Ukuran kemasan dan berat isi adalah angka yang lazim di pasaran dan dapat berbeda per merek / pemasok. Bahan
+yang ukuran kemasannya tidak seragam (listplank GRC, talang seng, dynabolt, sealant, cairan primer) dibiarkan
+kosong.
+
+### Ganti bahan langsung di Kebutuhan Bahan
+
+Nama bahan yang dapat diganti tampil sebagai combo (▾), mis. *Kaso 5/7 kayu kelas II ▾*, *Tripleks 9 mm ▾*,
+*Bata ringan ▾*, keramik, genteng, gypsum, cat. Pilihan di combo memuat harga per satuan.
+
+- **Tanpa saringan**: berlaku untuk seluruh proyek (sama dengan dialog Ganti Bahan).
+- **Dengan saringan** (mis. *Kolom › Kolom K1 30x30 Lt.1 A1*, atau semua kolom yang dicentang): hanya elemen yang
+  tersaring yang berubah. Kayu & triplek bekisting juga dapat dipilih per elemen (varian `BSK.KOLOM~kayu+triplek`),
+  dan tetap berlaku saat estimasi dihitung ulang dari IFC.
+- Bahan yang berubah lewat pilihan pekerjaannya (semen, pasir, split, air: mutu beton / campuran) tidak diberi
+  combo; ukuran paku bekisting mengikuti kayu & triplek.
+- Setiap penggantian masuk riwayat Urungkan/Ulangi dan menampilkan total RAB sebelum → sesudah.
 
 Laporan PDF memuat kebutuhan seluruh proyek dan daftar pilihan material. Opsi export baru: **Kebutuhan bahan
 proyek & per elemen**.
@@ -228,4 +253,6 @@ paku dikoreksi ke per kg), paku triplek +Rp 657.
 `tests/test_bekisting_bahan.py` menguji ukuran paku menurut kegunaan (sambungan rangka kaso 5/7 → 10 cm; triplek
 12 mm + balok 6/12 → 5 cm; tidak pernah tembus), penggantian kayu/triplek/paku pada analisa (koefisien tetap, fondasi papan tidak
 diganti), pilihan kayu & triplek per proyek (varian, hitung ulang IFC, kembali ke bawaan), dialog Ganti Bahan
-kelompok Bekisting, label mutu K, dan kolom SETARA (baja → batang per diameter penulangan proyek).
+kelompok Bekisting, label mutu K, kolom SETARA (baja → batang per diameter penulangan proyek, lem, wiremesh,
+paku per dus, dll.), dan ganti bahan langsung dari Kebutuhan Bahan (proyek / elemen tersaring, kayu per elemen,
+urungkan, hitung ulang IFC).

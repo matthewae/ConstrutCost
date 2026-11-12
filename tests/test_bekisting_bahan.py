@@ -185,7 +185,7 @@ def test_setara_satuan_beli_di_lapangan():
     assert setara("Batu split 2/3", "kg", 9000) == "≈ 6,67 m³ ≈ 1 truk @ 7 m³"
     assert setara("Kaso 5/7 kayu kelas II", "m3", 0.027) == "≈ 2 btg 5/7 @ 4 m"
     assert setara("Kawat beton", "kg", 1.59) == "beli 1 rol @ 25 kg (terpakai 6%)"
-    assert setara("Paku 2 inch", "kg", 2.28) == "≈ 750 btg (± 330 btg/kg)"
+    assert setara("Paku 2 inch", "kg", 2.28) == "≈ 750 btg (± 330 btg/kg) · eceran per kg"
     assert setara("Minyak bekisting", "liter", 1.14) == "beli 1 jeriken @ 20 liter"
     assert setara("Cat tembok interior", "kg", 30) == "≈ 1 pail @ 25 kg + 1 galon @ 5 kg"
     assert setara("Keramik 40x40 cm", "m2", 12) == "≈ 13 dus @ 0,96 m²"
@@ -196,6 +196,18 @@ def test_setara_satuan_beli_di_lapangan():
     assert setara("Pipa besi hitam 3 inch", "m'", 161) == "≈ 27 btg @ 6 m"
     assert setara("Pipa PVC 4 inch", "m'", 30) == "≈ 8 btg @ 4 m"
     assert setara("Kabel listrik NYM", "m'", 100) == ""  # bukan profil batang
+    assert setara("Lem Kayu", "kg", 46.98) == "≈ 19 kaleng @ 2,5 kg"
+    assert setara("Wiremesh M6", "kg", 35.94) == "≈ 2 lembar M6 @ 2,1 × 5,4 m (± 33,6 kg)"
+    assert setara("Paku 4 inch", "kg", 48.0).startswith("≈ 2 dus @ 30 kg")
+    assert setara("Paku 2 inch", "kg", 2.28).endswith("eceran per kg")
+    assert setara("Self Drilling Screw dia-6 x 20 mm (Main Truss Screw)", "buah", 6511.89) == "≈ 7 dus @ 1.000 buah"
+    assert setara("Baja Ringan C75, t=1 mm (Batang Utama)", "batang", 253.74) == "≈ 254 btg @ 6 m"
+    assert setara("Dolken kayu φ 8-10 panjang 400 cm", "batang", 911.73) == "≈ 912 btg @ 4 m"
+    assert setara("Pasir pasang (quarry - lokasi pekerjaan)", "m3", 74.52) == "≈ 11 truk @ 7 m³"
+    assert setara("Kayu papan kelas II", "m3", 3.17).endswith("(asumsi papan 2/20)")
+    assert setara("Besi strip (20x3) mm", "kg", 17.22) == "≈ 7 btg @ 6 m (± 2,83 kg/btg)"
+    assert setara("Membran Bakar", "m'", 81.93) == "≈ 9 rol @ 1 × 10 m"
+    assert setara("Minyak Bekisting", "m3", 17.01).startswith("⚠ satuan HSPK m³")
 
 
 def test_setara_baja_memakai_diameter_penulangan_proyek(proyek):
@@ -209,3 +221,65 @@ def test_setara_baja_memakai_diameter_penulangan_proyek(proyek):
     assert baja and all("btg" in d["keterangan"] and "@ 12 m" in d["keterangan"] for d in baja)
     semen = next(d for d in sd["bahan"] if d["nama"].lower().startswith("semen"))
     assert "zak" in semen["keterangan"]
+
+
+def test_ganti_bahan_langsung_dari_kebutuhan_bahan(proyek, qapp_bekisting):
+    """Nama bahan yang dapat diganti menjadi combo di tab Kebutuhan Bahan: tanpa saringan berlaku untuk proyek,
+    dengan saringan hanya untuk elemen yang tersaring (kayu bekisting pun dapat berbeda per elemen)."""
+    from PySide6.QtWidgets import QComboBox
+
+    from database.material_repository import material_elemen, muat_pilihan
+    from estimasi_service import jalankan_estimasi
+    from gui.estimasi_page import EstimasiPage
+    from kebutuhan_lantai import jenis_elemen
+
+    pid, conn = proyek
+    hal = EstimasiPage(pid, "AC20")
+    try:
+        hal.grup_mode.button(hal.MODE_BAHAN).click()
+
+        def combo(nama):
+            t = hal.tabel
+            for i in range(t.rowCount()):
+                if t.item(i, 1) and t.item(i, 1).text() == nama:
+                    w = t.cellWidget(i, 1)
+                    return w if isinstance(w, QComboBox) else None
+            raise AssertionError(f"baris {nama} tidak ada")
+
+        assert combo("Semen Portland (PC)") is None  # berubah lewat mutu beton / campuran, bukan diganti langsung
+        bata = combo("Bata ringan tebal 10 cm")
+        assert bata is not None and bata.currentData() == "ringan10" and bata.findData("merah") >= 0
+        kaso = combo("Kaso 5/7 kayu kelas II")
+        assert kaso.currentData() == "kaso57" and "Rp" in kaso.currentText()
+
+        kaso.setCurrentIndex(kaso.findData("balok612k2"))  # tanpa saringan: pilihan proyek
+        assert muat_pilihan(pid)["BSK.KAYU"] == "balok612k2" and hal.riwayat.count() == 1
+        assert all(r["kode_ahsp"].endswith("~balok612k2+t9") for r in _bekisting(conn, pid))
+        hal.riwayat.undo()
+        assert muat_pilihan(pid)["BSK.KAYU"] == "kaso57"
+        assert all("~" not in r["kode_ahsp"] for r in _bekisting(conn, pid))
+
+        r = next(x for x in hal._data if (x["kode_ahsp"] or "").startswith("BSK.") and x.get("elemen_id"))
+        hal.saring.pilih_elemen(r["elemen_id"], jenis_elemen(r))  # satu elemen tersaring
+        hal._isi_ulang()
+        combo("Kaso 5/7 kayu kelas II").setCurrentIndex(combo("Kaso 5/7 kayu kelas II").findData("sengon"))
+        assert muat_pilihan(pid)["BSK.KAYU"] == "kaso57"  # proyek tidak berubah
+        elemen = {}
+        for b in conn.execute("""SELECT h.elemen_id, p.kode_ahsp FROM hasil_estimasi h JOIN pekerjaan p
+                                 ON p.id = h.pekerjaan_id WHERE h.proyek_id = ? AND p.kode_ahsp LIKE 'BSK.%'""",
+                              (pid,)):
+            elemen.setdefault(b["elemen_id"], set()).add(b["kode_ahsp"])
+        assert all(k.endswith("~sengon+t9") for k in elemen.pop(r["elemen_id"]))
+        assert all("~" not in k for ks in elemen.values() for k in ks)
+        assert material_elemen(r["elemen_id"])["BSK.KAYU"] == {
+            "kunci": "sengon", "khusus": True, "volume": pytest.approx(material_elemen(r["elemen_id"])["BSK.KAYU"]
+                                                                         ["volume"]), "satuan": "m3"}
+        gid = conn.execute("SELECT global_id FROM elemen_proyek WHERE id = ?", (r["elemen_id"],)).fetchone()[0]
+        jalankan_estimasi(pid)  # hitung ulang dari IFC: kayu khusus elemen tetap berlaku (dicocokkan lewat GlobalId)
+        kode = {b[0] for b in conn.execute(
+            """SELECT p.kode_ahsp FROM hasil_estimasi h JOIN pekerjaan p ON p.id = h.pekerjaan_id
+               JOIN elemen_proyek e ON e.id = h.elemen_id WHERE h.proyek_id = ? AND p.kode_ahsp LIKE 'BSK.%'
+               AND e.global_id = ?""", (pid, gid))}
+        assert kode and all(k.endswith("~sengon+t9") for k in kode)
+    finally:
+        hal.deleteLater()

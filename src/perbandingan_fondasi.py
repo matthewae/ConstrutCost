@@ -27,7 +27,7 @@ def _hitung(conn, proyek_id: int, elemen: list, parameter, harga, kode) -> dict:
     _konteks, keluaran, dilewati = proses_semua(elemen, parameter)
     per = {}
     for el, hasil in keluaran:
-        peta = kode_elemen(*kode, el.get("material"))
+        peta = kode_elemen(*kode, el.get("material"), conn)
         for h in hasil:
             pid = peta.get(h.kode)
             if pid is None:

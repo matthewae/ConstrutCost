@@ -73,7 +73,7 @@ def _harga_dan_kode(conn, proyek_id: int):
 def _simpan_hasil(conn, proyek_id, elemen_id, hasil, harga, kode, peringatan, material=None) -> int:
     """`kode` = (peta kode proyek, peta kode_ahsp -> id) dari _harga_dan_kode; `material` = pilihan
     material khusus elemen (JSON elemen_proyek.material) yang menimpa pilihan proyek."""
-    peta = kode_elemen(*kode, material)
+    peta = kode_elemen(*kode, material, conn)
     n = 0
     for h in hasil:
         pid = peta.get(h.kode)

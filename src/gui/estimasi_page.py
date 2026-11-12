@@ -68,7 +68,12 @@ from gui.dimensi_dialog import DimensiDialog
 from gui.export_dialog import ExportDialog
 from gui.import_dialog import tampilkan_hasil_proses
 from database.katalog import hapus_item
-from database.material_repository import simpan_material_elemen
+from database.material_repository import (
+    ringkasan_opsi,
+    simpan_material_elemen,
+    simpan_material_elemen_banyak,
+    simpan_pilihan,
+)
 from gui.katalog_dialog import KatalogDialog
 from gui.saring_elemen import SaringElemen
 from gui.material_dialog import MaterialDialog, MaterialElemenDialog, angka_bahan
@@ -92,7 +97,8 @@ from kebutuhan_lantai import (
     rincian_per_lantai,
     ringkas_lantai,
 )
-from database.material import SLOT, kode_dasar
+import bahan_bekisting as bb
+from database.material import SLOT, SLOT_BAHAN, kode_dasar, kode_varian
 from rab_rinci import TANPA_LANTAI, cocok_saring, daftar_lantai, susun_rinci, urutan_kategori
 from rules.dimensi import kolom_dimensi
 from rules.penulangan import label_tipe
@@ -666,7 +672,8 @@ class EstimasiPage(QWidget):
             n = self._isi_bahan(baris)
             satuan = "jenis bahan, tenaga, & alat"
             self.label_petunjuk.setText(
-                "Pilih baris untuk melihat bahan itu dipakai di pekerjaan & lantai mana. Filter lantai = kebutuhan satu lantai."
+                "Bahan bertanda ▾ dapat diganti langsung (berlaku untuk elemen tersaring, atau seluruh proyek tanpa "
+                "saringan). Pilih baris untuk melihat bahan itu dipakai di pekerjaan & lantai mana."
             )
         else:
             n = self._isi_detail(baris)
@@ -799,9 +806,11 @@ class EstimasiPage(QWidget):
         t.clear()
         tema.siapkan_tabel(
             t, ["NO", "BAHAN / TENAGA KERJA / ALAT", "KEBUTUHAN", "SAT", "SETARA", "HARGA DASAR", "JUMLAH"],
-            rata_kanan=(2, 5, 6), tinggi_baris=36,
+            rata_kanan=(2, 5, 6), tinggi_baris=40,
         )
         kb = kebutuhan_sumber_daya(baris, self.komponen()) if baris else {t_: [] for t_, _ in TIPE_SUMBER_DAYA}
+        self._baris_bahan = baris
+        pilihan_bahan = self._pilihan_bahan(baris)
         self._bahan = {}
         kunci = {1: lambda d: d["nama"].lower(), 2: lambda d: d["jumlah"], 3: lambda d: d["satuan"],
                  5: lambda d: d["harga"], 6: lambda d: d["biaya"]}
@@ -821,15 +830,115 @@ class EstimasiPage(QWidget):
                 t.setItem(r, 1, tema.sel(d["nama"], tooltip=d["nama"]))
                 t.setItem(r, 2, tema.sel(angka_bahan(d["jumlah"]), "kanan", tebal=True))
                 t.setItem(r, 3, tema.sel(d["satuan"], "tengah", tema.W["teks_redup"]))
-                t.setItem(r, 4, tema.sel(d["keterangan"], warna=tema.W["teks_redup"]))
+                t.setItem(r, 4, tema.sel(d["keterangan"], warna=tema.W["teks_redup"], tooltip=d["keterangan"] or None))
                 t.setItem(r, 5, tema.sel(tema.format_rupiah(d["harga"]), "kanan", tema.W["teks_redup"]))
                 t.setItem(r, 6, tema.sel(tema.format_rupiah(d["biaya"]), "kanan"))
+                slot = pilihan_bahan.get(d["nama"]) if tipe == "bahan" else None
+                if slot is not None:  # nama bahan menjadi combo: klik untuk mengganti bahan ini
+                    t.setCellWidget(r, 1, self._combo_ganti_bahan(slot, *pilihan_bahan["_pakai"][slot]))
+                elif tipe == "bahan" and d["nama"].lower().startswith("paku") and bb.SLOT_KAYU in pilihan_bahan["_pakai"]:
+                    t.item(r, 1).setToolTip(f"{d['nama']}: ukuran paku bekisting mengikuti kayu & triplek yang dipilih "
+                                            "(panjangnya tidak melebihi tebal bahan yang disambung)")
                 r += 1
             t.setItem(r, 1, tema.sel(f"Jumlah {judul.lower()}", "kanan", tema.W["teks_redup"]))
             t.setItem(r, 6, tema.sel(tema.format_rupiah(sum(d["biaya"] for d in items)), "kanan", warna, tebal=True))
             r += 1
         tema.atur_lebar(t, 1, isi_konten=(0, 2, 3, 4, 5, 6))
+        h = t.horizontalHeader()  # SETARA dibatasi (teks lengkap di tooltip) agar nama bahan / combo ganti terbaca
+        if h.sectionSize(4) > 200:
+            h.setSectionResizeMode(4, QHeaderView.Interactive)
+            t.setColumnWidth(4, 200)
+        if h.sectionSize(1) < 230:
+            h.setSectionResizeMode(1, QHeaderView.Interactive)
+            t.setColumnWidth(1, 230)
         return n
+
+    def _pilihan_bahan(self, baris: list) -> dict:
+        """{nama bahan: slot} untuk bahan di Kebutuhan Bahan yang dapat diganti langsung, dan "_pakai": {slot: (kunci
+        yang paling banyak dipakai, ada pilihan lain, [elemen_id])}. Kayu & triplek bekisting -> slot bahan
+        bekisting; bahan utama suatu pekerjaan (bata, keramik, genteng, gypsum, cat, ...) -> slot pekerjaan itu."""
+        pakai = {}
+        for r in baris:
+            kode = r.get("kode_ahsp") or ""
+            urai = bb.urai_varian(kode)
+            if urai:
+                pasangan = ((bb.SLOT_KAYU, urai[1]), (bb.SLOT_TRIPLEK, urai[2]))
+            elif kode_dasar(kode) in SLOT:
+                sl = kode_dasar(kode)
+                pasangan = ((sl, kode.split("~", 1)[1] if "~" in kode else SLOT[sl].bawaan),)
+            else:
+                continue
+            for sl, kunci in pasangan:
+                d = pakai.setdefault(sl, {"kunci": {}, "elemen": set()})
+                d["kunci"][kunci] = d["kunci"].get(kunci, 0) + 1
+                if r.get("elemen_id"):
+                    d["elemen"].add(r["elemen_id"])
+        if not pakai:
+            return {"_pakai": {}}
+        opsi = ringkasan_opsi()
+        self._opsi_bahan = opsi
+        hasil, calon = {"_pakai": {}}, {}
+        for sl, d in pakai.items():
+            kunci = max(d["kunci"], key=d["kunci"].get)
+            hasil["_pakai"][sl] = (kunci, len(d["kunci"]) > 1, sorted(d["elemen"]))
+            if sl in SLOT_BAHAN:
+                for b in (bb.KAYU if sl == bb.SLOT_KAYU else bb.TRIPLEK):
+                    calon.setdefault(b.nama, set()).add(sl)
+                continue
+            nama_opsi = {o.kunci: {n for n, *_ in (opsi.get(kode_varian(sl, o.kunci)) or {}).get("bahan", [])}
+                         for o in SLOT[sl].opsi}
+            semua = set.intersection(*nama_opsi.values()) if nama_opsi else set()
+            kata = "".join(ch for ch in SLOT[sl].cari(kunci).label.split(" ")[0].lower() if ch.isalpha())
+            for n in nama_opsi.get(kunci, set()) - semua:  # bahan pembeda pilihan itu, mis. "Bata ringan ..."
+                if len(kata) >= 3 and kata in n.lower():  # mis. "bata", "keramik", "genteng" (bukan "K-250")
+                    calon.setdefault(n, set()).add(sl)
+        hasil.update({n: next(iter(sl)) for n, sl in calon.items() if len(sl) == 1})
+        return hasil
+
+    def _combo_ganti_bahan(self, slot: str, kunci: str, campur: bool, elemen: list) -> QComboBox:
+        """Combo "Ganti dengan": pilihan bahan / pekerjaan pengganti beserta harganya. Berlaku untuk elemen yang
+        tersaring (Hapus Saringan = seluruh proyek). Dapat diurungkan."""
+        cb = QComboBox()
+        cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        cb.setMinimumContentsLength(12)
+        cb.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        cb.view().setMinimumWidth(480)
+        cb.wheelEvent = lambda e: e.ignore()  # roda mouse menggulir tabel, bukan mengganti bahan
+        for o in SLOT[slot].opsi:
+            data = self._opsi_bahan.get(kode_varian(slot, o.kunci)) or {}
+            harga = data.get("dasar", data.get("harga"))
+            teks = o.label + (f"  ·  {tema.format_rupiah(harga)}/{data.get('satuan', '')}" if harga else "")
+            cb.addItem(teks, o.kunci)
+            cb.setItemData(cb.count() - 1, teks, Qt.ToolTipRole)
+        cb.setObjectName("gantiBahan")
+        cb.setCurrentIndex(max(0, cb.findData(kunci)))
+        lingkup = (f"{len(elemen)} elemen yang tersaring ({self.saring.ringkasan()})" if self.saring.aktif()
+                   else "seluruh proyek")
+        cb.setToolTip(f"Klik untuk mengganti bahan ini. {SLOT[slot].judul}: berlaku untuk {lingkup}. Harga, "
+                      "kebutuhan bahan, dan total RAB dihitung ulang; dapat diurungkan (Ctrl+Z)."
+                      + ("\nSebagian elemen memakai pilihan lain." if campur else ""))
+        cb.currentIndexChanged.connect(lambda _i, c=cb, sl=slot, el=elemen: self._ganti_dari_kebutuhan(
+            sl, c.currentData(), el))
+        return cb
+
+    def _ganti_dari_kebutuhan(self, slot: str, kunci: str, elemen: list):
+        """Ganti bahan dari tab Kebutuhan Bahan: saringan aktif -> khusus elemen tersaring; tanpa saringan ->
+        pilihan proyek."""
+        label = SLOT[slot].cari(kunci).label
+        if self.saring.aktif() and elemen:
+            lingkup = self.saring.ringkasan()
+
+            def aksi():
+                return bool(simpan_material_elemen_banyak(elemen, {slot: kunci})["berubah"])
+        else:
+            lingkup = "seluruh proyek"
+
+            def aksi():
+                return bool(simpan_pilihan(self.proyek_id, {slot: kunci})["berubah"])
+        pesan = self.terapkan_perubahan(aksi, f"Ganti {SLOT[slot].judul.lower()}: {label} ({lingkup})",
+                                        f"{SLOT[slot].judul} → {label} ({lingkup})")
+        if pesan:
+            tema.toast(self, pesan)
 
     # ---------------------------------------------------------------- mode rinci
 
