@@ -295,8 +295,7 @@ def test_jendela_3d_pilih_warna_saring_dan_ganti_bahan(qapp, proyek):
         d.pilih(meja)  # perabot: masuk RAB sebagai pekerjaan dari model dengan harga 0 (harga diisi pengguna)
         assert d.panel.stack.currentIndex() == 1 and d.panel._data["total"] == 0
         assert d.panel._data["utama"]["baris"][0]["kode"].startswith("LAIN|IfcFurniture|")
-        d.cari.setText("dinding bata")
-        d._cari_enter()
+        assert d.cari_elemen("Dinding", "Dinding Bata")  # cari lewat combo Jenis -> Nama elemen
         assert d._pilih == dinding
 
         lama = ringkasan_biaya(pid)["langsung"]
@@ -509,6 +508,66 @@ def test_perubahan_dua_arah_antara_mode_3d_tabel_dan_export(qapp, proyek, tmp_pa
         hal.deleteLater()
 
 
+def test_cari_elemen_lewat_combo_jenis_dan_nama(qapp, proyek, monkeypatch):
+    """Pencarian 3D memakai dua combo: Jenis elemen (Kolom, Balok, ...) lalu Nama elemen jenis itu, per lantai.
+    Klik elemen di 3D ikut ditampilkan di combo; nama kembar di satu lantai diberi nomor menurut letaknya."""
+    from PySide6.QtCore import Qt
+
+    from gui.penampil3d import Penampil3D, urut_alami
+
+    pid, _path, m = proyek
+    d = Penampil3D(pid, "Uji 3D", m)
+    try:
+        peta = d._peta
+        k1, k2, dinding = (_gid(peta, a) for a in ("Kolom K1", "Kolom K2", "Dinding Bata Y1"))
+        cj, ce = d.combo_jenis, d.combo_elemen
+        jenis = [cj.itemData(i) for i in range(cj.count())]
+        assert jenis[0] is None and cj.itemText(0) == f"Semua jenis elemen ({len(m.elemen)})"
+        assert {"Kolom", "Balok", "Dinding", "Fondasi"} <= set(jenis)
+        assert jenis.index("Fondasi") < jenis.index("Kolom") < jenis.index("Balok") < jenis.index("Dinding")
+        assert cj.itemText(cj.findData("Kolom")) == "Kolom (4)"  # 2 pedestal + 2 kolom
+
+        cj.setCurrentIndex(cj.findData("Kolom"))  # seperti dipilih pengguna
+        teks = [ce.itemText(i) for i in range(ce.count())]
+        assert teks == ["Pilih elemen (4)", "00 Fondasi", "Pedestal PD-1 30x30 K1", "Pedestal PD-1 30x30 K2",
+                        "01 Lantai 1", "Kolom K1 30x30", "Kolom K2 30x30"]
+        judul = ce.model().item(1)
+        assert judul.flags() == Qt.NoItemFlags and ce.itemData(1) is None  # judul lantai tidak dapat dipilih
+        i = ce.findData(k2)
+        ce.setCurrentIndex(i)
+        ce.activated.emit(i)
+        assert d._pilih == k2 and d.panel.stack.currentIndex() == 1 and d.panel._data["total"] > 0
+
+        d.pilih(dinding)  # klik di 3D: saringan jenis ikut pindah ke Dinding, nama terpilih ditampilkan
+        assert cj.currentData() == "Dinding" and ce.currentData() == dinding
+        cj.setCurrentIndex(0)  # Semua jenis: elemen terpilih tetap ditampilkan, nama diberi keterangan jenis
+        assert ce.currentData() == dinding and ce.currentText() == "Dinding Bata Y1  ·  Dinding"
+        d.pilih("")
+        assert ce.currentIndex() == 0
+
+        pesan = []
+        monkeypatch.setattr(d, "toast", lambda teks, jenis="sukses": pesan.append(teks))
+        d.combo_lantai.setCurrentIndex(1)  # s.d. 00 Fondasi: Kolom K1 (Lantai 1) tersembunyi
+        assert d.cari_elemen("Kolom", "Kolom K1") and d._pilih == k1
+        assert pesan and "tersembunyi" in pesan[0]
+        d.combo_lantai.setCurrentIndex(0)
+        assert not d.cari_elemen("Kolom", "Tidak ada")
+
+        peta[k1]["nama"] = peta[k2]["nama"] = "Kolom K 30x30"  # nama kembar di lantai yang sama
+        d._siapkan_cari()
+        assert cj.currentData() == "Kolom"  # pilihan jenis dipertahankan saat daftar disusun ulang
+        assert ce.itemText(ce.findData(k1)) == "Kolom K 30x30  #1"  # x = 0 m
+        assert ce.itemText(ce.findData(k2)) == "Kolom K 30x30  #2"  # x = 4 m
+        assert sorted(["K10", "K2", "K1"], key=urut_alami) == ["K1", "K2", "K10"]
+
+        d.fokus_cari()  # Ctrl+F membuka daftar jenis
+        assert d.combo_jenis.hasFocus() or not d.isVisible()
+        d.combo_jenis.hidePopup()
+    finally:
+        d.close()
+        d.deleteLater()
+
+
 def test_file_ifc_hilang_memberi_pesan(qapp, db_sementara, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
 
@@ -533,8 +592,7 @@ def test_grafis_3d_tidak_tersedia_memberi_pesan_dan_panel_tetap_jalan(qapp, proy
         assert d._label_galat is not None and "tidak dapat digambar" in d._label_galat.text()
         d._cek_render()  # dipanggil lagi (mis. jendela ditampilkan ulang): pesan tidak bertumpuk
         assert sum(1 for c in d.quick.children() if c is d._label_galat) == 1
-        d.cari.setText("Kolom K1")
-        d._cari_enter()
+        assert d.cari_elemen("Kolom", "Kolom K1")
         assert d._pilih and d.panel.stack.currentIndex() == 1 and d.panel._data["total"] > 0
     finally:
         d.close()

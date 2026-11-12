@@ -91,7 +91,7 @@ menyebut kolom tempat biayanya sudah dihitung, jadi tidak dihitung dua kali.
 
 | Pilihan | Fungsi |
 |---|---|
-| **Cari elemen** (Ctrl+F) | ketik mis. "K1", "dinding", "fondasi"; pilih dari daftar untuk memilih dan memfokuskan elemen |
+| **Cari elemen** (Ctrl+F) | dua combo box, tanpa mengetik: **Jenis elemen** (Kolom, Balok, Dinding, Fondasi, Pelat lantai, Atap, …, beserta jumlahnya) lalu **Nama elemen** jenis itu, dikelompokkan per lantai, mis. *Kolom K1 30x30 A1*. Memilih nama menyorot dan memfokuskan elemen. Elemen yang diklik di 3D ikut tampil di kedua combo. Nama kembar di satu lantai diberi nomor #1, #2, … menurut letaknya di denah |
 | **Lantai: s.d. …** | sembunyikan lantai di atasnya, mis. *s.d. 00 Fondasi* menampilkan denah fondasi dan sloof saja |
 | **Tampilan lengkap / Arsitektur tembus pandang / Struktur saja / Besi beton** | Tembus pandang: dinding, atap, pintu, dan jendela dibuat transparan, dan klik menembus ke kolom/balok di baliknya. Struktur saja: hanya kolom, balok, pelat, fondasi, tangga, dan pekerjaan tanah. Besi beton: beton dibuat tembus pandang sehingga besi beton yang dimodelkan (IfcReinforcingBar) di dalamnya terlihat; lihat bagian di bawah |
 | **Warna jenis / Warna biaya** | Warna biaya: biru = elemen murah, merah = elemen mahal (peringkat persentil); legenda menampilkan biaya terendah, median, dan tertinggi |
@@ -125,7 +125,7 @@ tampilan kembali ke pilihan sebelumnya.
 - **Kinerja.** Rumah 1 lantai: 360 elemen / 11.456 segitiga, 6,4 detik. Rumah 3 lantai: 571 elemen /
   19.588 segitiga, 2,8 detik.
 - **Grafis.** Penampil memakai Direct3D 11 di Windows; OpenGL / Vulkan / Metal di sistem lain. Bila driver grafis
-  tidak menyediakannya, jendela menampilkan pesan dan panel biaya tetap dapat dipakai lewat kotak pencarian.
+  tidak menyediakannya, jendela menampilkan pesan dan panel biaya tetap dapat dipakai lewat combo pencarian elemen.
 - **File IFC.** Penampil membutuhkan file IFC asli proyek. Bila file dipindahkan, aplikasi memberi pesan.
 - **Penerjemah tombol Qt.** Penerjemah teks bawaan Qt (`TerjemahanQt` di `gui/galat.py`) ditulis di Python.
   - Masalahnya: QML dimuat secara sinkron. Selama itu thread utama memegang GIL sambil menunggu thread pemuat QML,
@@ -156,13 +156,14 @@ dan lantai kerja, dinding di atas sloof, dan perabot. Yang diuji:
   - warna pilih dan terkait;
   - saringan lantai, struktur saja, dan tembus pandang (klik menembus); saringan lantai juga berlaku untuk rangka
     atap di mode Struktur saja;
-  - pencarian dan ganti bahan;
+  - pencarian lewat combo Jenis elemen → Nama elemen (judul lantai, nama kembar bernomor, sinkron dengan klik 3D)
+    dan ganti bahan;
   - koreksi jenis elemen lain dari panel 3D dan dari dialog Koreksi Jenis Elemen Lain, keduanya dapat diurungkan.
 - **Mode 3D di halaman estimasi:**
   - Kembali ke RAB, Esc dua tahap, tombol Urungkan / Ulangi, dan Lihat di Tabel RAB;
   - **sinkron dua arah**: ganti bahan di 3D → tabel RAB dan file Excel hasil Export memuat bahan baru; edit volume di
     tabel → panel 3D memuat volume baru.
 - **File hilang / grafis tidak tersedia:** pesan file IFC tidak ditemukan; bila API grafis 3D tidak tersedia, pesan
-  tampil dan panel biaya tetap dapat dipakai lewat pencarian.
+  tampil dan panel biaya tetap dapat dipakai lewat combo pencarian.
 - **Besi beton:** tabung segi-6, besi dikelompokkan per elemen induk, mode besi (beton tembus pandang, klik besi →
   pembesian elemen induk), dan model tanpa besi (pesan, tampilan kembali).

@@ -42,7 +42,8 @@ Tombol **Export RAB** membuat file Excel/PDF. File itu memuat RAB, rincian per l
 proyek & per elemen, dan daftar bahan yang dipilih.
 
 ## 6. Lihat model 3D dan biaya per elemen
-Tombol **Model 3D** (Ctrl+3) → klik elemen pada bangunan, mis. Kolom K1 A1.
+Tombol **Model 3D** (Ctrl+3) → klik elemen pada bangunan, atau pilih di combo **Jenis elemen** (mis. Kolom) lalu
+**Nama elemen** (mis. Kolom K1 30x30 A1).
 - Panel kanan menampilkan kebutuhan biayanya: kolom itu, pedestal, fondasi, dan pekerjaan tanah di bawahnya,
   diurutkan per tahap pekerjaan.
 - Elemen terpilih berwarna kuning; bagian yang ikut dihitung berwarna hijau.

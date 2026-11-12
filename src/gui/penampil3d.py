@@ -15,18 +15,22 @@ Esc = batal pilih. Semua angka dibaca dari hasil estimasi tersimpan, sama dengan
 """
 
 import math
+import re
 from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import (
-    Property, QAbstractListModel, QByteArray, QModelIndex, QObject, QStringListModel, Qt, QTimer, QUrl, Signal, Slot,
+    Property, QAbstractListModel, QByteArray, QModelIndex, QObject, Qt, QTimer, QUrl, Signal, Slot,
 )
-from PySide6.QtGui import QColor, QKeySequence, QLinearGradient, QPainter, QPen, QShortcut, QVector3D
+from PySide6.QtGui import (
+    QColor, QFont, QKeySequence, QLinearGradient, QPainter, QPen, QShortcut, QStandardItem, QStandardItemModel,
+    QVector3D,
+)
 from PySide6.QtQuick import QSGRendererInterface
 from PySide6.QtQuick3D import QQuick3DGeometry
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QCompleter, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+    QButtonGroup, QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -106,6 +110,31 @@ def label_kelas(info: dict | None, ifc: str) -> str:
     if kelas in ElementType._value2member_map_ and kelas != "UNKNOWN":
         return LABEL[ElementType(kelas)]
     return ifc.replace("Ifc", "") if ifc else "Elemen"
+
+
+# Urutan combo "Jenis elemen" pencarian 3D: mengikuti urutan pekerjaan (tanah, fondasi, struktur, arsitektur, atap)
+URUT_JENIS = ("EARTHWORK", "FOOTING", "PILE", "COLUMN", "BEAM", "SLAB", "STAIR", "WALL", "WALL_TILE", "DOOR", "WINDOW",
+              "FLOOR", "CEILING", "ROOF", "RAILING", "LAINNYA")
+KELAS_TERMASUK = {"rangka_atap": "ROOF", "penutup_atap": "ROOF", "bagian_tangga": "STAIR"}
+
+
+def jenis_cari(info: dict | None, ifc: str, termasuk: str | None = None) -> tuple:
+    """(urutan, label) kelompok elemen di combo "Jenis elemen" pencarian 3D. Kolom digabung satu kelompok (fungsinya
+    terlihat di keterangan elemen); elemen lain dipecah per jenis (cladding, kisi, sanitair, ...) karena isinya beragam;
+    batang rangka atap / penutup atap / bagian tangga yang sudah termasuk pekerjaan lain dikelompokkan tersendiri."""
+    from elemen_lain import LABEL_TERMASUK
+
+    if termasuk in LABEL_TERMASUK and not (info and info.get("baris")):
+        kelas, label = KELAS_TERMASUK.get(termasuk, "LAINNYA"), LABEL_TERMASUK[termasuk]
+    else:
+        kelas = kelas_tampil(info, ifc)
+        label = "Kolom" if kelas == "COLUMN" else label_kelas(info, ifc)
+    return (URUT_JENIS.index(kelas) if kelas in URUT_JENIS else len(URUT_JENIS)), label
+
+
+def urut_alami(teks: str) -> list:
+    """Kunci urut nama elemen: angka dibandingkan sebagai angka (K2 sebelum K10, As 2 sebelum As 10)."""
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", teks or "")]
 
 
 def warna_skala(t: float) -> QColor:
@@ -972,15 +1001,35 @@ class Penampil3D(QWidget):
         root.addLayout(kepala)
 
         # --- baris alat
+        cari = QHBoxLayout()  # baris pencarian sendiri agar nama elemen (mis. "Kolom K1 30x30 Lt.1 A1") terbaca utuh
+        cari.setSpacing(10)
+        ikon_cari = QLabel()
+        ikon_cari.setPixmap(tema.ikon("cari", tema.W["teks_samar"]).pixmap(20, 20))
+        ikon_cari.setToolTip("Cari elemen: pilih jenis elemen, lalu nama elemennya (Ctrl+F)")
+        cari.addWidget(ikon_cari)
+        self._daftar_cari, self._cari_per_gid = [], {}
+        self.combo_jenis = QComboBox()
+        self.combo_jenis.setToolTip("Jenis elemen yang dicari, mis. Kolom, Balok, Dinding, Fondasi (Ctrl+F).\n"
+                                    "Daftar nama elemen di sebelahnya hanya berisi jenis ini.")
+        self.combo_jenis.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.combo_jenis.setMinimumContentsLength(22)
+        self.combo_jenis.setMaxVisibleItems(24)
+        self.combo_jenis.currentIndexChanged.connect(self._ganti_jenis_cari)
+        cari.addWidget(self.combo_jenis)
+        self.combo_elemen = QComboBox()
+        self.combo_elemen.setToolTip("Nama elemen di model, dikelompokkan per lantai, mis. Kolom K1 30x30 A1.\n"
+                                     "Memilih nama menyorot elemen di 3D dan menampilkan kebutuhan biayanya.")
+        self.combo_elemen.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.combo_elemen.setMinimumContentsLength(40)
+        self.combo_elemen.setMaxVisibleItems(18)
+        self.combo_elemen.activated.connect(self._pilih_dari_cari)
+        cari.addWidget(self.combo_elemen, stretch=1)
+        cari.addWidget(tema.label("Pilih jenis, lalu nama elemen: elemen disorot dan kamera mendekat", "petunjuk"),
+                       stretch=1)
+        root.addLayout(cari)
+
         alat = QHBoxLayout()
         alat.setSpacing(10)
-        self.cari = QLineEdit()
-        tema.pasang_ikon_cari(self.cari)
-        self.cari.setPlaceholderText("Cari elemen, mis. K1, dinding, fondasi...")
-        self.cari.setClearButtonEnabled(True)
-        self.cari.setMinimumWidth(260)
-        self.cari.returnPressed.connect(self._cari_enter)
-        alat.addWidget(self.cari, stretch=2)
         self.combo_lantai = QComboBox()
         self.combo_lantai.setToolTip("Sembunyikan lantai di atasnya untuk melihat isi bangunan")
         self.combo_lantai.addItem("Semua lantai", None)
@@ -1098,7 +1147,6 @@ class Penampil3D(QWidget):
             QShortcut(QKeySequence("Ctrl+F"), self, activated=self.fokus_cari)
 
         self.segarkan()
-        self._siapkan_cari()
         self.pandangan("Iso", animasi=False)
 
     # ------------------------------------------------------------ navigasi & riwayat
@@ -1108,8 +1156,9 @@ class Penampil3D(QWidget):
             self.halaman.tutup_3d()
 
     def fokus_cari(self):
-        self.cari.setFocus()
-        self.cari.selectAll()
+        """Ctrl+F: buka daftar jenis elemen (langkah pertama pencarian)."""
+        self.combo_jenis.setFocus()
+        self.combo_jenis.showPopup()
 
     def toast(self, teks: str, jenis: str = "sukses"):
         """Pesan singkat: di jendela utama bila tertanam, atau di widget ini bila berdiri sendiri."""
@@ -1141,6 +1190,7 @@ class Penampil3D(QWidget):
         if self._pilih:
             self._isi_panel()
         self._warnai()
+        self._siapkan_cari()  # jenis elemen lain dapat diubah pengguna: daftar pencarian ikut diperbarui
 
     def _opsi_harga(self) -> dict:
         if self._opsi is None:
@@ -1150,44 +1200,121 @@ class Penampil3D(QWidget):
         return self._opsi
 
     def _siapkan_cari(self):
-        entri = []
-        self._teks_ke_gid = {}
-        for e in sorted(self.model3d.elemen,
-                        key=lambda e: (e.gid not in self._peta, e.elevasi if e.elevasi is not None else 1e9, e.nama)):
-            info = self._peta.get(e.gid)
-            teks = f"{(info or {}).get('nama') or e.nama}  ·  {label_kelas(info, e.ifc)}"
-            if e.lantai:
-                teks += f"  ·  {e.lantai}"
-            if teks in self._teks_ke_gid:
+        """Isi combo pencarian: "Jenis elemen" (Kolom, Balok, Dinding, ...) dan nama elemen jenis itu per lantai.
+        Nama yang sama di satu lantai diberi nomor urut menurut letaknya di denah (#1, #2, ...)."""
+        jenis_lama = self.combo_jenis.currentData()
+        daftar = []
+        for e in self.model3d.elemen:
+            if e.gid not in self._e3d:
                 continue
-            self._teks_ke_gid[teks] = e.gid
-            entri.append(teks)
-        komp = QCompleter(QStringListModel(entri, self), self)
-        komp.setCaseSensitivity(Qt.CaseInsensitive)
-        komp.setFilterMode(Qt.MatchContains)
-        komp.setMaxVisibleItems(14)
-        komp.activated[str].connect(self._cari_pilih)
-        self.cari.setCompleter(komp)
-        self._entri_cari = entri
+            info = self._peta.get(e.gid)
+            urut, jenis = jenis_cari(info, e.ifc, e.termasuk)
+            tip = [label_kelas(info, e.ifc), e.ifc]
+            if e.lantai:
+                tip.append(e.lantai)
+            if not (info and info["baris"]):
+                tip.append("tidak menghasilkan item RAB sendiri")
+            daftar.append({
+                "gid": e.gid, "nama": (info or {}).get("nama") or e.nama, "jenis": jenis, "urut": urut,
+                "lantai": e.lantai, "elevasi": e.elevasi if e.elevasi is not None else 1e9, "kotak": e.kotak,
+                "tip": "  ·  ".join(tip),
+            })
+        kembar = {}
+        for x in daftar:
+            kembar.setdefault((x["jenis"], x["lantai"], x["nama"]), []).append(x)
+        for sama in kembar.values():
+            if len(sama) > 1:
+                for i, x in enumerate(sorted(sama, key=lambda x: (round(x["kotak"][1], 2), round(x["kotak"][0], 2))), 1):
+                    x["nama_tampil"] = f"{x['nama']}  #{i}"
+        for x in daftar:
+            x.setdefault("nama_tampil", x["nama"])
+        daftar.sort(key=lambda x: (x["elevasi"], x["lantai"] or "", x["urut"], urut_alami(x["nama_tampil"])))
+        self._daftar_cari = daftar
+        self._cari_per_gid = {x["gid"]: x for x in daftar}
 
-    def _cari_pilih(self, teks: str):
-        gid = self._teks_ke_gid.get(teks)
-        if gid:
-            self.pilih(gid)
-            self.fokus(gid)
+        jumlah = {}
+        for x in daftar:
+            jumlah.setdefault((x["urut"], x["jenis"]), 0)
+            jumlah[(x["urut"], x["jenis"])] += 1
+        cb = self.combo_jenis
+        cb.blockSignals(True)
+        cb.clear()
+        cb.addItem(f"Semua jenis elemen ({len(daftar)})", None)
+        for (_urut, jenis), n in sorted(jumlah.items()):
+            cb.addItem(f"{jenis} ({n})", jenis)
+        cb.setCurrentIndex(max(0, cb.findData(jenis_lama)) if jenis_lama is not None else 0)
+        cb.blockSignals(False)
+        cb.view().setMinimumWidth(cb.view().sizeHintForColumn(0) + 32)
+        self._isi_combo_elemen()
 
-    def _cari_enter(self):
-        kata = self.cari.text().strip().lower()
-        if not kata:
+    def _isi_combo_elemen(self):
+        """Daftar nama elemen untuk jenis terpilih, dengan judul lantai (tidak dapat dipilih) sebagai pemisah."""
+        jenis = self.combo_jenis.currentData()
+        entri = [x for x in self._daftar_cari if jenis is None or x["jenis"] == jenis]
+        model = QStandardItemModel(self.combo_elemen)
+        model.appendRow(QStandardItem(f"Pilih elemen ({len(entri)})"))
+        tebal = QFont(self.combo_elemen.font())
+        tebal.setBold(True)
+        lantai = object()
+        for x in entri:
+            if x["lantai"] != lantai:
+                lantai = x["lantai"]
+                judul = QStandardItem(lantai or "Tanpa lantai")
+                judul.setFlags(Qt.NoItemFlags)
+                judul.setFont(tebal)
+                model.appendRow(judul)
+            item = QStandardItem(x["nama_tampil"] if jenis is not None else f"{x['nama_tampil']}  ·  {x['jenis']}")
+            item.setData(x["gid"], Qt.UserRole)
+            item.setToolTip(x["tip"])
+            model.appendRow(item)
+        cb = self.combo_elemen
+        cb.blockSignals(True)
+        cb.setModel(model)  # model lama (anak combo) dihapus Qt
+        cb.setCurrentIndex(0)
+        cb.blockSignals(False)
+        cb.view().setMinimumWidth(min(cb.view().sizeHintForColumn(0) + 32, 720))
+        self._sinkron_cari(ikut_jenis=False)
+
+    def _ganti_jenis_cari(self, _i: int):
+        self._isi_combo_elemen()
+
+    def _pilih_dari_cari(self, i: int):
+        gid = self.combo_elemen.itemData(i)
+        if not gid:
             return
-        if self.cari.text() in self._teks_ke_gid:
-            self._cari_pilih(self.cari.text())
+        self.pilih(gid)
+        self.fokus(gid)
+        k = self.adegan.keadaan(gid)
+        if k is not None and not k["tampil"]:
+            self.toast("Elemen ini tersembunyi oleh pilihan lantai / tampilan; rinciannya ada di panel kanan",
+                       "peringatan")
+
+    def _sinkron_cari(self, ikut_jenis: bool = True):
+        """Tampilkan elemen terpilih (mis. diklik di 3D) di combo pencarian tanpa memicu pemilihan ulang. Bila
+        jenisnya berbeda dengan saringan jenis yang aktif, saringan pindah ke jenis elemen itu (ikut_jenis)."""
+        x = self._cari_per_gid.get(self._pilih) if self._pilih else None
+        jenis = self.combo_jenis.currentData()
+        if ikut_jenis and x is not None and jenis is not None and jenis != x["jenis"]:
+            self.combo_jenis.blockSignals(True)
+            self.combo_jenis.setCurrentIndex(max(0, self.combo_jenis.findData(x["jenis"])))
+            self.combo_jenis.blockSignals(False)
+            self._isi_combo_elemen()
             return
-        cocok = next((t for t in self._entri_cari if kata in t.lower()), None)
-        if cocok:
-            self._cari_pilih(cocok)
-        else:
-            self.toast(f'Elemen "{self.cari.text()}" tidak ditemukan', "peringatan")
+        i = self.combo_elemen.findData(x["gid"]) if x is not None else 0
+        self.combo_elemen.blockSignals(True)
+        self.combo_elemen.setCurrentIndex(max(0, i))
+        self.combo_elemen.blockSignals(False)
+
+    def cari_elemen(self, jenis: str | None, nama: str) -> bool:
+        """Pilih elemen lewat combo pencarian seperti pengguna: jenis (label combo, None = semua) lalu nama elemen
+        (awal nama yang tampil). Dipakai tes dan skrip; False bila tidak ditemukan."""
+        self.combo_jenis.setCurrentIndex(max(0, self.combo_jenis.findData(jenis)) if jenis is not None else 0)
+        for i in range(self.combo_elemen.count()):
+            if self.combo_elemen.itemData(i) and self.combo_elemen.itemText(i).lower().startswith(nama.lower()):
+                self.combo_elemen.setCurrentIndex(i)
+                self._pilih_dari_cari(i)
+                return True
+        return False
 
     # ------------------------------------------------------------ pilih, sorot, warna
 
@@ -1207,6 +1334,7 @@ class Penampil3D(QWidget):
             self._isi_panel()
         self._warnai()
         self._warnai_besi()
+        self._sinkron_cari()
 
     def _isi_panel(self):
         gid = self._pilih
