@@ -105,6 +105,10 @@ Kotak cari teks diganti penyaring yang dipilih dengan klik:
 - Pekerjaan seperti pengecatan dipilih lewat combo **kategori pekerjaan** (mis. Pekerjaan Pengecatan), karena cat
   adalah pekerjaan pada dinding/plafon, bukan jenis elemen.
 - **Lihat di Tabel RAB** dari Model 3D mencentang jenis elemen itu dan memilih radio namanya.
+- Penyaring **dapat dilipat** lewat tombol ▾/▸ di kiri (*▾ JENIS ELEMEN* / *▸ SARING ELEMEN*) agar tabel mendapat
+  ruang. Saat terlipat hanya tersisa satu baris berisi saringan aktif, mis. *Kolom › Kolom K1 30x30 Lt.1 A1*,
+  dan saringan tetap berlaku. Klik baris itu atau tekan Ctrl+F untuk membukanya lagi. Status lipat diingat
+  (preferensi `saring_elemen_terlipat`).
 
 ## Pengujian
 

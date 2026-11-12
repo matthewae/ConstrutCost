@@ -226,13 +226,20 @@ class MaterialDialog(QDialog):
         vol = self._volume.get(slot, 0.0)
         if vol:
             teks += f"  ·  proyek ini ± {tema.format_angka(vol, 3)} {satuan_tampil(b.satuan)}"
-        panjang, nama_paku, minimum, maksimum = bb.paku(triplek.tebal, kayu.tebal)
-        teks += (f"<br>Paku: {nama_paku} ({tema.format_angka(panjang, 1)} cm) untuk tebal bekisting "
-                 f"{tema.format_angka(maksimum, 1)} cm")
+        pt, nama_pt, min_t, maks_t = bb.paku(triplek.tebal, kayu.tebal)
+        pr, nama_pr, min_r, maks_r = bb.paku_rangka(kayu.tebal)
+
+        def cm(x: float) -> str:
+            return tema.format_angka(x, 1)
+
+        teks += (f"<br>Paku triplek ke rangka: {nama_pt} ({cm(pt)} cm)  ·  sambungan rangka: {nama_pr} "
+                 f"({cm(pr)} cm)")
         tip = ("Dipakai di semua pekerjaan bekisting proyek (kolom, balok, pelat, sloof, tangga, ...). Koefisien "
-               "analisa HSPK tetap; jenis dan harga bahannya yang diganti.<br><br>Panjang paku = ukuran standar di "
-               f"antara 3 × tebal triplek ({tema.format_angka(minimum, 1)} cm) dan tebal triplek + tebal kayu "
-               f"({tema.format_angka(maksimum, 1)} cm), dipilih yang termurah per kg.")
+               "analisa HSPK tetap; jenis dan harga bahannya yang diganti.<br><br>Ukuran paku menurut kegunaannya, "
+               "tidak lebih panjang dari bahan yang disambung (tidak tembus):<br>"
+               f"• triplek ke rangka: {cm(min_t)}–{cm(maks_t)} cm (3 × tebal triplek s.d. tebal triplek + kayu)<br>"
+               f"• sambungan rangka kayu ke kayu: {cm(min_r)}–{cm(maks_r)} cm (1,5 s.d. 2 × tebal kayu)<br>"
+               "Dari ukuran paku per kg di HSPK dipilih yang termurah.")
         self._info[slot].setText(teks)
         self._info[slot].setToolTip(tip)
         self._info[slot].setStyleSheet("")

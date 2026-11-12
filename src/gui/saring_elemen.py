@@ -7,8 +7,12 @@ Penyaring baris hasil estimasi per elemen tanpa mengetik (pengganti kotak cari d
 
 Tanpa centang = semua elemen. Saringan berlaku di semua tab (RAB, RAB Rinci, Per Lantai, Per Elemen, Kebutuhan
 Bahan), bersama combo kategori pekerjaan dan lantai.
+
+Penyaring dapat dilipat (tombol ▾/▸ di kiri) agar tabel mendapat ruang: saat terlipat hanya satu baris berisi
+ringkasan saringan aktif, mis. "Kolom › Kolom KA 30x30 A1". Status lipat diingat (preferensi pengguna).
 """
 
+import logging
 import re
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
@@ -18,6 +22,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLayout,
+    QPushButton,
     QRadioButton,
     QScrollArea,
     QVBoxLayout,
@@ -28,6 +33,8 @@ from gui import tema
 from kebutuhan_lantai import JENIS_TAMBAHAN, jenis_elemen, urutan_jenis
 from rab_rinci import TANPA_LANTAI, daftar_lantai
 
+PREF_TERLIPAT = "saring_elemen_terlipat"
+LEBAR_JUDUL = 140  # kolom judul kiri (tombol lipat / "NAMA ELEMEN")
 SEMUA_NAMA = 0  # id radio "Semua elemen" (id -1 berarti "otomatis" bagi QButtonGroup)
 
 
@@ -139,13 +146,21 @@ class SaringElemen(QFrame):
 
         b1 = QHBoxLayout()
         b1.setSpacing(12)
-        self.label_jenis = tema.label("JENIS ELEMEN", "bagian")
-        self.label_jenis.setFixedWidth(118)
-        self.label_jenis.setToolTip("Centang satu atau beberapa jenis elemen; tanpa centang = semua elemen")
-        b1.addWidget(self.label_jenis, 0, Qt.AlignTop)
+        # judul kiri sekaligus tombol lipat: ▾ JENIS ELEMEN (terbuka) / ▸ SARING ELEMEN (terlipat)
+        self.btn_lipat = QPushButton()
+        self.btn_lipat.setObjectName("lipatSaring")
+        self.btn_lipat.setCursor(Qt.PointingHandCursor)
+        self.btn_lipat.setFixedWidth(LEBAR_JUDUL)
+        self.btn_lipat.clicked.connect(lambda: self.set_terlipat(not self._terlipat))
+        b1.addWidget(self.btn_lipat, 0, Qt.AlignTop)
         self._wadah_jenis = QWidget()
         self._alir_jenis = TataAlir(self._wadah_jenis, 18, 6)
         b1.addWidget(self._wadah_jenis, 1)
+        self.label_ringkas = tema.label("", "subjudul")  # saat terlipat: saringan aktif dalam satu baris
+        self.label_ringkas.setCursor(Qt.PointingHandCursor)
+        self.label_ringkas.setToolTip("Klik untuk membuka penyaring elemen")
+        self.label_ringkas.mousePressEvent = lambda _e: self.set_terlipat(False)
+        b1.addWidget(self.label_ringkas, 1, Qt.AlignVCenter)
         self.btn_hapus = tema.tombol("Hapus Saringan", "ghost", "ulang", "Tampilkan lagi semua elemen")
         self.btn_hapus.clicked.connect(self.hapus)
         self.btn_hapus.hide()
@@ -157,7 +172,7 @@ class SaringElemen(QFrame):
         b2.setContentsMargins(0, 0, 0, 0)
         b2.setSpacing(12)
         self.label_nama = tema.label("NAMA ELEMEN", "bagian")
-        self.label_nama.setFixedWidth(118)
+        self.label_nama.setFixedWidth(LEBAR_JUDUL)
         self.label_nama.setToolTip("Pilih satu elemen dari jenis yang dicentang")
         b2.addWidget(self.label_nama, 0, Qt.AlignTop)
         self.gulir = QScrollArea()
@@ -174,6 +189,8 @@ class SaringElemen(QFrame):
         self.grup_nama.idClicked.connect(self._pilih_radio)
         self.baris_nama.hide()
         lay.addWidget(self.baris_nama)
+        self._terlipat = False
+        self.set_terlipat(_baca_terlipat(), simpan=False)
 
     # ------------------------------------------------------------------ status
 
@@ -191,6 +208,35 @@ class SaringElemen(QFrame):
             return r.get("elemen_id") == self._elemen
         jenis = self.jenis_terpilih()
         return not jenis or jenis_elemen(r) in jenis
+
+    def terlipat(self) -> bool:
+        return self._terlipat
+
+    def set_terlipat(self, terlipat: bool, simpan: bool = True):
+        """Lipat / buka penyaring. Terlipat = checkbox & radio disembunyikan, diganti satu baris ringkasan."""
+        self._terlipat = bool(terlipat)
+        self._wadah_jenis.setVisible(not self._terlipat)
+        self.label_ringkas.setVisible(self._terlipat)
+        self.baris_nama.setVisible(not self._terlipat and bool(self.jenis_terpilih()))
+        self.btn_lipat.setText("▸  SARING ELEMEN" if self._terlipat else "▾  JENIS ELEMEN")
+        self.btn_lipat.setToolTip("Buka penyaring jenis & nama elemen" if self._terlipat else
+                                  "Lipat penyaring agar tabel mendapat ruang lebih (saringan tetap berlaku)")
+        self._perbarui_ringkas()
+        if not self._terlipat and self.baris_nama.isVisible():
+            self._atur_tinggi_nama()
+            tombol = self._radio.get(self._elemen)
+            if tombol is not None:
+                QTimer.singleShot(60, lambda: self._tampakkan(tombol))
+        if simpan:
+            _simpan_terlipat(self._terlipat)
+
+    def _perbarui_ringkas(self):
+        if self._elemen is not None:
+            jenis = ", ".join(sorted(self.jenis_terpilih(), key=urutan_jenis))
+            teks = f"{jenis}  ›  {self._nama.get(self._elemen, '')}" if jenis else self._nama.get(self._elemen, "")
+        else:
+            teks = self.ringkasan() or "Semua elemen"
+        self.label_ringkas.setText(f"{teks}   ·   klik untuk mengubah")
 
     def ringkasan(self) -> str:
         """Teks saringan aktif untuk baris jumlah, mis. "Kolom K1 30x30 Lt.1 A1" atau "Kolom, Balok"."""
@@ -230,10 +276,11 @@ class SaringElemen(QFrame):
         """Radio button nama elemen dari jenis yang dicentang, di antara baris yang lolos saringan kategori & lantai.
         Urut jenis (fondasi → atap), lantai (bawah → atas), lalu nama (A1, A2, ..., A10)."""
         jenis = self.jenis_terpilih()
-        self.baris_nama.setVisible(bool(jenis))
+        self.baris_nama.setVisible(bool(jenis) and not self._terlipat)
         self.btn_hapus.setVisible(self.aktif())
         if not jenis:
             self._elemen = None
+            self._perbarui_ringkas()
             return
         urut_lt = {nama: i for i, nama in enumerate(daftar_lantai(baris))}
         elemen = {}
@@ -283,14 +330,22 @@ class SaringElemen(QFrame):
         tombol = self._radio.get(self._elemen) if self._elemen is not None else self.grup_nama.button(SEMUA_NAMA)
         if tombol is not None:
             tombol.setChecked(True)
-        self._atur_tinggi_nama()
+        self._perbarui_ringkas()
+        if not self._terlipat:
+            self._atur_tinggi_nama()
         if self._elemen is not None and tombol is not None:  # radio terpilih (mis. dari Model 3D) tampak di daftar
-            QTimer.singleShot(0, lambda: self._tampakkan(tombol))
+            QTimer.singleShot(60, lambda: self._tampakkan(tombol))  # setelah daftar radio selesai ditata
 
-    def _tampakkan(self, tombol):
-        """Gulir daftar nama ke radio terpilih (setelah tata letak selesai menghitung posisinya)."""
-        if tombol in self._radio.values() and tombol.isChecked():
-            self.gulir.ensureWidgetVisible(tombol, 0, 6)
+    def _tampakkan(self, tombol, coba: int = 8):
+        """Gulir daftar nama ke radio terpilih. Posisi radio baru dan batas gulir baru ada setelah tata letak selesai
+        (beberapa siklus event), jadi dicoba ulang sampai radio benar-benar tampak."""
+        if self._terlipat or tombol not in self._radio.values() or not tombol.isChecked():
+            return
+        self.gulir.ensureWidgetVisible(tombol, 0, 6)
+        bar, y = self.gulir.verticalScrollBar(), tombol.y()
+        tampak = bar.value() <= y and y + tombol.height() <= bar.value() + self.gulir.viewport().height()
+        if not tampak and coba > 0:
+            QTimer.singleShot(40, lambda: self._tampakkan(tombol, coba - 1))
 
     def _atur_tinggi_nama(self):
         """Daftar nama setinggi isinya, paling tinggi BARIS_NAMA baris; selebihnya digulir."""
@@ -337,6 +392,26 @@ class SaringElemen(QFrame):
         self._elemen = elemen_id if jenis in self._cek else None
 
     def fokus(self):
-        """Ctrl+F: fokus ke checkbox jenis elemen pertama."""
+        """Ctrl+F: buka penyaring (bila terlipat) lalu fokus ke checkbox jenis elemen pertama."""
+        if self._terlipat:
+            self.set_terlipat(False)
         if self._cek:
             next(iter(self._cek.values())).setFocus(Qt.ShortcutFocusReason)
+
+
+def _baca_terlipat() -> bool:
+    try:
+        from database.preferensi_repository import get_pref
+
+        return get_pref(PREF_TERLIPAT, "0") == "1"
+    except Exception:  # noqa: BLE001 (preferensi tidak terbaca: penyaring terbuka)
+        return False
+
+
+def _simpan_terlipat(terlipat: bool) -> None:
+    try:
+        from database.preferensi_repository import set_pref
+
+        set_pref(PREF_TERLIPAT, "1" if terlipat else "0")
+    except Exception:  # gagal menyimpan preferensi tidak menghentikan tampilan
+        logging.getLogger(__name__).warning("Status lipat penyaring elemen tidak tersimpan", exc_info=True)

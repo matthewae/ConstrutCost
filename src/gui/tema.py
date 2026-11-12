@@ -394,6 +394,8 @@ QFrame#bilahAksi {{ background-color: {c['permukaan']}; border: none; border-top
 QLabel#subjudul {{ font-size: 12px; color: {c['teks_redup']}; }}
 QLabel#remah {{ font-size: 12px; color: {c['teks_redup']}; }}
 QLabel#bagian {{ font-size: 11px; font-weight: 700; color: {c['teks_redup']}; letter-spacing: 1px; }}
+QPushButton#lipatSaring {{ text-align: left; border: none; background: transparent; padding: 2px 0; font-size: 11px; font-weight: 700; color: {c['teks_redup']}; letter-spacing: 1px; }}
+QPushButton#lipatSaring:hover {{ color: {c['aksen']}; }}
 QLabel#infoKecil, QLabel#petunjuk {{ font-size: 11px; color: {c['teks_samar']}; }}
 QLabel#formLabel {{ color: {c['teks_redup']}; }}
 QLabel#namaFile {{ color: {c['teks_redup']}; font-size: 12px; }}

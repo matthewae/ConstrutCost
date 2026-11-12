@@ -107,38 +107,30 @@ def pastikan_varian_bekisting(conn, kode: str, id_kode: dict | None = None) -> i
 
 
 def susun_varian_bekisting(conn, kode: str, pid: int) -> None:
-    """Komponen varian bekisting = komponen pekerjaan bawaannya dengan kayu, triplek, dan paku pilihan.
+    """Komponen varian bekisting = analisa HSPK-nya dengan kayu, triplek, dan paku pilihan (bahan_bekisting).
     Harga mengikuti harga dasar di database (perubahan harga pengguna ikut terpakai)."""
+    from database.seed_data import ANALISA, PEMETAAN, SUMBER
+
     dasar_kode, kayu, triplek = urai_varian(kode)
-    dasar = conn.execute("SELECT id, catatan FROM pekerjaan WHERE kode_ahsp = ?", (dasar_kode,)).fetchone()
-    if dasar is None:
-        return
-    baris = conn.execute(
-        "SELECT tipe, nama_komponen, satuan, koefisien, harga_satuan, sumber_daya_id FROM komponen_harga "
-        "WHERE pekerjaan_id = ? ORDER BY id", (dasar["id"],)).fetchall()
-    asal = [(r["tipe"], r["nama_komponen"], r["satuan"], r["koefisien"], r["harga_satuan"], r["sumber_daya_id"])
-            for r in baris]
+    hspk = PEMETAAN[dasar_kode][3]
+    _sheet, uraian, _f, asal = ANALISA[hspk]
     komponen, ganti = ganti_komponen(asal, kayu, triplek)
     conn.execute("DELETE FROM komponen_harga WHERE pekerjaan_id = ?", (pid,))
-    for (tipe, nama, satuan, koef, harga), lama in zip(komponen, asal, strict=True):
-        sid = lama[5]
-        if nama != lama[1]:
-            sd = conn.execute("SELECT id, harga FROM sumber_daya WHERE tipe = ? AND lower(nama) = lower(?) "
-                              "AND lower(satuan) = lower(?)", (tipe, nama, satuan)).fetchone()
-            if sd is None:
-                sid = conn.execute(
-                    "INSERT INTO sumber_daya (tipe, nama, satuan, harga, harga_bawaan, sumber) VALUES (?,?,?,?,?,?)",
-                    (tipe, nama, satuan, harga, harga, "HSPK (bahan bekisting)")).lastrowid
-            else:
-                sid, harga = sd["id"], sd["harga"]
+    for tipe, nama, satuan, koef, harga in komponen:
+        sd = conn.execute("SELECT id, harga FROM sumber_daya WHERE tipe = ? AND lower(nama) = lower(?) "
+                          "AND lower(satuan) = lower(?)", (tipe, nama, satuan)).fetchone()
+        if sd is None:
+            sid = conn.execute(
+                "INSERT INTO sumber_daya (tipe, nama, satuan, harga, harga_bawaan, sumber) VALUES (?,?,?,?,?,?)",
+                (tipe, nama, satuan, harga, harga, "HSPK (bahan bekisting)")).lastrowid
         else:
-            harga = lama[4]
+            sid, harga = sd["id"], sd["harga"]
         conn.execute(
             "INSERT INTO komponen_harga (pekerjaan_id, tipe, nama_komponen, satuan, koefisien, harga_satuan, "
             "sumber_daya_id) VALUES (?,?,?,?,?,?,?)", (pid, tipe, nama, satuan, koef, harga, sid))
-    catatan = (dasar["catatan"] or "").split(" · Bahan bekisting")[0]
+    catatan = f"{SUMBER} · {hspk} · {uraian}"
     if ganti:
-        catatan += " · Bahan bekisting (dari pekerjaan bawaan): " + "; ".join(ganti)
+        catatan += " · Bahan bekisting disesuaikan: " + "; ".join(ganti)
     conn.execute("UPDATE pekerjaan SET catatan = ? WHERE id = ?", (catatan, pid))
 
 

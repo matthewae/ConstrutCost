@@ -14,15 +14,19 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def test_paku_dari_tebal_bekisting_bukan_12_cm():
-    from bahan_bekisting import paku
+    from bahan_bekisting import paku, paku_rangka
 
     # plywood 12 mm + balok 6/12: tebal 7,2 cm -> paku 3,6 s.d. 7,2 cm -> 5 cm (2 inch), bukan 12 cm
     assert paku(1.2, 6.0) == (5.0, "Paku 2 inch", 3.6, 7.2)
     assert paku(0.9, 5.0)[:2] == (5.0, "Paku 2 inch")  # tripleks 9 mm + kaso 5/7 (bawaan)
     assert paku(1.8, 6.0)[:2] == (7.0, "Paku 5 dan 7 cm")  # multiplek 18 mm: paku >= 5,4 cm
+    assert paku(1.8, 5.0)[:2] == (5.0, "Paku 2 inch")  # 18 mm + kaso 5/7 (6,8 cm): 7 cm tembus -> 5 cm
     for t in (0.9, 1.2):
         for k in (5.0, 6.0):
             assert paku(t, k)[0] <= t + k  # paku tidak pernah lebih panjang dari tebal bekisting
+    # sambungan rangka kayu ke kayu: <= 2 x tebal kayu (tidak tembus), >= 1,5 x tebal kayu
+    assert paku_rangka(5.0) == (10.0, "Paku 4 inch", 7.5, 10.0)  # kaso 5/7: paku 12 cm akan tembus 2 cm
+    assert paku_rangka(6.0)[:2] == (10.0, "Paku 4 inch") and paku_rangka(6.0)[3] == 12.0  # balok 6/12: <= 12 cm
 
 
 def test_komponen_bekisting_hspk_diganti_bahan_termurah():
@@ -31,10 +35,13 @@ def test_komponen_bekisting_hspk_diganti_bahan_termurah():
 
     kolom, catatan = ganti_komponen(ANALISA["2.2.1.3.3"][3], KAYU_BAWAAN, TRIPLEK_BAWAAN)
     bahan = {k[1]: k for k in kolom if k[0] == "bahan"}
-    assert {"Kaso 5/7 kayu kelas II", "Tripleks t=9mm", "Paku 2 inch"} <= set(bahan)
+    assert {"Kaso 5/7 kayu kelas II", "Tripleks t=9mm", "Paku 4 inch", "Paku 2 inch"} <= set(bahan)
     assert not {"Kayu balok 6/12 kelas II", "Plywood 12 mm", "Paku 12 cm"} & set(bahan)
     assert bahan["Kaso 5/7 kayu kelas II"][3] == pytest.approx(0.00465)  # koefisien HSPK tetap
-    assert any("Paku 12 cm → Paku 2 inch" in c for c in catatan)
+    assert bahan["Paku 4 inch"][3] == pytest.approx(0.4)  # koefisien paku HSPK = paku sambungan rangka
+    assert bahan["Paku 2 inch"][3] == pytest.approx(0.03)  # paku triplek ke rangka (seperti HSPK 3.5.2.3.x)
+    assert any("Paku 12 cm → Paku 4 inch" in c for c in catatan)
+    assert any("Paku 2 inch 5 cm" in c and "triplek ke rangka" in c for c in catatan)
     # bekisting fondasi HSPK memakai papan kayu tanpa triplek: papan & paku tidak diganti
     fondasi, catatan = ganti_komponen(ANALISA["2.2.1.3.1"][3], KAYU_BAWAAN, TRIPLEK_BAWAAN)
     assert fondasi == list(ANALISA["2.2.1.3.1"][3]) and catatan == []
@@ -81,7 +88,7 @@ def test_pilihan_kayu_dan_triplek_per_proyek(proyek):
     awal = _bekisting(conn, pid)
     assert awal and all("~" not in r["kode_ahsp"] for r in awal)
     pelat = next(r for r in awal if r["kode_ahsp"] in ("BSK.PELAT", "BSK.DAK", "BSK.KOLOM", "BSK.BALOK"))
-    assert {"Kaso 5/7 kayu kelas II", "Tripleks t=9mm", "Paku 2 inch"} <= _bahan(conn, pelat["pid"])
+    assert {"Kaso 5/7 kayu kelas II", "Tripleks t=9mm", "Paku 4 inch", "Paku 2 inch"} <= _bahan(conn, pelat["pid"])
     total_awal = sum(r["subtotal_biaya"] for r in awal)
 
     opsi = ringkasan_opsi()
@@ -93,7 +100,7 @@ def test_pilihan_kayu_dan_triplek_per_proyek(proyek):
     ganti = _bekisting(conn, pid)
     assert all(r["kode_ahsp"].endswith("~balok612k2+p12") for r in ganti)
     bahan = _bahan(conn, next(r for r in ganti if r["id"] == pelat["id"])["pid"])
-    assert {"Kayu balok 6/12 kelas II", "Plywood 12 mm", "Paku 2 inch"} <= bahan  # 12 mm + 6/12 -> paku 5 cm
+    assert {"Kayu balok 6/12 kelas II", "Plywood 12 mm", "Paku 2 inch", "Paku 4 inch"} <= bahan  # 5 & 10 cm
     assert sum(r["subtotal_biaya"] for r in ganti) > total_awal  # kayu & plywood HSPK lebih mahal
     nama = conn.execute("SELECT nama_pekerjaan FROM pekerjaan WHERE id = ?", (ganti[0]["pid"],)).fetchone()[0]
     assert "Balok 6/12 kayu kelas II" in nama and "Plywood 12 mm" in nama
@@ -119,10 +126,14 @@ def test_dialog_ganti_bahan_kelompok_bekisting(proyek, qapp_bekisting):
         assert {"BSK.KAYU", "BSK.TRIPLEK"} <= set(d.combo)
         cb = d.combo["BSK.KAYU"]
         assert cb.currentData() == "kaso57" and "(bawaan)" in cb.currentText() and "Rp" in cb.currentText()
-        assert "Paku: Paku 2 inch" in d._info["BSK.TRIPLEK"].text()
+        info = d._info["BSK.TRIPLEK"].text()
+        assert "Paku triplek ke rangka: Paku 2 inch" in info and "sambungan rangka: Paku 4 inch" in info
         assert d._volume["BSK.KAYU"] > 0 and d._volume["BSK.TRIPLEK"] > 0
         d.combo["BSK.TRIPLEK"].setCurrentIndex(d.combo["BSK.TRIPLEK"].findData("m18"))
-        assert "Paku 5 dan 7 cm" in d._info["BSK.KAYU"].text()  # paku ikut tebal triplek
+        # paku triplek ikut tebal triplek: 3 x 1,8 = 5,4 cm s.d. 1,8 + 5 = 6,8 cm; tanpa ukuran di antaranya dipilih
+        # yang terpanjang tanpa tembus (5 cm), bukan 7 cm yang tembus
+        assert "5,4–6,8 cm" in d._info["BSK.KAYU"].toolTip()
+        assert "Paku triplek ke rangka: Paku 2 inch (5,0 cm)" in d._info["BSK.KAYU"].text()
         assert d._selisih() > 0 and d.btn_simpan.isEnabled()
     finally:
         d.deleteLater()

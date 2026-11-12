@@ -163,6 +163,24 @@ def test_saring_elemen_checkbox_jenis_dan_radio_nama(db_sementara, qapp):
         hal.grup_mode.button(hal.MODE_REKAP).click()  # tab RAB ikut tersaring
         assert "disaring: " + lain in hal.label_jumlah.text()
 
+        # dilipat agar tabel mendapat ruang: satu baris ringkasan, saringan tetap berlaku, status diingat
+        from database.preferensi_repository import get_pref
+        from gui.saring_elemen import SaringElemen
+
+        hal.grup_mode.button(hal.MODE_DETAIL).click()
+        tinggi_buka, n_buka = s.sizeHint().height(), len(baris_tabel())
+        s.btn_lipat.click()
+        assert s.terlipat() and s._wadah_jenis.isHidden() and s.baris_nama.isHidden()
+        assert not s.label_ringkas.isHidden() and s.label_ringkas.text().startswith(lain)
+        assert s.sizeHint().height() < tinggi_buka and len(baris_tabel()) == n_buka
+        assert get_pref("saring_elemen_terlipat") == "1"
+        lain2 = SaringElemen()
+        assert lain2.terlipat()  # dibuka lagi (proyek lain / aplikasi dibuka ulang): tetap terlipat
+        lain2.deleteLater()
+        s.fokus()  # Ctrl+F membuka penyaring
+        assert not s.terlipat() and not s._wadah_jenis.isHidden() and get_pref("saring_elemen_terlipat") == "0"
+        hal.grup_mode.button(hal.MODE_REKAP).click()
+
         s.btn_hapus.click()
         assert not s.aktif() and s.baris_nama.isHidden()
         hal.grup_mode.button(hal.MODE_DETAIL).click()

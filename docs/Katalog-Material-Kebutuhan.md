@@ -90,11 +90,16 @@ dipakai bahan yang lebih murah:
   Pilihan berlaku untuk semua pekerjaan bekisting (kolom, balok, pelat, dak, sloof, tangga, cakar ayam, planter).
 - **Koefisien HSPK tetap** (m³ kayu, lembar triplek, kg paku per m²). Hanya jenis dan harga bahannya yang diganti.
   Upah dan bahan lain sama.
-- **Panjang paku dihitung dari tebal bekisting.** Paku menembus triplek dan tertanam di rangka kayu:
-  panjang minimum = 3 × tebal triplek, panjang maksimum = tebal triplek + tebal kayu (paku tidak tembus keluar).
-  Dari ukuran paku per kg di HSPK (3 cm, 5 cm/2 inch, 7 cm, 10 cm/4 inch, 5 inch), dipilih yang termurah di antara
-  batas itu. Contoh: plywood 12 mm + balok 6/12 (tebal 7,2 cm) → 3,6–7,2 cm → **paku 5 cm (2 inch)**; tripleks
-  9 mm + kaso 5/7 (5,9 cm) → paku 5 cm; multiplek 18 mm → paku 7 cm.
+- **Ukuran paku menurut kegunaannya**, dan paku tidak boleh lebih panjang dari tebal bahan yang disambung
+  (tembus). Dari ukuran paku per kg di HSPK (3 cm, 5 cm/2 inch, 7 cm, 10 cm/4 inch, 5 inch) dipilih yang termurah di
+  antara batasnya; bila tidak ada, yang terpanjang tanpa tembus.
+  - **Sambungan rangka kayu ke kayu** (tiang, gelagar, klem): koefisien paku HSPK 0,4 kg/m² dipakai untuk ini.
+    Panjang 1,5 × s.d. 2 × tebal kayu: kaso 5/7 → 7,5–10 cm → **paku 10 cm (4 inch)**; balok 6/12 → 9–12 cm →
+    paku 10 cm (12 cm juga tidak tembus, tetapi paku 12 cm di HSPK berharga per buah).
+  - **Triplek ke rangka**: 0,03 kg/m², sama dengan "Paku Tripleks" pada analisa HSPK pemasangan kayu lapis
+    (3.5.2.3.x). Panjang 3 × tebal triplek s.d. tebal triplek + tebal kayu: plywood 12 mm + balok 6/12 (tebal
+    7,2 cm) → 3,6–7,2 cm → **paku 5 cm** (paku 12 cm akan tembus ± 4,8 cm); tripleks 9 mm + kaso 5/7 (5,9 cm) →
+    paku 5 cm.
 - Bekisting fondasi dan sloof HSPK (2.2.1.3.1/2) memakai papan kayu kelas III sebagai muka bekisting tanpa triplek,
   sehingga papan dan pakunya tidak diganti.
 - Varian kayu/triplek selain bawaan disimpan sebagai pekerjaan `BSK.KOLOM~kayu+triplek` (dibuat saat pertama
@@ -195,17 +200,18 @@ Total biaya langsung dengan pilihan bawaan baru (bata ringan) dibanding bata mer
 Total bata ringan di atas juga sudah memakai analisa HSPK untuk pembersihan lahan, bouwplank, dan urugan
 (lihat `docs/Koreksi-Rule-Engine.md`).
 
-Bahan bekisting bawaan (kaso 5/7 + tripleks 9 mm, paku 5 cm sesuai tebal bekisting) dibanding analisa HSPK asli
-(balok 6/12 kelas II + plywood 12 mm + paku 12 cm @ Rp 1.200), biaya langsung tiga model Tipe 120:
+Bahan bekisting bawaan (kaso 5/7 + tripleks 9 mm; paku 10 cm untuk sambungan rangka dan paku 5 cm untuk triplek)
+dibanding analisa HSPK asli (balok 6/12 kelas II + plywood 12 mm + paku 12 cm @ Rp 1.200), biaya langsung tiga model
+Tipe 120:
 
 | Model | Bekisting | Sebelum | Sesudah | Selisih |
 |---|---|---|---|---|
-| Tipe 120 1 lantai kupu-kupu | 285,6 m² | Rp 867.290.896 | Rp 861.782.993 | −Rp 5,51 jt |
-| Tipe 120 2 lantai courtyard | 414,0 m² | Rp 1.140.198.455 | Rp 1.130.502.483 | −Rp 9,70 jt |
-| Tipe 120 3 lantai modern tropis | 528,3 m² | Rp 1.345.347.801 | Rp 1.332.757.262 | −Rp 12,59 jt |
+| Tipe 120 1 lantai kupu-kupu | 285,6 m² | Rp 867.290.896 | Rp 861.973.674 | −Rp 5,32 jt |
+| Tipe 120 2 lantai courtyard | 414,0 m² | Rp 1.140.198.455 | Rp 1.130.816.059 | −Rp 9,38 jt |
+| Tipe 120 3 lantai modern tropis | 528,3 m² | Rp 1.345.347.801 | Rp 1.333.162.336 | −Rp 12,19 jt |
 
-Per m² bekisting kolom: kayu −Rp 14.220, triplek −Rp 14.664, paku +Rp 8.280 (harga paku dikoreksi ke per kg),
-sebelum BUK 10%.
+Per m² bekisting kolom (sebelum BUK 10%): kayu −Rp 14.220, triplek −Rp 14.664, paku sambungan rangka +Rp 8.400 (harga
+paku dikoreksi ke per kg), paku triplek +Rp 657.
 
 ## Pengujian
 
@@ -219,7 +225,7 @@ sebelum BUK 10%.
 - tambah/hapus item katalog;
 - isi sheet export.
 
-`tests/test_bekisting_bahan.py` menguji panjang paku dari tebal bekisting (12 mm + 6/12 → 5 cm, tidak pernah
-melebihi tebal bekisting), penggantian kayu/triplek/paku pada analisa (koefisien tetap, fondasi papan tidak
+`tests/test_bekisting_bahan.py` menguji ukuran paku menurut kegunaan (sambungan rangka kaso 5/7 → 10 cm; triplek
+12 mm + balok 6/12 → 5 cm; tidak pernah tembus), penggantian kayu/triplek/paku pada analisa (koefisien tetap, fondasi papan tidak
 diganti), pilihan kayu & triplek per proyek (varian, hitung ulang IFC, kembali ke bawaan), dialog Ganti Bahan
 kelompok Bekisting, label mutu K, dan kolom SETARA (baja → batang per diameter penulangan proyek).

@@ -23,7 +23,7 @@ from database.hspk_bandung_2027 import AHSP, HSD, SATUAN, SUMBER
 from database.init_db import pastikan_skema
 from database.material import SLOT, SLOT_BAHAN, kode_varian
 
-SEED_VERSI = "16-hspk-bdg-2027-mutu-k-bekisting"
+SEED_VERSI = "17-hspk-bdg-2027-paku-menurut-kegunaan"
 
 SUMBER_HSPK = "HSPK Kota Bandung 2027"
 
