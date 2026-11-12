@@ -72,7 +72,7 @@ from database.material_repository import (
     ringkasan_opsi,
     simpan_material_elemen,
     simpan_material_elemen_banyak,
-    simpan_pilihan,
+    ubah_pilihan,
 )
 from gui.katalog_dialog import KatalogDialog
 from gui.saring_elemen import SaringElemen
@@ -844,6 +844,13 @@ class EstimasiPage(QWidget):
             t.setItem(r, 6, tema.sel(tema.format_rupiah(sum(d["biaya"] for d in items)), "kanan", warna, tebal=True))
             r += 1
         tema.atur_lebar(t, 1, isi_konten=(0, 2, 3, 4, 5, 6))
+        if getattr(self, "_sorot_slot", None):  # setelah ganti bahan: baris bahan pengganti dipilih & digulir ke tampilan
+            for i in range(t.rowCount()):
+                w = t.cellWidget(i, 1)
+                if isinstance(w, QComboBox) and w.property("slot") == self._sorot_slot:
+                    t.selectRow(i)
+                    t.scrollTo(t.model().index(i, 1), QAbstractItemView.PositionAtCenter)
+                    break
         h = t.horizontalHeader()  # SETARA dibatasi (teks lengkap di tooltip) agar nama bahan / combo ganti terbaca
         if h.sectionSize(4) > 200:
             h.setSectionResizeMode(4, QHeaderView.Interactive)
@@ -890,7 +897,10 @@ class EstimasiPage(QWidget):
             semua = set.intersection(*nama_opsi.values()) if nama_opsi else set()
             kata = "".join(ch for ch in SLOT[sl].cari(kunci).label.split(" ")[0].lower() if ch.isalpha())
             for n in nama_opsi.get(kunci, set()) - semua:  # bahan pembeda pilihan itu, mis. "Bata ringan ..."
-                if len(kata) >= 3 and kata in n.lower():  # mis. "bata", "keramik", "genteng" (bukan "K-250")
+                kata_n = [w.strip("()") for w in n.lower().split()]
+                cocok = kata_n and (kata_n[0] == kata or (len(kata_n) > 1 and kata_n[1] == kata and kata_n[0] not in (
+                    "lem", "paku", "sekrup", "cat", "minyak", "baut")))  # "Lem kayu" bukan bahan kusen kayu
+                if len(kata) >= 3 and cocok:  # mis. "bata", "keramik", "genteng" (bukan "K-250")
                     calon.setdefault(n, set()).add(sl)
         hasil.update({n: next(iter(sl)) for n, sl in calon.items() if len(sl) == 1})
         return hasil
@@ -911,6 +921,7 @@ class EstimasiPage(QWidget):
             cb.addItem(teks, o.kunci)
             cb.setItemData(cb.count() - 1, teks, Qt.ToolTipRole)
         cb.setObjectName("gantiBahan")
+        cb.setProperty("slot", slot)
         cb.setCurrentIndex(max(0, cb.findData(kunci)))
         lingkup = (f"{len(elemen)} elemen yang tersaring ({self.saring.ringkasan()})" if self.saring.aktif()
                    else "seluruh proyek")
@@ -933,10 +944,12 @@ class EstimasiPage(QWidget):
         else:
             lingkup = "seluruh proyek"
 
-            def aksi():
-                return bool(simpan_pilihan(self.proyek_id, {slot: kunci})["berubah"])
+            def aksi():  # pilihan bahan lain proyek tetap (bukan kembali ke bawaan)
+                return bool(ubah_pilihan(self.proyek_id, {slot: kunci})["berubah"])
+        self._sorot_slot = slot  # baris bahan pengganti (nama & urutan bisa berubah) disorot setelah dimuat ulang
         pesan = self.terapkan_perubahan(aksi, f"Ganti {SLOT[slot].judul.lower()}: {label} ({lingkup})",
                                         f"{SLOT[slot].judul} → {label} ({lingkup})")
+        self._sorot_slot = None
         if pesan:
             tema.toast(self, pesan)
 

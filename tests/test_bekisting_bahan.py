@@ -283,3 +283,40 @@ def test_ganti_bahan_langsung_dari_kebutuhan_bahan(proyek, qapp_bekisting):
         assert kode and all(k.endswith("~sengon+t9") for k in kode)
     finally:
         hal.deleteLater()
+
+
+def test_ganti_beberapa_bahan_berturut_turut_tidak_mereset_pilihan_lain(proyek, qapp_bekisting):
+    """Regresi: mengganti bahan kedua di Kebutuhan Bahan tidak mengembalikan bahan pertama ke bawaan, dan baris bahan
+    pengganti (namanya berubah, urutannya bisa pindah) langsung dipilih."""
+    from PySide6.QtWidgets import QComboBox
+
+    from database.material_repository import muat_pilihan, ubah_pilihan
+    from gui.estimasi_page import EstimasiPage
+
+    pid, _conn = proyek
+    hal = EstimasiPage(pid, "AC20")
+    try:
+        hal.grup_mode.button(hal.MODE_BAHAN).click()
+
+        def combo(slot):
+            t = hal.tabel
+            for i in range(t.rowCount()):
+                w = t.cellWidget(i, 1)
+                if isinstance(w, QComboBox) and w.property("slot") == slot:
+                    return i, w
+            raise AssertionError(f"combo {slot} tidak ada")
+
+        _i, bata = combo("DND.BATA")
+        bata.setCurrentIndex(bata.findData("merah"))
+        i, bata = combo("DND.BATA")
+        assert bata.currentData() == "merah" and "merah" in hal.tabel.item(i, 1).text().lower()
+        assert [x.row() for x in hal.tabel.selectionModel().selectedRows()] == [i]  # baris pengganti disorot
+        _i, kaso = combo("BSK.KAYU")
+        kaso.setCurrentIndex(kaso.findData("sengon"))
+        pilihan = muat_pilihan(pid)
+        assert pilihan["DND.BATA"] == "merah" and pilihan["BSK.KAYU"] == "sengon"  # bata tidak kembali ke bawaan
+        assert combo("DND.BATA")[1].currentData() == "merah"
+        ubah_pilihan(pid, {"BSK.KAYU": "kaso57"})
+        assert muat_pilihan(pid)["DND.BATA"] == "merah"  # ubah_pilihan: hanya slot yang disebut
+    finally:
+        hal.deleteLater()

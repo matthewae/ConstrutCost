@@ -232,6 +232,12 @@ def simpan_pilihan(proyek_id: int, pilihan: dict) -> dict:
     return {"berubah": berubah, "baris": n}
 
 
+def ubah_pilihan(proyek_id: int, perubahan: dict) -> dict:
+    """Ubah sebagian pilihan material proyek; slot lain tetap seperti pilihan proyek saat ini (simpan_pilihan
+    mengganti seluruh pilihan: slot yang tidak disebut kembali ke bawaan)."""
+    return simpan_pilihan(proyek_id, {**muat_pilihan(proyek_id), **perubahan})
+
+
 def _ganti_baris(conn, syarat: str, args: tuple, slot: str, kunci: str, id_kode: dict) -> int:
     tujuan = id_kode.get(kode_varian(slot, kunci))
     if tujuan is None:
