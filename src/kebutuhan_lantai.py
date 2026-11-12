@@ -21,9 +21,8 @@ import re
 from database.material import kode_dasar
 from rab_rinci import TANPA_LANTAI, daftar_lantai, rekap_per_lantai, susun_rinci
 from rules.penulangan import NAMA_KELOMPOK, PANJANG_BATANG, URUTAN, berat_per_m, jenis_baja, label_d, label_tipe
+from setara import BERAT_ZAK_MORTAR, BERAT_ZAK_SEMEN, setara  # noqa: F401 (BERAT_ZAK_* dipakai halaman & export)
 
-BERAT_ZAK_SEMEN = 50  # kg per zak
-BERAT_ZAK_MORTAR = 40  # kg per zak mortar instan (perekat bata ringan, plester, acian)
 # Rentang wajar rasio besi beton bertulang rumah tinggal (kg/m³). Di luar rentang ini angka ditandai
 # "periksa": biasanya dimensi elemen di model IFC tidak wajar atau konfigurasi tulangan perlu dicek.
 RASIO_WAJAR = (40.0, 350.0)
@@ -31,6 +30,7 @@ AWALAN_BETON = ("BTN.", "LTK.")
 AWALAN_STRUKTUR = ("BTN.", "BSK.", "BSI.", "LTK.")
 TIPE_SUMBER_DAYA = (("bahan", "Bahan / Material"), ("upah", "Tenaga Kerja"), ("alat", "Peralatan"))
 _MUTU = re.compile(r"f'c\s*([\d.,]+)\s*MPa", re.IGNORECASE)
+_MUTU_K = re.compile(r"\bK\s*-?\s*(\d{3})\b")
 
 
 def _kelompok_kode(kode: str) -> str:
@@ -47,8 +47,14 @@ def rasio_wajar(rasio) -> bool:
 
 
 def mutu_beton(nama_pekerjaan: str) -> str:
+    """Mutu beton dari nama pekerjaan dalam K: 'Beton Kolom K-250' -> 'K-250'; nama lama 'f'c 20 MPa' -> 'K-250'."""
+    from database.material import mutu_k
+
+    m = _MUTU_K.search(nama_pekerjaan or "")
+    if m:
+        return f"K-{m.group(1)}"
     m = _MUTU.search(nama_pekerjaan or "")
-    return f"f'c {m.group(1)} MPa" if m else "beton masif"
+    return f"K-{mutu_k(float(m.group(1).replace(',', '.')))}" if m else "beton masif"
 
 
 # ---------------------------------------------------------------- struktur per tipe
@@ -68,7 +74,7 @@ def label_grup_struktur(r: dict) -> tuple:
     if kel == "CAKAR":
         return ("kelompok", kel), "Fondasi Cakar Ayam (pelat + pipa)", (-1, 1, 0)
     if kel == "LANTAI_KERJA":
-        label = "Lantai Kerja / Rabat (f'c 7,5 MPa)"
+        label = "Lantai Kerja / Rabat (K-100)"
     elif kel == "SUMURAN":
         label = "Fondasi Sumuran"
     elif kel == "TANGGA":
@@ -118,7 +124,7 @@ def struktur_per_tipe(baris: list) -> list:
 
 
 def beton_per_mutu(baris: list) -> list:
-    """[{'mutu', 'volume'}]: total volume beton per mutu (f'c 20 MPa, f'c 7,5 MPa, beton masif)."""
+    """[{'mutu', 'volume'}]: total volume beton per mutu (K-250, K-100, beton masif)."""
     d = {}
     for r in baris:
         if (r.get("kode_ahsp") or "").startswith(AWALAN_BETON):
@@ -201,15 +207,10 @@ def komponen_pekerjaan(pekerjaan_ids) -> dict:
     return hasil
 
 
-def keterangan_sumber_daya(nama: str, satuan: str, jumlah: float) -> str:
-    n = nama.lower()
-    if "semen" in n and "warna" not in n and satuan.lower() == "kg":
-        return f"≈ {math.ceil(jumlah / BERAT_ZAK_SEMEN - 1e-9):,} zak @ {BERAT_ZAK_SEMEN} kg".replace(",", ".")
-    if "mortar" in n and satuan.lower() == "kg":
-        return f"≈ {math.ceil(jumlah / BERAT_ZAK_MORTAR - 1e-9):,} zak @ {BERAT_ZAK_MORTAR} kg".replace(",", ".")
-    if satuan.lower() == "oh":
-        return "orang-hari"
-    return ""
+def keterangan_sumber_daya(nama: str, satuan: str, jumlah: float, besi: dict | None = None) -> str:
+    """Kolom SETARA: satuan beli di lapangan (zak, batang 12 m, m³, rol, jeriken, pail, dus, ...); lihat setara.py.
+    `besi` = {diameter: berat kg} penulangan baris yang sama, untuk mengubah baja tulangan kg -> batang."""
+    return setara(nama, satuan, jumlah, besi)
 
 
 def kebutuhan_sumber_daya(baris: list, komponen: dict) -> dict:
@@ -241,11 +242,15 @@ def kebutuhan_sumber_daya(baris: list, komponen: dict) -> dict:
             lt = r.get("lantai") or TANPA_LANTAI
             d["lantai"][lt] = d["lantai"].get(lt, 0.0) + v * k["koefisien"]
     hasil = {"tanpa_analisa": sorted(tanpa)}
+    besi = {}  # sebaran diameter penulangan baris ini: baja tulangan kg -> batang per diameter
+    for r in baris:
+        if (r.get("kode_ahsp") or "").startswith("BSI.") and r.get("diameter"):
+            besi[r["diameter"]] = besi.get(r["diameter"], 0.0) + (r["volume_pekerjaan"] or 0.0)
     for tipe, _ in TIPE_SUMBER_DAYA:
         items = [d for d in acc[tipe].values() if d["jumlah"] > 1e-9]
         for d in items:
             d["harga"] = d["biaya"] / d["jumlah"] if d["jumlah"] else 0.0
-            d["keterangan"] = keterangan_sumber_daya(d["nama"], d["satuan"], d["jumlah"])
+            d["keterangan"] = keterangan_sumber_daya(d["nama"], d["satuan"], d["jumlah"], besi)
         hasil[tipe] = sorted(items, key=lambda d: (-d["biaya"], d["nama"]))
     return hasil
 

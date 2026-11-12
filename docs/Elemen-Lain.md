@@ -40,7 +40,7 @@ tetap terbaca sebagai talang. Volume diambil dengan urutan:
 | Talang | IfcPipeSegment GUTTER / "talang" | ATP.TALANG, talang ½ lingkaran seng 3.3.2 (pilihan: talang datar / box 3.3.1) | m' |
 | Talang tegak / rantai hujan | "rantai hujan", "talang tegak", "downspout" | ATP.TALANG_TEGAK, **pendekatan** pipa PVC D 3" 6.4.1.21 | m' |
 | Waterproofing | IfcCovering MEMBRANE / "waterproofing" | WTP.LAPISAN, membran bakar 3.4.1 (pilihan: kristalin, semen base, akrilik) | m² |
-| Beton lansekap (planter, kolam, bak) | proxy "planter", "kolam", "bak", atau proxy beton | LSK.BETON f'c 15 MPa ±K-175 2.2.1.4.3; LSK.BEKISTING 2 muka dinding 2.2.1.3.6; LSK.BESI / LSK.WIREMESH (Ø8-150 bawaan) | m³, m², kg |
+| Beton lansekap (planter, kolam, bak) | proxy "planter", "kolam", "bak", atau proxy beton | LSK.BETON K-175 (f'c 15 MPa) 2.2.1.4.3; LSK.BEKISTING 2 muka dinding 2.2.1.3.6; LSK.BESI / LSK.WIREMESH (Ø8-150 bawaan) | m³, m², kg |
 | Media tanam | "media tanam", "tanah taman" | LSK.MEDIA_TANAM, urukan tanah subur 1.3.1.7 | m³ |
 | Sanitair | IfcSanitaryTerminal / nama kloset, wastafel, floor drain, kran, shower | SNT.*, bab 3.18 (kloset duduk 3.18.3.1, wastafel 3.18.1.1, …) | buah |
 | Rangka / batang baja | IfcMember non-atap: "rangka", "hollow", WF, bahan steel / besi | BJA.PROFIL, pabrikasi & ereksi baja profil 2.3.1.1 | kg = V × 7.850 |

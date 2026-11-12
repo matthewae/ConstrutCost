@@ -34,7 +34,7 @@ Kolom fisik mengikuti `src/kolom.py` (pedestal + kolom = satu kolom).
 | ≥ 3 | 1,20 × 1,20 × 0,30 m |
 
   Ukuran bisa diisi sendiri (Footplate: lebar / tebal). Item yang dihitung:
-  - beton fondasi f'c 20 MPa;
+  - beton fondasi K-250 (f'c 20 MPa);
   - bekisting 4·B·t;
   - tulangan dari tipe fondasi bawaan (D13-150, 1 lapis untuk t ≤ 30 cm);
   - galian, lantai kerja, dan urugan kembali (rumus footplate di `rules/tanah.py`);
@@ -71,7 +71,7 @@ dan tetap dihitung apa adanya. Selubung bangunan adalah poligon cembung dinding 
 menerus antarlantai. Bidang yang titik tengahnya lebih dari 30 cm di luar selubung dianggap perkerasan luar.
 
 Analisa HSPK yang dipakai:
-- beton pelat & pipa: 2.2.1.4.5 (beton f'c 20 MPa);
+- beton pelat & pipa: 2.2.1.4.5 (beton K-250, f'c 20 MPa);
 - bekisting: 2.2.1.3.1 (bekisting fondasi);
 - pembesian: 2.2.1.1.1 / 2.2.1.1.2a (penulangan slab).
 

@@ -59,7 +59,7 @@ Pemetaan kode pekerjaan aplikasi ke item HSPK (`PEMETAAN` di `src/database/seed_
 |---|---|---|
 | FDN.BATUKALI | 2.2.2.1.6 Pondasi batu belah mortar tipe N (1SP : 4PP), manual | Rp 1.601.728 /m³ |
 | BTN.SUMURAN | 2.2.2.2.6 Pondasi sumuran diameter 100 cm masif | Rp 1.786.529 /m³ |
-| BTN.* (kolom, balok, pelat, dak, sloof, telapak) | 2.2.1.4.5 Beton f'c 20 MPa, manual | Rp 2.349.627 /m³ |
+| BTN.* (kolom, balok, pelat, dak, sloof, telapak) | 2.2.1.4.5 Beton K-250 (f'c 20 MPa), manual | Rp 2.349.627 /m³ |
 | BSI.KOLOM / BALOK / SLOOF | 2.2.1.1.3a Penulangan kolom/balok/sloof BjTS < 12 mm, manual | Rp 36.469 /kg |
 | BSI.PELAT / DAK / FONDASI | 2.2.1.1.1a Penulangan slab BjTS < 12 mm, manual | Rp 30.540 /kg |
 | BSK.FONDASI / SLOOF / KOLOM / BALOK / PELAT | 2.2.1.3.1 – 2.2.1.3.5 Bekisting (3 kali pakai) | Rp 246.979 – 413.951 /m² |

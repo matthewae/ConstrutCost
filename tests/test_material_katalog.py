@@ -5,7 +5,7 @@ import os
 import pytest
 
 from database.hspk_bandung_2027 import AHSP, BAB, SATUAN
-from database.material import SLOT, kode_dasar, kode_varian, pilihan_lengkap, varian_terpilih
+from database.material import SLOT, SLOT_BAHAN, kode_dasar, kode_varian, pilihan_lengkap, varian_terpilih
 from database.seed_data import PEMETAAN
 
 
@@ -13,7 +13,7 @@ def _sama_satuan(a: str, b: str) -> bool:
     return a.replace("’", "'").lower() == b.replace("’", "'").lower()
 
 
-@pytest.mark.parametrize("slot", list(SLOT))
+@pytest.mark.parametrize("slot", [k for k in SLOT if k not in SLOT_BAHAN])  # bahan bekisting: test_bekisting_bahan
 def test_semua_pilihan_ada_di_hspk_dengan_satuan_sama(slot):
     s = SLOT[slot]
     satuan = PEMETAAN[slot][2]

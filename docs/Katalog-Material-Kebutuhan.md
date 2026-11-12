@@ -56,7 +56,8 @@ adalah varian pekerjaan dengan kode `slot~kunci`; pilihan bawaan memakai kode sl
 
 | Kelompok | Pekerjaan | Pilihan bawaan | Pilihan lain |
 |---|---|---|---|
-| Mutu beton | Kolom, balok, pelat, dak, sloof, fondasi, tangga (masing-masing) | f'c 20 MPa manual (2.2.1.4.5) | f'c 21 manual; f'c 20/25/30 molen; f'c 20/25/30 ready mix |
+| Mutu beton | Kolom, balok, pelat, dak, sloof, fondasi, tangga (masing-masing) | **K-250 campuran manual** (f'c 20 MPa, 2.2.1.4.5) | K-250 (f'c 21 MPa) manual; K-250 / K-300 / K-350 molen; K-250 / K-300 / K-350 ready mix |
+| Bekisting | Kayu rangka & triplek untuk **semua** pekerjaan bekisting | **Kaso 5/7 kayu kelas II** + **tripleks 9 mm** (termurah di HSPK) | kaso 5/7 kelas III, balok sengon, balok borneo, balok 6/12 kelas II (analisa HSPK) / kelas I; plywood 9 mm, multiplek 9 / 12 / 18 mm, plywood 12 mm (analisa HSPK) |
 | Fondasi | Batu kali | 1SP:4PP (2.2.2.1.6) | 1:3, 1:5, 1:6 |
 | Dinding | Pasangan dinding | **Bata ringan 60×20×10 cm** (3.6.4.2) | bata ringan 7,5 / 20 cm; bata merah ½ batu 1:4 / 1:6; bata merah 1 batu; batako; conblock HB10 |
 | | Plesteran | 1SP:4PP 15 mm (3.7.4) | 1:2, 1:3, 1:5, 1:6, semen instan 10 mm |
@@ -69,6 +70,37 @@ adalah varian pekerjaan dengan kode `slot~kunci`; pilihan bawaan memakai kode sl
 | Cat | Interior | Tembok baru (3.8.10.1) | cat berbasis air, kapur |
 | | Eksterior | Analisa interior (sementara) | analisa eksterior HSPK 3.8.10.2, cat berbasis air, breathable mineral paint |
 | Pintu & jendela | Daun pintu, kusen, kunci, jendela | Panel kayu; kayu II/III 6×15; kunci tanam biasa; kaca aluminium | plywood, kaca aluminium, PVC, engineering wood, besi; kusen aluminium; kunci silinder/antik/KM; nako, kayu |
+
+### Mutu beton dalam K
+
+Nama pekerjaan dan pilihan mutu ditulis dalam **K** (kuat tekan kubus, kg/cm²) yang lazim di lapangan, mis.
+*Beton Kolom K-250* dan *K-250, campuran manual*. Analisa HSPK 2027 memakai f'c (silinder, MPa); konversinya
+K ≈ f'c ÷ 0,083 dibulatkan ke kelipatan 25 (`database/material.mutu_k`): f'c 7,5 → K-100, f'c 15 → K-175,
+f'c 20 → K-250, f'c 25 → K-300, f'c 30 → K-350. f'c 21 MPa juga K-250, jadi labelnya tetap menyebut f'c 21 MPa.
+Uraian analisa di sheet ANALISA tetap memakai teks asli HSPK (f'c) agar dapat ditelusuri.
+
+### Bahan bekisting: kayu, triplek, dan paku (`bahan_bekisting.py`)
+
+Analisa bekisting HSPK (2.2.1.3.3 kolom s.d. 2.2.1.3.7 tangga) memakai kayu balok 6/12 kelas II
+(Rp 5,56 jt/m³), plywood 12 mm (Rp 265.468/lembar), dan paku 12 cm (pelat: paku 4 inch). Untuk rumah tinggal
+dipakai bahan yang lebih murah:
+
+- **Kayu rangka** dan **triplek** dipilih per proyek di kelompok **Bekisting** dialog Ganti Bahan. Bawaannya adalah
+  yang termurah di HSPK: kaso 5/7 kayu kelas II (Rp 2.497.500/m³) dan tripleks 9 mm (Rp 150.000/lembar).
+  Pilihan berlaku untuk semua pekerjaan bekisting (kolom, balok, pelat, dak, sloof, tangga, cakar ayam, planter).
+- **Koefisien HSPK tetap** (m³ kayu, lembar triplek, kg paku per m²). Hanya jenis dan harga bahannya yang diganti.
+  Upah dan bahan lain sama.
+- **Panjang paku dihitung dari tebal bekisting.** Paku menembus triplek dan tertanam di rangka kayu:
+  panjang minimum = 3 × tebal triplek, panjang maksimum = tebal triplek + tebal kayu (paku tidak tembus keluar).
+  Dari ukuran paku per kg di HSPK (3 cm, 5 cm/2 inch, 7 cm, 10 cm/4 inch, 5 inch), dipilih yang termurah di antara
+  batas itu. Contoh: plywood 12 mm + balok 6/12 (tebal 7,2 cm) → 3,6–7,2 cm → **paku 5 cm (2 inch)**; tripleks
+  9 mm + kaso 5/7 (5,9 cm) → paku 5 cm; multiplek 18 mm → paku 7 cm.
+- Bekisting fondasi dan sloof HSPK (2.2.1.3.1/2) memakai papan kayu kelas III sebagai muka bekisting tanpa triplek,
+  sehingga papan dan pakunya tidak diganti.
+- Varian kayu/triplek selain bawaan disimpan sebagai pekerjaan `BSK.KOLOM~kayu+triplek` (dibuat saat pertama
+  dipilih, dari pekerjaan bawaannya) dan tetap dipakai saat estimasi dihitung ulang dari IFC.
+- Catatan data HSPK: analisa bekisting kolom/balok/sloof memakai "Paku 12 cm" 0,4 kg/m² dengan harga Rp 1.200,
+  padahal daftar harga dasar HSPK mencatat Paku 12 cm Rp 1.200 **per buah**, bukan per kg.
 
 Setiap combo box menampilkan tiga hal:
 - harga satuan dari harga yang berlaku di database;
@@ -113,9 +145,27 @@ kebutuhan selalu mengikuti pilihan material proyek dan elemen.
 
 | Tingkat | Di aplikasi | Di export Excel |
 |---|---|---|
-| **Keseluruhan** | Mode **Kebutuhan Bahan**: bahan, tenaga kerja, alat seluruh bangunan; semen dan mortar dikonversi ke zak (50 kg / 40 kg). Pilih satu bahan untuk melihat asalnya per pekerjaan dan per lantai | Sheet **Kebutuhan Bahan** (beserta daftar pilihan material proyek & elemen) |
+| **Keseluruhan** | Mode **Kebutuhan Bahan**: bahan, tenaga kerja, alat seluruh bangunan; kolom **SETARA** menerjemahkan kebutuhan ke satuan beli (lihat di bawah). Pilih satu bahan untuk melihat asalnya per pekerjaan dan per lantai | Sheet **Kebutuhan Bahan** (beserta daftar pilihan material proyek & elemen) |
 | **Per lantai** | Mode Kebutuhan Bahan dengan filter lantai, atau mode Per Lantai | Sheet **Kebutuhan per Lantai** (tabel silang bahan × lantai) dan satu sheet per lantai |
 | **Per elemen** | Tab **Per Elemen**, dikelompokkan per lantai lalu per jenis elemen. Judul kelompok (mis. Lantai 1 · Dinding) menampilkan jumlah elemen, volume, dan kebutuhan bahan kelompok. Baris elemen menampilkan kebutuhan bahan **seluruh elemen** (bata + plester + acian + cat) | Sheet **Kebutuhan per Elemen** dengan susunan sama: lantai → jenis → elemen → pekerjaan → bahan |
+
+### Kolom SETARA (`setara.py`)
+
+| Bahan (satuan analisa) | Setara | Dasar konversi |
+|---|---|---|
+| Baja tulangan (kg) | ≈ 4 btg D16 @ 12 m; ≈ 5 btg Ø10 + 3 btg Ø8 @ 12 m | dibagi per diameter sebanding berat penulangan baris yang sama (BBS); berat/m = π/4·d²·7.850; tanpa data diameter: asumsi Ø10 / D13 |
+| Semen, mortar instan (kg) | ≈ n zak @ 50 kg / 40 kg | berat per zak |
+| Pasir, batu split, kerikil, sirtu (kg) | ≈ m³ (dan truk @ 7 m³ bila ≥ 3 m³) | berat isi lepas: pasir 1.400, split 1.350, sirtu 1.600 kg/m³ |
+| Kayu kaso / balok / papan (m³) | ≈ n btg 5/7 @ 4 m | penampang dari nama, panjang 4 m |
+| Paku (kg) | ≈ n btg (± k btg/kg) | perkiraan jumlah per kg menurut panjang |
+| Kawat beton (kg) | beli n rol @ 25 kg (terpakai x%) | berat per rol |
+| Minyak bekisting (liter) | beli n jeriken @ 20 liter | isi jeriken |
+| Cat (kg) | ≈ n pail @ 25 kg + n galon @ 5 kg | kemasan |
+| Keramik (m²) | ≈ n dus @ 0,96 m² | isi per dus menurut ukuran |
+| Air (liter) | ≈ m³ | 1.000 liter = 1 m³ |
+| Tenaga kerja (OH) | orang-hari | |
+
+Ukuran kemasan dan berat isi adalah angka yang lazim di pasaran dan dapat berbeda per merek / pemasok.
 
 Laporan PDF memuat kebutuhan seluruh proyek dan daftar pilihan material. Opsi export baru: **Kebutuhan bahan
 proyek & per elemen**.
@@ -124,6 +174,7 @@ proyek & per elemen**.
 
 | Data | Temuan | Dampak | Penanganan |
 |---|---|---|---|
+| Paku 12 cm (bekisting 2.2.1.3.3/4) | Dipakai 0,4 **kg**/m² dengan harga Rp 1.200, padahal daftar harga dasar mencatat Rp 1.200 **per buah** | Harga paku bekisting terlalu rendah | Paku diganti sesuai tebal bekisting (paku 5 cm/2 inch Rp 21.900/kg) |
 | Mortar siap pakai (bata ringan 3.6.4.x) | Rp 42.800/**kg**, padahal "Mortar Perekat Bata Ringan" Rp 198.210/zak 40 kg (± Rp 4.955/kg) | Bata ringan 10 cm Rp 370.956/m²; bila mortar ± Rp 4.955/kg menjadi ± Rp 228.000/m² | Catatan pada pilihan bata ringan. Ubah harga di Harga Satuan bila sudah diverifikasi |
 | Cat eksterior 3.8.10.2 | Rp 1.624.000/kg (kemungkinan per pail) | ± 6× cat interior | Bawaan sementara memakai analisa interior; pilihan lain tersedia |
 | Jendela nako + tralis 3.11.2.2 | Daftar induk "buah", uraian "1 m²" | Satuan tidak pasti | Tidak dijadikan pilihan jendela |
@@ -142,6 +193,18 @@ Total biaya langsung dengan pilihan bawaan baru (bata ringan) dibanding bata mer
 Total bata ringan di atas juga sudah memakai analisa HSPK untuk pembersihan lahan, bouwplank, dan urugan
 (lihat `docs/Koreksi-Rule-Engine.md`).
 
+Bahan bekisting bawaan (kaso 5/7 + tripleks 9 mm, paku 5 cm sesuai tebal bekisting) dibanding analisa HSPK asli
+(balok 6/12 kelas II + plywood 12 mm + paku 12 cm @ Rp 1.200), biaya langsung tiga model Tipe 120:
+
+| Model | Bekisting | Sebelum | Sesudah | Selisih |
+|---|---|---|---|---|
+| Tipe 120 1 lantai kupu-kupu | 285,6 m² | Rp 867.290.896 | Rp 861.782.993 | −Rp 5,51 jt |
+| Tipe 120 2 lantai courtyard | 414,0 m² | Rp 1.140.198.455 | Rp 1.130.502.483 | −Rp 9,70 jt |
+| Tipe 120 3 lantai modern tropis | 528,3 m² | Rp 1.345.347.801 | Rp 1.332.757.262 | −Rp 12,59 jt |
+
+Per m² bekisting kolom: kayu −Rp 14.220, triplek −Rp 14.664, paku +Rp 8.280 (harga paku dikoreksi ke per kg),
+sebelum BUK 10%.
+
 ## Pengujian
 
 `tests/test_material_katalog.py` (35 tes) menguji:
@@ -153,3 +216,8 @@ Total bata ringan di atas juga sudah memakai analisa HSPK untuk pembersihan laha
 - mode Kebutuhan Bahan;
 - tambah/hapus item katalog;
 - isi sheet export.
+
+`tests/test_bekisting_bahan.py` menguji panjang paku dari tebal bekisting (12 mm + 6/12 → 5 cm, tidak pernah
+melebihi tebal bekisting), penggantian kayu/triplek/paku pada analisa (koefisien tetap, fondasi papan tidak
+diganti), pilihan kayu & triplek per proyek (varian, hitung ulang IFC, kembali ke bawaan), dialog Ganti Bahan
+kelompok Bekisting, label mutu K, dan kolom SETARA (baja → batang per diameter penulangan proyek).

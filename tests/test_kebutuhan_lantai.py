@@ -99,7 +99,7 @@ def test_struktur_besi_per_diameter_konsisten(proyek_bertingkat):
         # beton 2 kolom 0,25 x 0,25 x 3,5 + balok 0,2 x 0,4 x 4 + pelat 4 x 4 x 0,12 (dibulatkan geometri)
         assert s["beton"] > 2.0 and s["bekisting"] > 0 and s["besi"] > 0
         kolom = next(g for g in x["struktur"] if g["label"].startswith("Kolom"))
-        assert kolom["jumlah_elemen"] == 2 and kolom["mutu"] == "f'c 20 MPa"
+        assert kolom["jumlah_elemen"] == 2 and kolom["mutu"] == "K-250"
         assert 40 < kolom["rasio"] < 350
         # besi per diameter + asumsi rasio = semua pembesian lantai itu
         assert sum(k["berat"] for k in x["besi"]) + x["besi_rasio"] == pytest.approx(s["besi"])

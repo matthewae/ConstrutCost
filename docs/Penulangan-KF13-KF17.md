@@ -79,7 +79,7 @@ panjang total, dan jumlah batang 12 m per Ø/D. Data ini juga tersedia di sheet 
 ```
 II. BETON
   1  Balok B1 (18/41) — 6 buah
-       –  Beton Balok f'c 20 MPa          0,22 m3
+       –  Beton Balok K-250               0,22 m3
        –  Bekisting Balok                28,58 m2
        –  Tulangan utama 6 D16          309,35 kg
        –  Sengkang Ø10-150              126,88 kg

@@ -18,6 +18,17 @@ diedit manual, tidak berubah.
 
 from dataclasses import dataclass
 
+from bahan_bekisting import (
+    KAYU,
+    KAYU_BAWAAN,
+    KODE_BEKISTING,
+    SLOT_KAYU,
+    SLOT_TRIPLEK,
+    TRIPLEK,
+    TRIPLEK_BAWAAN,
+    kode_varian_bekisting,
+)
+
 PEMISAH = "~"
 
 
@@ -70,16 +81,24 @@ _CAT_EKSTERIOR = (
     "sehingga analisa 3.8.10.2 sekitar 6 kali harga cat interior."
 )
 
+# Mutu beton ditulis dalam K (kuat tekan kubus, kg/cm²) yang lazim di lapangan. Analisa HSPK memakai f'c (silinder,
+# MPa); konversi K ≈ f'c / 0,083, dibulatkan ke kelipatan 25 (mutu_k): f'c 20 → K-250, 25 → K-300, 30 → K-350.
+# f'c 21 MPa juga K-250, sehingga label & namanya menyebut f'c agar tidak tertukar dengan f'c 20 MPa.
 _MUTU_BETON = (
-    ("m20", "f'c 20 MPa, campuran manual", "2.2.1.4.5", "f'c 20 MPa"),
-    ("m21", "f'c 21 MPa, campuran manual", "2.2.1.4.6", "f'c 21 MPa"),
-    ("s20", "f'c 20 MPa, molen (semi mekanis)", "2.2.1.5.4", "f'c 20 MPa (Molen)"),
-    ("s25", "f'c 25 MPa, molen (semi mekanis)", "2.2.1.5.6", "f'c 25 MPa (Molen)"),
-    ("s30", "f'c 30 MPa, molen (semi mekanis)", "2.2.1.5.8", "f'c 30 MPa (Molen)"),
-    ("rm20", "f'c 20 MPa, ready mix", "2.2.1.6.4", "f'c 20 MPa (Ready Mix)"),
-    ("rm25", "f'c 25 MPa, ready mix", "2.2.1.6.6", "f'c 25 MPa (Ready Mix)"),
-    ("rm30", "f'c 30 MPa, ready mix", "2.2.1.6.8", "f'c 30 MPa (Ready Mix)"),
+    ("m20", "K-250, campuran manual", "2.2.1.4.5", "K-250"),
+    ("m21", "K-250 (f'c 21 MPa), campuran manual", "2.2.1.4.6", "K-250 (f'c 21 MPa)"),
+    ("s20", "K-250, molen (semi mekanis)", "2.2.1.5.4", "K-250 (Molen)"),
+    ("s25", "K-300, molen (semi mekanis)", "2.2.1.5.6", "K-300 (Molen)"),
+    ("s30", "K-350, molen (semi mekanis)", "2.2.1.5.8", "K-350 (Molen)"),
+    ("rm20", "K-250, ready mix", "2.2.1.6.4", "K-250 (Ready Mix)"),
+    ("rm25", "K-300, ready mix", "2.2.1.6.6", "K-300 (Ready Mix)"),
+    ("rm30", "K-350, ready mix", "2.2.1.6.8", "K-350 (Ready Mix)"),
 )
+
+
+def mutu_k(fc_mpa: float) -> int:
+    """Mutu K (kg/cm², kubus) setara f'c (MPa, silinder): K ≈ f'c / 0,083, dibulatkan ke kelipatan 25."""
+    return int(round(fc_mpa / 0.083 / 25.0) * 25)
 
 
 def _beton(kode: str, judul: str, awalan: str) -> Slot:
@@ -97,6 +116,11 @@ _DAFTAR = [
     _beton("BTN.SLOOF", "Sloof", "Beton Sloof"),
     _beton("BTN.FONDASI", "Fondasi telapak / menerus", "Beton Fondasi Telapak / Menerus"),
     _beton("BTN.TANGGA", "Tangga", "Beton Tangga"),
+    # ---------------- Bekisting: bahan untuk semua pekerjaan bekisting (bahan_bekisting.py) ----------------
+    Slot(SLOT_KAYU, "Kayu rangka bekisting", "Bekisting",
+         tuple(Opsi(b.kunci, b.label, "", "") for b in KAYU), KAYU_BAWAAN),
+    Slot(SLOT_TRIPLEK, "Triplek / plywood bekisting", "Bekisting",
+         tuple(Opsi(b.kunci, b.label, "", "") for b in TRIPLEK), TRIPLEK_BAWAAN),
     # ---------------- Fondasi ----------------
     Slot("FDN.BATUKALI", "Fondasi batu kali", "Fondasi", (
         Opsi("1:4", "Batu belah 1SP : 4PP", "2.2.2.1.6", "Pasangan Fondasi Batu Belah 1SP : 4PP"),
@@ -294,6 +318,8 @@ _DAFTAR = [
 ]
 
 SLOT = {s.kode: s for s in _DAFTAR}
+# Slot bahan: bukan pekerjaan sendiri; mengganti komponen kayu / triplek (dan paku) di semua pekerjaan bekisting
+SLOT_BAHAN = (SLOT_KAYU, SLOT_TRIPLEK)
 KELOMPOK = list(dict.fromkeys(s.kelompok for s in _DAFTAR))
 
 
@@ -307,5 +333,11 @@ def pilihan_lengkap(tersimpan: dict | None) -> dict:
 
 
 def varian_terpilih(pilihan: dict) -> dict:
-    """{kode keluaran rule: kode pekerjaan varian} untuk slot yang tidak memakai pilihan bawaan."""
-    return {k: kode_varian(k, v) for k, v in pilihan_lengkap(pilihan).items() if v != SLOT[k].bawaan}
+    """{kode keluaran rule: kode pekerjaan varian} untuk slot yang tidak memakai pilihan bawaan. Kayu / triplek
+    bekisting bukan bawaan mengarahkan semua pekerjaan bekisting ke varian "BSK.KOLOM~kayu+triplek"."""
+    lengkap = pilihan_lengkap(pilihan)
+    hasil = {k: kode_varian(k, v) for k, v in lengkap.items() if k not in SLOT_BAHAN and v != SLOT[k].bawaan}
+    kayu, triplek = lengkap[SLOT_KAYU], lengkap[SLOT_TRIPLEK]
+    if (kayu, triplek) != (KAYU_BAWAAN, TRIPLEK_BAWAAN):
+        hasil.update({k: kode_varian_bekisting(k, kayu, triplek) for k in KODE_BEKISTING})
+    return hasil

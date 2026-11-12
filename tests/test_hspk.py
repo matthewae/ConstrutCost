@@ -31,6 +31,8 @@ def test_harga_satuan_aplikasi_sama_dengan_hspk(db_sementara):
     from database.harga_repository import daftar_pekerjaan
     from database.seed_data import seed_pekerjaan
 
+    from bahan_bekisting import KAYU_BAWAAN, KODE_BEKISTING, TRIPLEK_BAWAAN, ganti_komponen
+
     seed_pekerjaan()
     beda = []
     for p in daftar_pekerjaan():
@@ -38,6 +40,11 @@ def test_harga_satuan_aplikasi_sama_dengan_hspk(db_sementara):
         f = ANALISA[kode_hspk][2]
         if kode_hspk in SELISIH_DOKUMEN:
             continue  # selisih dokumen tercatat: harga = hitungan koefisien
+        if p["kode_ahsp"] in KODE_BEKISTING:
+            # bekisting: kayu & triplek termurah dan paku sesuai tebal bekisting (bahan_bekisting.py); koefisien HSPK
+            komponen, ganti = ganti_komponen(ANALISA[kode_hspk][3], KAYU_BAWAAN, TRIPLEK_BAWAAN)
+            f = sum(k[3] * k[4] for k in komponen) * 1.10
+            assert ("Bahan bekisting disesuaikan" in (p["catatan"] or "")) == bool(ganti)
         if abs(p["harga_satuan"] - f) > 1.0:
             beda.append((p["kode_ahsp"], round(p["harga_satuan"]), round(f)))
     assert beda == []

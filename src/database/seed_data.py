@@ -8,7 +8,7 @@ SUMBER DATA
     AHSP : analisa harga satuan pekerjaan (koefisien x harga dasar)
 - PEMETAAN di bawah menentukan item HSPK mana yang dipakai setiap kode pekerjaan aplikasi
   (kode yang dipakai rule engine). Pilihan disesuaikan dengan rumah tinggal <= 2 lantai:
-  beton f'c 20 MPa manual, tulangan BjTS < 12 mm manual, bekisting 3 kali pakai, dinding
+  beton K-250 (f'c 20 MPa) manual, tulangan BjTS < 12 mm manual, bekisting 3 kali pakai, dinding
   1/2 bata 1SP:4PP, keramik lantai 40x40, rangka atap baja ringan pelana, genteng beton.
   Ganti kode HSPK di PEMETAAN untuk memakai item lain (mis. genteng keramik, f'c 25 MPa).
 
@@ -17,12 +17,13 @@ harga F di dokumen HSPK (diuji di tests/test_hspk.py).
 
 """
 
+from bahan_bekisting import KAYU_BAWAAN, KODE_BEKISTING, TRIPLEK_BAWAAN, ganti_komponen, urai_varian
 from database.estimasi_repository import _connect
 from database.hspk_bandung_2027 import AHSP, HSD, SATUAN, SUMBER
 from database.init_db import pastikan_skema
-from database.material import SLOT, kode_varian
+from database.material import SLOT, SLOT_BAHAN, kode_varian
 
-SEED_VERSI = "15-hspk-bdg-2027-elemen-lain"
+SEED_VERSI = "16-hspk-bdg-2027-mutu-k-bekisting"
 
 SUMBER_HSPK = "HSPK Kota Bandung 2027"
 
@@ -42,29 +43,29 @@ PEMETAAN = {
     "TNH.PASIR.FONDASI": ("Urugan Pasir Bawah Fondasi", "Tanah", "m3", "1.3.1.2"),
     "TNH.PASIR.SLOOF": ("Urugan Pasir Bawah Sloof", "Tanah", "m3", "1.3.1.2"),
     "TNH.PASIR.LANTAI": ("Urugan Pasir Bawah Lantai", "Tanah", "m3", "1.3.1.2"),
-    "LTK.FONDASI": ("Lantai Kerja Beton f'c 7,5 MPa Bawah Fondasi", "Fondasi", "m3", "2.2.1.4.1"),
-    "LTK.LANTAI": ("Rabat Beton f'c 7,5 MPa Bawah Lantai", "Lantai", "m3", "2.2.1.4.1"),
+    "LTK.FONDASI": ("Lantai Kerja Beton K-100 Bawah Fondasi", "Fondasi", "m3", "2.2.1.4.1"),
+    "LTK.LANTAI": ("Rabat Beton K-100 Bawah Lantai", "Lantai", "m3", "2.2.1.4.1"),
     # ---------------- Fondasi ----------------
     "FDN.BATUKALI": ("Pasangan Fondasi Batu Belah 1SP : 4PP", "Fondasi", "m3", "2.2.2.1.6"),
     "FDN.AANSTAMPING": ("Pasangan Batu Kosong (Aanstamping)", "Fondasi", "m3", "2.2.2.1.1"),
     "BTN.SUMURAN": ("Fondasi Sumuran Beton Masif", "Fondasi", "m3", "2.2.2.2.6"),
-    "BTN.FONDASI": ("Beton Fondasi Telapak / Menerus f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
+    "BTN.FONDASI": ("Beton Fondasi Telapak / Menerus K-250", "Fondasi", "m3", "2.2.1.4.5"),
     "BSI.FONDASI": ("Pembesian Fondasi Beton (Asumsi Rasio kg/m³)", "Fondasi", "kg", "2.2.1.1.1a"),
     "BSK.FONDASI": ("Bekisting Fondasi Telapak / Menerus", "Fondasi", "m2", "2.2.1.3.1"),
     # fondasi cakar ayam sistem Sedijatmo (pilihan jenis fondasi, rules/fondasi_kolom.py): beton & bekisting memakai
     # analisa beton f'c 20 MPa dan bekisting fondasi; pipa dicor di tempat (bekisting dalam & luar)
-    "BTN.CAKAR.PELAT": ("Beton Pelat Fondasi Cakar Ayam f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
-    "BTN.CAKAR.PIPA": ("Beton Pipa (Cakar) Fondasi Cakar Ayam f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
+    "BTN.CAKAR.PELAT": ("Beton Pelat Fondasi Cakar Ayam K-250", "Fondasi", "m3", "2.2.1.4.5"),
+    "BTN.CAKAR.PIPA": ("Beton Pipa (Cakar) Fondasi Cakar Ayam K-250", "Fondasi", "m3", "2.2.1.4.5"),
     "BSK.CAKAR.PELAT": ("Bekisting Tepi Pelat Fondasi Cakar Ayam", "Fondasi", "m2", "2.2.1.3.1"),
     "BSK.CAKAR.PIPA": ("Bekisting Pipa (Cakar) Fondasi Cakar Ayam, Dalam & Luar", "Fondasi", "m2", "2.2.1.3.1"),
-    "BTN.SLOOF": ("Beton Sloof f'c 20 MPa", "Fondasi", "m3", "2.2.1.4.5"),
+    "BTN.SLOOF": ("Beton Sloof K-250", "Fondasi", "m3", "2.2.1.4.5"),
     "BSI.SLOOF": ("Pembesian Sloof (Asumsi Rasio kg/m³)", "Fondasi", "kg", "2.2.1.1.3a"),
     "BSK.SLOOF": ("Bekisting Sloof", "Fondasi", "m2", "2.2.1.3.2"),
     # ---------------- Struktur beton ----------------
-    "BTN.KOLOM": ("Beton Kolom f'c 20 MPa", "Beton", "m3", "2.2.1.4.5"),
-    "BTN.BALOK": ("Beton Balok f'c 20 MPa", "Beton", "m3", "2.2.1.4.5"),
-    "BTN.PELAT": ("Beton Pelat Lantai f'c 20 MPa", "Beton", "m3", "2.2.1.4.5"),
-    "BTN.DAK": ("Beton Pelat Atap (Dak) f'c 20 MPa", "Beton", "m3", "2.2.1.4.5"),
+    "BTN.KOLOM": ("Beton Kolom K-250", "Beton", "m3", "2.2.1.4.5"),
+    "BTN.BALOK": ("Beton Balok K-250", "Beton", "m3", "2.2.1.4.5"),
+    "BTN.PELAT": ("Beton Pelat Lantai K-250", "Beton", "m3", "2.2.1.4.5"),
+    "BTN.DAK": ("Beton Pelat Atap (Dak) K-250", "Beton", "m3", "2.2.1.4.5"),
     "BSI.KOLOM": ("Pembesian Kolom (Asumsi Rasio kg/m³)", "Beton", "kg", "2.2.1.1.3a"),
     "BSI.BALOK": ("Pembesian Balok (Asumsi Rasio kg/m³)", "Beton", "kg", "2.2.1.1.3a"),
     "BSI.PELAT": ("Pembesian Pelat Lantai (Asumsi Rasio kg/m³)", "Beton", "kg", "2.2.1.1.1a"),
@@ -81,7 +82,7 @@ PEMETAAN = {
     # ---------------- Lantai ----------------
     "KRM.LANTAI": ("Pasangan Keramik Lantai 40x40 cm Polished", "Lantai", "m2", "3.9.8.6"),
     # ---------------- Tangga & railing ----------------
-    "BTN.TANGGA": ("Beton Tangga f'c 20 MPa", "Tangga & Railing", "m3", "2.2.1.4.5"),
+    "BTN.TANGGA": ("Beton Tangga K-250", "Tangga & Railing", "m3", "2.2.1.4.5"),
     "BSK.TANGGA": ("Bekisting Tangga", "Tangga & Railing", "m2", "2.2.1.3.7"),
     "BSI.TANGGA": ("Pembesian Tangga", "Tangga & Railing", "kg", "2.2.1.1.1a"),
     "RLG.TANGGA": ("Railing Tangga / Hand Rail Besi", "Tangga & Railing", "m'", "3.13.5"),
@@ -120,7 +121,7 @@ PEMETAAN = {
     "SNT.FLOOR_DRAIN": ("Floor Drain Stainless Steel", "Sanitair", "buah", "3.18.6.1"),
     "SNT.KRAN": ("Kran Air ½\" atau ¾\"", "Sanitair", "buah", "3.18.6.2.1"),
     "SNT.SHOWER": ("Shower Set", "Sanitair", "buah", "3.18.6.9"),
-    "LSK.BETON": ("Beton Planter / Kolam / Bak f'c 15 MPa (±K-175)", "Lansekap", "m3", "2.2.1.4.3"),
+    "LSK.BETON": ("Beton Planter / Kolam / Bak K-175", "Lansekap", "m3", "2.2.1.4.3"),
     "LSK.BEKISTING": ("Bekisting Dinding Planter / Kolam / Bak", "Lansekap", "m2", "2.2.1.3.6"),
     "LSK.BESI": ("Pembesian Planter / Kolam / Bak Besi Polos (BjTP) Ø < 12 mm", "Lansekap", "kg", "2.2.1.1.1"),
     "LSK.WIREMESH": ("Pembesian Planter / Kolam / Bak Wiremesh M6-M10", "Lansekap", "kg", "2.2.1.1.5"),
@@ -150,6 +151,8 @@ SELISIH_DOKUMEN = {
 # Pilihan material (database/material.py): pilihan bawaan memakai kode slot, pilihan lain "slot~kunci".
 # Kategori dan satuan varian sama dengan pekerjaan slotnya.
 for _slot in SLOT.values():
+    if _slot.kode in SLOT_BAHAN:  # kayu / triplek bekisting: bukan pekerjaan sendiri
+        continue
     _nama, _kategori, _satuan, _hspk = PEMETAAN[_slot.kode]
     for _o in _slot.opsi:
         _kode = kode_varian(_slot.kode, _o.kunci)
@@ -282,6 +285,10 @@ def seed_pekerjaan():
         for kode, (nama, kategori, satuan, kode_hspk) in PEMETAAN.items():
             sheet, uraian, harga_f, komponen = ANALISA[kode_hspk]
             catatan = f"{SUMBER} · {kode_hspk} · {uraian} (harga satuan dokumen Rp {harga_f:,.0f})".replace(",", ".")
+            if kode in KODE_BEKISTING:  # kayu & triplek termurah, paku sesuai tebal bekisting (bahan_bekisting.py)
+                komponen, ganti = ganti_komponen(komponen, KAYU_BAWAAN, TRIPLEK_BAWAAN)
+                if ganti:
+                    catatan += " · Bahan bekisting disesuaikan: " + "; ".join(ganti)
             if kode in CATATAN_PEMETAAN:
                 catatan += f" · {CATATAN_PEMETAAN[kode]}"
             if kode_hspk in SELISIH_DOKUMEN:
@@ -312,7 +319,14 @@ def seed_pekerjaan():
                     (pid, tipe, nm, sk, koef, harga, sid),
                 )
 
-        _bersihkan_usang(conn, {v[0] for v in peta.values()}, set(PEMETAAN))
+        # varian bekisting (kayu / triplek bukan bawaan) yang masih dipakai proyek: komponen disusun ulang
+        from database.material_repository import susun_varian_bekisting
+
+        varian = [r for r in conn.execute("SELECT id, kode_ahsp FROM pekerjaan").fetchall()
+                  if r["kode_ahsp"] not in PEMETAAN and urai_varian(r["kode_ahsp"])]
+        for r in varian:
+            susun_varian_bekisting(conn, r["kode_ahsp"], r["id"])
+        _bersihkan_usang(conn, {v[0] for v in peta.values()}, set(PEMETAAN) | {r["kode_ahsp"] for r in varian})
         conn.execute(
             "INSERT OR REPLACE INTO preferensi_pengguna (kunci, nilai) VALUES ('seed_versi', ?)",
             (SEED_VERSI,),

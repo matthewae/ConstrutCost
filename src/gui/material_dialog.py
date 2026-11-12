@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from database.material import KELOMPOK, SLOT, kode_dasar, kode_varian
+import bahan_bekisting as bb
+from database.material import KELOMPOK, SLOT, SLOT_BAHAN, kode_dasar, kode_varian
 from database.material_repository import (
     material_elemen,
     muat_pilihan,
@@ -87,6 +88,12 @@ class MaterialDialog(QDialog):
             slot = kode_dasar(r.get("kode_ahsp"))
             if slot in SLOT and not r.get("harga_manual"):
                 self._volume[slot] = self._volume.get(slot, 0.0) + (r.get("volume_pekerjaan") or 0.0)
+            elif slot in bb.KODE_BEKISTING and not r.get("harga_manual"):
+                # kayu (m³) & triplek (lembar) semua pekerjaan bekisting, untuk perkiraan selisih biaya
+                kayu, triplek = _koef_bekisting(slot)
+                v = r.get("volume_pekerjaan") or 0.0
+                self._volume[bb.SLOT_KAYU] = self._volume.get(bb.SLOT_KAYU, 0.0) + v * kayu
+                self._volume[bb.SLOT_TRIPLEK] = self._volume.get(bb.SLOT_TRIPLEK, 0.0) + v * triplek
 
         self.setWindowTitle("Ganti Bahan")
         self.setModal(True)
@@ -181,7 +188,8 @@ class MaterialDialog(QDialog):
             cb.setMinimumWidth(420)
             for o in s.opsi:
                 data = self._opsi.get(kode_varian(s.kode, o.kunci))
-                harga = f"  ·  {tema.format_rupiah(data['harga'])}/{satuan_tampil(data['satuan'])}" if data else ""
+                nilai = data.get("dasar", data["harga"]) if data else 0  # kayu / triplek: harga dasar (tanpa BUK)
+                harga = f"  ·  {tema.format_rupiah(nilai)}/{satuan_tampil(data['satuan'])}" if data else ""
                 bawaan = "  (bawaan)" if o.kunci == s.bawaan else ""
                 cb.addItem(f"{o.label}{bawaan}{harga}", o.kunci)
             cb.setCurrentIndex(max(0, cb.findData(self._awal[s.kode])))
@@ -206,7 +214,37 @@ class MaterialDialog(QDialog):
         d = self._opsi.get(kode_varian(slot, kunci))
         return d["harga"] if d else None
 
+    def _info_bahan(self, slot: str):
+        """Kayu / triplek bekisting: harga dasar, kebutuhan proyek, dan paku yang dipakai (dari tebal bekisting)."""
+        kayu = bb.cari(bb.KAYU, self.combo[bb.SLOT_KAYU].currentData() if bb.SLOT_KAYU in self.combo else None,
+                       bb.KAYU_BAWAAN)
+        triplek = bb.cari(bb.TRIPLEK, self.combo[bb.SLOT_TRIPLEK].currentData() if bb.SLOT_TRIPLEK in self.combo
+                          else None, bb.TRIPLEK_BAWAAN)
+        b = kayu if slot == bb.SLOT_KAYU else triplek
+        data = self._opsi.get(kode_varian(slot, b.kunci)) or {}
+        teks = f"Harga dasar {tema.format_rupiah(data.get('dasar', b.harga))}/{satuan_tampil(b.satuan)}"
+        vol = self._volume.get(slot, 0.0)
+        if vol:
+            teks += f"  ·  proyek ini ± {tema.format_angka(vol, 3)} {satuan_tampil(b.satuan)}"
+        panjang, nama_paku, minimum, maksimum = bb.paku(triplek.tebal, kayu.tebal)
+        teks += (f"<br>Paku: {nama_paku} ({tema.format_angka(panjang, 1)} cm) untuk tebal bekisting "
+                 f"{tema.format_angka(maksimum, 1)} cm")
+        tip = ("Dipakai di semua pekerjaan bekisting proyek (kolom, balok, pelat, sloof, tangga, ...). Koefisien "
+               "analisa HSPK tetap; jenis dan harga bahannya yang diganti.<br><br>Panjang paku = ukuran standar di "
+               f"antara 3 × tebal triplek ({tema.format_angka(minimum, 1)} cm) dan tebal triplek + tebal kayu "
+               f"({tema.format_angka(maksimum, 1)} cm), dipilih yang termurah per kg.")
+        self._info[slot].setText(teks)
+        self._info[slot].setToolTip(tip)
+        self._info[slot].setStyleSheet("")
+
     def _berubah(self, slot: str, perbarui: bool = True):
+        if slot in SLOT_BAHAN:
+            for k in SLOT_BAHAN:  # panjang paku bergantung pada kayu dan triplek
+                if k in self._info:
+                    self._info_bahan(k)
+            if perbarui:
+                self._perbarui()
+            return
         s = SLOT[slot]
         kunci = self.combo[slot].currentData()
         o = s.cari(kunci)
@@ -421,3 +459,10 @@ def muat_pilihan_proyek_elemen(elemen_id: int) -> dict:
         return muat_pilihan(row["proyek_id"], conn) if row else {}
     finally:
         conn.close()
+
+
+def _koef_bekisting(kode: str) -> tuple:
+    """(m³ kayu, lembar triplek) per m² pekerjaan bekisting dari analisa HSPK-nya."""
+    from database.seed_data import ANALISA, PEMETAAN
+
+    return bb.koefisien(ANALISA[PEMETAAN[kode][3]][3]) if kode in PEMETAAN else (0.0, 0.0)

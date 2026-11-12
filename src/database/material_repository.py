@@ -9,8 +9,22 @@ Pilihan material per proyek dan per elemen (database/material.py) serta pengaruh
 import json
 
 from aktivitas import catat
+from bahan_bekisting import (
+    KAYU,
+    KAYU_BAWAAN,
+    KODE_BEKISTING,
+    SLOT_KAYU,
+    SLOT_TRIPLEK,
+    TRIPLEK,
+    TRIPLEK_BAWAAN,
+    cari,
+    ganti_komponen,
+    kode_varian_bekisting,
+    nama_pendek,
+    urai_varian,
+)
 from database.estimasi_repository import BUK_RATE, _connect
-from database.material import SLOT, kode_varian, pilihan_lengkap, varian_terpilih
+from database.material import SLOT, SLOT_BAHAN, kode_varian, pilihan_lengkap, varian_terpilih
 
 
 def _baca(teks: str | None) -> dict:
@@ -35,7 +49,8 @@ def muat_pilihan(proyek_id: int, conn=None) -> dict:
 
 def pilihan_elemen(teks: str | None) -> dict:
     """Pilihan khusus elemen yang sah: {slot: kunci}."""
-    return {k: v for k, v in _baca(teks).items() if k in SLOT and any(o.kunci == v for o in SLOT[k].opsi)}
+    return {k: v for k, v in _baca(teks).items()
+            if k in SLOT and k not in SLOT_BAHAN and any(o.kunci == v for o in SLOT[k].opsi)}
 
 
 def kode_elemen(kode_proyek_peta: dict, kode_ke_id: dict, material_elemen: str | None) -> dict:
@@ -56,9 +71,94 @@ def kode_proyek(conn, proyek_id: int, kode_ke_id: dict) -> dict:
     ke pekerjaan variannya. Dipakai setiap kali hasil rule engine disimpan."""
     peta = dict(kode_ke_id)
     for kode, varian in varian_terpilih(muat_pilihan(proyek_id, conn)).items():
+        if varian not in kode_ke_id and urai_varian(varian):
+            pastikan_varian_bekisting(conn, varian, kode_ke_id)
         if varian in kode_ke_id:
             peta[kode] = kode_ke_id[varian]
     return peta
+
+
+# ---------------------------------------------------------------- varian bahan bekisting
+
+
+def pastikan_varian_bekisting(conn, kode: str, id_kode: dict | None = None) -> int | None:
+    """id pekerjaan bekisting untuk kode "BSK.KOLOM~kayu+triplek"; dibuat dari pekerjaan bawaannya saat pertama
+    dipilih (kayu, triplek, dan paku diganti; koefisien, upah, dan bahan lain sama)."""
+    ada = conn.execute("SELECT id FROM pekerjaan WHERE kode_ahsp = ?", (kode,)).fetchone()
+    if ada:
+        if id_kode is not None:
+            id_kode[kode] = ada["id"]
+        return ada["id"]
+    urai = urai_varian(kode)
+    dasar = conn.execute("SELECT * FROM pekerjaan WHERE kode_ahsp = ?", (urai[0],)).fetchone() if urai else None
+    if dasar is None:
+        return None
+    _kode, kayu, triplek = urai
+    bk, bt = cari(KAYU, kayu, KAYU_BAWAAN), cari(TRIPLEK, triplek, TRIPLEK_BAWAAN)
+    pid = conn.execute(
+        "INSERT INTO pekerjaan (kode_ahsp, nama_pekerjaan, kategori, satuan, catatan) VALUES (?,?,?,?,?)",
+        (kode, f"{dasar['nama_pekerjaan']} ({nama_pendek(bk)}, {nama_pendek(bt)})", dasar["kategori"],
+         dasar["satuan"], dasar["catatan"]),
+    ).lastrowid
+    susun_varian_bekisting(conn, kode, pid)
+    if id_kode is not None:
+        id_kode[kode] = pid
+    return pid
+
+
+def susun_varian_bekisting(conn, kode: str, pid: int) -> None:
+    """Komponen varian bekisting = komponen pekerjaan bawaannya dengan kayu, triplek, dan paku pilihan.
+    Harga mengikuti harga dasar di database (perubahan harga pengguna ikut terpakai)."""
+    dasar_kode, kayu, triplek = urai_varian(kode)
+    dasar = conn.execute("SELECT id, catatan FROM pekerjaan WHERE kode_ahsp = ?", (dasar_kode,)).fetchone()
+    if dasar is None:
+        return
+    baris = conn.execute(
+        "SELECT tipe, nama_komponen, satuan, koefisien, harga_satuan, sumber_daya_id FROM komponen_harga "
+        "WHERE pekerjaan_id = ? ORDER BY id", (dasar["id"],)).fetchall()
+    asal = [(r["tipe"], r["nama_komponen"], r["satuan"], r["koefisien"], r["harga_satuan"], r["sumber_daya_id"])
+            for r in baris]
+    komponen, ganti = ganti_komponen(asal, kayu, triplek)
+    conn.execute("DELETE FROM komponen_harga WHERE pekerjaan_id = ?", (pid,))
+    for (tipe, nama, satuan, koef, harga), lama in zip(komponen, asal, strict=True):
+        sid = lama[5]
+        if nama != lama[1]:
+            sd = conn.execute("SELECT id, harga FROM sumber_daya WHERE tipe = ? AND lower(nama) = lower(?) "
+                              "AND lower(satuan) = lower(?)", (tipe, nama, satuan)).fetchone()
+            if sd is None:
+                sid = conn.execute(
+                    "INSERT INTO sumber_daya (tipe, nama, satuan, harga, harga_bawaan, sumber) VALUES (?,?,?,?,?,?)",
+                    (tipe, nama, satuan, harga, harga, "HSPK (bahan bekisting)")).lastrowid
+            else:
+                sid, harga = sd["id"], sd["harga"]
+        else:
+            harga = lama[4]
+        conn.execute(
+            "INSERT INTO komponen_harga (pekerjaan_id, tipe, nama_komponen, satuan, koefisien, harga_satuan, "
+            "sumber_daya_id) VALUES (?,?,?,?,?,?,?)", (pid, tipe, nama, satuan, koef, harga, sid))
+    catatan = (dasar["catatan"] or "").split(" · Bahan bekisting")[0]
+    if ganti:
+        catatan += " · Bahan bekisting (dari pekerjaan bawaan): " + "; ".join(ganti)
+    conn.execute("UPDATE pekerjaan SET catatan = ? WHERE id = ?", (catatan, pid))
+
+
+def _ganti_bekisting(conn, syarat: str, args: tuple, kayu: str, triplek: str, id_kode: dict) -> int:
+    """Arahkan baris semua pekerjaan bekisting ke varian kayu & triplek pilihan."""
+    n = 0
+    for kode in KODE_BEKISTING:
+        asal = [i for k, i in id_kode.items() if k == kode or k.startswith(kode + "~")]
+        if not asal:
+            continue
+        tujuan = pastikan_varian_bekisting(conn, kode_varian_bekisting(kode, kayu, triplek), id_kode)
+        if tujuan is None:
+            continue
+        n += conn.execute(
+            f"""UPDATE hasil_estimasi SET pekerjaan_id = ?,
+                    subtotal_biaya = volume_pekerjaan * COALESCE(harga_manual, ?)
+                WHERE {syarat} AND pekerjaan_id IN ({", ".join("?" * len(asal))})""",
+            (tujuan, harga_satuan(conn, tujuan), *args, *asal),
+        ).rowcount
+    return n
 
 
 def harga_satuan(conn, pekerjaan_id: int) -> float:
@@ -90,7 +190,11 @@ def simpan_pilihan(proyek_id: int, pilihan: dict) -> dict:
             )
         }
         n = 0
+        if any(k in SLOT_BAHAN for k in berubah):
+            n += _ganti_bekisting(conn, "proyek_id = ?", (proyek_id,), baru[SLOT_KAYU], baru[SLOT_TRIPLEK], id_kode)
         for slot in berubah:
+            if slot in SLOT_BAHAN:
+                continue
             khusus = [e for e, m in elemen_khusus.items() if slot in m]  # elemen dengan pilihan sendiri tetap
             syarat = "proyek_id = ?"
             if khusus:
@@ -156,6 +260,7 @@ def simpan_material_elemen(elemen_id: int, pilihan: dict) -> dict:
     tidak_dikenal = [k for k in pilihan if k not in SLOT]
     if tidak_dikenal:
         raise ValueError(f"Pilihan material tidak dikenal: {', '.join(tidak_dikenal)}")
+    pilihan = {k: v for k, v in pilihan.items() if k not in SLOT_BAHAN}  # bahan bekisting: per proyek saja
     conn = _connect()
     try:
         el = conn.execute("SELECT proyek_id, nama, material FROM elemen_proyek WHERE id = ?", (elemen_id,)).fetchone()
@@ -189,6 +294,14 @@ def ringkasan_opsi(conn=None) -> dict:
     try:
         hasil = {}
         for slot in SLOT.values():
+            if slot.kode in SLOT_BAHAN:  # harga dasar kayu / triplek (sudah termasuk BUK, seperti harga pekerjaan)
+                for o, b in zip(slot.opsi, KAYU if slot.kode == SLOT_KAYU else TRIPLEK, strict=True):
+                    sd = conn.execute("SELECT harga, satuan FROM sumber_daya WHERE tipe = 'bahan' AND lower(nama) = "
+                                      "lower(?) AND lower(satuan) = lower(?)", (b.nama, b.satuan)).fetchone()
+                    harga = sd["harga"] if sd else b.harga
+                    hasil[kode_varian(slot.kode, o.kunci)] = {"harga": harga * (1 + BUK_RATE), "satuan": b.satuan,
+                                                               "bahan": [(b.nama, b.satuan, 1.0)], "dasar": harga}
+                continue
             for o in slot.opsi:
                 kode = kode_varian(slot.kode, o.kunci)
                 p = conn.execute("SELECT id, satuan FROM pekerjaan WHERE kode_ahsp = ?", (kode,)).fetchone()

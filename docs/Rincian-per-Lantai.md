@@ -31,7 +31,7 @@ I.   PEKERJAAN TANAH                             Rp   6.918.179
        • Floor:150mm Slab on Grade: T 0,15 · 2 bh × 1,271 = 2,542 m3     <- backup volume
 II.  PEKERJAAN BETON                             Rp 157.583.424
 1    Balok B1 (18/41) — 2 buah                   Rp  11.911.302
-       –  Beton Balok f'c 20 MPa                        0,09 m3
+       –  Beton Balok K-250                             0,09 m3
           • W410X60: P 6,18 × L 0,18 × T 0,41 · 2 bh × 0,046 = 0,093 m3
        –  Bekisting Balok                              12,26 m2
        –  Tulangan utama 6 D16                        130,58 kg
@@ -60,7 +60,7 @@ ditulis.
 | Bagian | Isi |
 |---|---|
 | I. Rekap biaya per kategori | Jumlah harga dan persentase terhadap lantai itu |
-| II. Struktur beton per tipe elemen | Contoh baris: Kolom K1 (20/25) · beton f'c 20 MPa: jumlah buah, volume beton, bekisting, berat besi, **rasio besi kg/m³**. Rasio di luar 40–350 kg/m³ ditandai ⚠ *periksa* (biasanya dimensi elemen di model tidak wajar). Ditutup dengan total beton per mutu dan total bekisting |
+| II. Struktur beton per tipe elemen | Contoh baris: Kolom K1 (20/25) · beton K-250: jumlah buah, volume beton, bekisting, berat besi, **rasio besi kg/m³**. Rasio di luar 40–350 kg/m³ ditandai ⚠ *periksa* (biasanya dimensi elemen di model tidak wajar). Ditutup dengan total beton per mutu dan total bekisting |
 | III. Kebutuhan besi per diameter | Ø8, Ø10, D13, ...: berat (kg), panjang (m'), **jumlah batang 12 m**, berat per meter. Besi dari asumsi rasio (elemen tanpa tipe penulangan) ditulis terpisah |
 | IV. Bahan / material | Semen (beserta jumlah zak @ 50 kg), pasir, split, baja, kawat beton, kayu & plywood bekisting, bata, keramik, cat, dll |
 | V. Tenaga kerja | Pekerja, tukang, kepala tukang, mandor (orang-hari) |

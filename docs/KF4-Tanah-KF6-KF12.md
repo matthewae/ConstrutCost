@@ -11,7 +11,7 @@ diturunkan dari fondasi dan lantai dasar yang sudah dihitung rule engine (`src/r
 | | Urugan pasir bawah fondasi | B_bawah × t_pasir × L |
 | | Urugan tanah kembali | V_galian − V_batu kali − V_pasir |
 | Fondasi telapak (footplate) | Galian | (P + 2 rk)(B + 2 rk) × (kedalaman + t_lantai kerja) |
-| | Lantai kerja f'c 7,5 MPa | P × B × t_lantai kerja |
+| | Lantai kerja K-100 (f'c 7,5 MPa) | P × B × t_lantai kerja |
 | | Urugan tanah kembali | V_galian − V_footplate − V_lantai kerja |
 | Sumuran + poer (turunan kolom lantai dasar) | Galian | n·π d²/4·H + (P + 2 rk)(L + 2 rk)·T |
 | | Urugan tanah kembali | V_lubang poer − V_poer |
@@ -41,7 +41,7 @@ Pemadatan* (bab 1.3):
 |---|---|---|---|
 | 1.3.1.1 | 1 m³ urukan kembali galian tanah tanpa pemadatan, manual | Pekerja 0,5 OH; Mandor 0,025 OH | Rp 122.066 |
 | 1.3.1.2 | 1 m³ urukan pasir uruk (s.d. 200 m³) tanpa pemadatan, manual | Pasir urug 1,2 m³; Pekerja 0,3 OH; Mandor 0,015 OH | Rp 452.310 |
-| 2.2.1.4.1 | Lantai kerja / rabat beton f'c 7,5 MPa | sesuai HSPK | Rp 2.346.944 |
+| 2.2.1.4.1 | Lantai kerja / rabat beton K-100 (f'c 7,5 MPa) | sesuai HSPK | Rp 2.346.944 |
 
 Versi sebelumnya memakai analisa pengganti SNI 2835:2008 karena sheet *Timbunan Pemadatan* belum ikut
 diimpor. Analisa pengganti itu sudah dihapus.

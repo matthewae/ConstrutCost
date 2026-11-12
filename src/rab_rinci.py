@@ -3,7 +3,7 @@ Penyusunan RAB rinci per tipe elemen, seperti RAB konsultan (mis. RAP SMK N 6 Ba
 
     II. PEKERJAAN BETON
         1  Kolom K1 (20/25) — 12 buah
-             - Beton Kolom f'c 20 MPa                    m3
+             - Beton Kolom K-250                         m3
              - Bekisting Kolom                           m2
              - Tulangan utama 6 D13                      kg
              - Sengkang Ø10-150                          kg
