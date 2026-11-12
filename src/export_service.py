@@ -35,7 +35,7 @@ from database.estimasi_repository import BUK_RATE, PPN_RATE, _connect, get_hasil
 from database.penulangan_repository import daftar_tipe, kebutuhan_besi
 from export_rab import HEADER, PUTIH, SEKSI, tulis_rab_lengkap
 from kebutuhan_lantai import (
-    BERAT_ZAK_SEMEN,
+    rumus_zak,
     TIPE_SUMBER_DAYA,
     kebutuhan_per_elemen,
     kebutuhan_sumber_daya,
@@ -926,8 +926,7 @@ def entri_rincian_perhitungan(rincian: list) -> list:
                 continue
             out.append(("sub", f"KEBUTUHAN {nama.upper()} (VOLUME × KOEFISIEN AHSP, HARGA DASAR)"))
             for n_, d in enumerate(items, 1):
-                ket = (f"{_rp(d['jumlah'])} kg ÷ {BERAT_ZAK_SEMEN} kg = {d['keterangan'].replace('≈ ', '')}"
-                       if "zak" in d["keterangan"] else d["keterangan"])
+                ket = rumus_zak(d["jumlah"], d["keterangan"], _rp)
                 out.append(("kebutuhan", str(n_), d["nama"], d["jumlah"], d["satuan"], d["harga"], d["biaya"], ket))
         if x["lantai"] == lantai_penutup:
             out.append(("penutup", x["lantai"], unsur_penutup))

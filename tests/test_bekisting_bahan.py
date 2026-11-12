@@ -188,14 +188,14 @@ def test_setara_satuan_beli_di_lapangan():
     assert setara("Paku 2 inch", "kg", 2.28) == "≈ 750 btg (± 330 btg/kg) · eceran per kg"
     assert setara("Minyak bekisting", "liter", 1.14) == "beli 1 jeriken @ 20 liter"
     assert setara("Cat tembok interior", "kg", 30) == "≈ 1 pail @ 25 kg + 1 galon @ 5 kg"
-    assert setara("Keramik 40x40 cm", "m2", 12) == "≈ 13 dus @ 0,96 m²"
+    assert setara("Keramik 40x40 cm", "m2", 12) == "≈ 13 dus @ 6 buah (0,96 m²)"
     assert setara("Air", "liter", 86.36) == "≈ 0,09 m³"
     assert setara("Pekerja", "OH", 3) == "orang-hari"
-    assert setara("Keramik Lantai uk. 40 x 40 cm, Polished", "buah", 1216) == "≈ 203 dus @ 6 buah"
+    assert setara("Keramik Lantai uk. 40 x 40 cm, Polished", "buah", 1216) == "≈ 203 dus @ 6 buah (0,96 m²)"
     assert setara("Bata ringan tebal 10 cm", "buah", 1889) == "≈ 22,67 m³ (60 × 20 × 10 cm)"
     assert setara("Pipa besi hitam 3 inch", "m'", 161) == "≈ 27 btg @ 6 m"
     assert setara("Pipa PVC 4 inch", "m'", 30) == "≈ 8 btg @ 4 m"
-    assert setara("Kabel listrik NYM", "m'", 100) == ""  # bukan profil batang
+    assert setara("Kabel listrik NYM", "m'", 100) == "≈ 2 rol @ 50 m"  # kabel, bukan profil batang
     assert setara("Lem Kayu", "kg", 46.98) == "≈ 19 kaleng @ 2,5 kg"
     assert setara("Wiremesh M6", "kg", 35.94) == "≈ 2 lembar M6 @ 2,1 × 5,4 m (± 33,6 kg)"
     assert setara("Paku 4 inch", "kg", 48.0).startswith("≈ 2 dus @ 30 kg")
@@ -208,6 +208,59 @@ def test_setara_satuan_beli_di_lapangan():
     assert setara("Besi strip (20x3) mm", "kg", 17.22) == "≈ 7 btg @ 6 m (± 2,83 kg/btg)"
     assert setara("Membran Bakar", "m'", 81.93) == "≈ 9 rol @ 1 × 10 m"
     assert setara("Minyak Bekisting", "m3", 17.01).startswith("⚠ satuan HSPK m³")
+
+
+def test_setara_bahan_yang_dijual_bukan_per_satuan_analisa():
+    """Lantai per dus (isi buah per dus), paku sekrup per dus, cat kayu/besi per kaleng, kabel per rol, dsb."""
+    from setara import rumus_zak, setara
+
+    # penutup lantai / dinding: dus berisi n buah menurut ukuran
+    assert setara("Ubin granit 40x40 cm", "buah", 1090) == "≈ 182 dus @ 6 buah (0,96 m²)"
+    assert setara("Homogenous tile 60x60 cm", "buah", 250) == "≈ 63 dus @ 4 buah (1,44 m²)"
+    assert setara("Keramik dinding 10x20 cm", "buah", 900) == "≈ 18 dus @ 50 buah (1 m²)"
+    assert setara("Porselen 20x20 cm", "buah", 300) == "≈ 12 dus @ 25 buah (1 m²)"
+    assert setara("Granito 40 x 40 cm", "m2", 30) == "≈ 32 dus @ 6 buah (0,96 m²)"
+    assert setara("Ubin teraso 40x40 cm", "buah", 66) == "≈ 10,56 m² (6,25 buah/m²)"
+    assert setara("Plint ubin granit uk. 10-15x30 cm", "buah", 40) == "≈ 12 m' (30 cm/buah)"
+    assert setara("Granit bakar 30x30, t=2cm", "m2", 10) == "dijual per m²"  # batu alam, bukan dus
+    # paku & sekrup
+    assert setara("Paku sekrup", "kg", 14.8) == "≈ 12 dus @ 500 buah (± 400 buah/kg)"
+    assert setara("Paku sekrup (buah)", "buah", 1200) == "≈ 3 dus @ 500 buah"
+    assert setara("Paku 12 cm", "buah", 450) == "≈ 10 kg (± 45 btg/kg) · dijual per kg"
+    assert "asumsi 2,5 cm" in setara("Paku Tripleks", "kg", 2)
+    assert setara("Paku", "kg", 20) == "≈ 1 dus @ 30 kg"
+    # cat, pelapis, cairan
+    assert setara("Cat penutup (cat besi)", "kg", 6.2) == "≈ 7 kaleng @ 1 kg"
+    assert setara("Cat Minyak", "liter", 3) == "≈ 3 kaleng @ 1 liter"  # bukan jeriken minyak bekisting
+    assert setara("Thinner", "liter", 25) == "≈ 1 jeriken @ 20 liter + 5 kaleng @ 1 liter"
+    assert setara("Waterproofing Acrylic Base", "kg", 30) == "≈ 1 pail @ 20 kg + 3 galon @ 4 kg"
+    assert setara("Lem epoxy", "kg", 3) == "≈ 3 kaleng @ 1 kg"
+    # semen
+    assert setara("Semen putih", "kg", 100) == "≈ 3 zak @ 40 kg"
+    assert setara("Semen warna", "kg", 342.61) == "≈ 343 kantong @ 1 kg"
+    assert rumus_zak(400, setara("Mortar siap pakai", "kg", 400)) == "400 kg ÷ 40 kg = 10 zak @ 40 kg"
+    # baja & profil
+    assert setara("Dowel Dia. 25 mm (BjTS)", "kg", 80) == "≈ 2 btg D25 @ 12 m"
+    assert setara("Besi siku 40x40x4 mm", "kg", 100) == "≈ 7 btg @ 6 m (± 14,3 kg/btg)"
+    assert setara("Besi hollow 38.38.2", "kg", 50) == "≈ 4 btg @ 6 m (± 13,6 kg/btg)"
+    assert setara("Besi plat baja tebal 2 mm", "kg", 100).startswith("≈ 3 lembar 4' × 8'")
+    assert setara("Baja Ringan C75", "m'", 120) == "≈ 20 btg @ 6 m"
+    assert setara("Listplank GRC lebar 20 cm", "m'", 58) == "≈ 20 btg @ 3 m"
+    # kabel, beton ready mix, kayu, papan lembaran
+    assert setara("Kabel NYM 3 x 2,5 mm²", "m'", 120) == "≈ 3 rol @ 50 m"
+    assert setara("Kabel NYY 4 x 95 mm²", "m'", 30) == "dipotong per meter (eceran)"
+    assert setara("Kabel UTP Cat 6", "m", 400) == "≈ 2 box @ 305 m"
+    assert setara("Adukan beton K-250 ready mix", "m3", 18) == "≈ 3 truk mixer @ 7 m³"
+    assert setara("Kayu Balok Kelas II", "m3", 0.5) == "≈ 18 btg 6/12 @ 4 m (asumsi balok 6/12)"
+    assert setara("Reng 2x3 cm", "m3", 0.1) == "≈ 42 btg 2/3 @ 4 m"
+    assert setara("Papan semen", "m2", 30) == "≈ 11 lembar @ 122 × 244 cm"
+    assert setara("Asbes gelombang besar 5 mm, 210x105 cm", "lembar", 12.3) == "≈ 13 lembar @ 210 × 105 cm"
+    # dijual per satuannya: dibulatkan ke atas; komponen berupa pekerjaan & tenaga/alat: kosong
+    assert setara("Genteng beton", "buah", 978.74) == "beli 979 buah"
+    assert setara("Sealant", "tube", 8.62) == "beli 9 tube"
+    assert setara("Batu paras", "m2", 15.4) == "dijual per m²"
+    assert setara("Bekisting", "m2", 4) == ""
+    assert setara("Concrete mixer", "unit", 2, tipe="alat") == ""
 
 
 def test_setara_baja_memakai_diameter_penulangan_proyek(proyek):

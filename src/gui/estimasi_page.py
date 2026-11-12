@@ -84,7 +84,7 @@ from klasifikasi import LABEL, ElementType
 from kebutuhan_lantai import (
     jenis_elemen,
     urutan_jenis,
-    BERAT_ZAK_SEMEN,
+    rumus_zak,
     judul_kategori,
     rab_lantai,
     RASIO_WAJAR,
@@ -120,6 +120,7 @@ KETERANGAN_MODE = (
 )
 SEMUA_KATEGORI = "Semua kategori"
 SEMUA_LANTAI = "Semua lantai"
+LEBAR_SETARA = 200  # px, kolom SETARA Kebutuhan Bahan (teks lengkap di tooltip & panel Rincian)
 LABEL_DIMENSI = [
     ("panjang", "Panjang (L)", "m"),
     ("lebar", "Lebar (B)", "m"),
@@ -852,9 +853,9 @@ class EstimasiPage(QWidget):
                     t.scrollTo(t.model().index(i, 1), QAbstractItemView.PositionAtCenter)
                     break
         h = t.horizontalHeader()  # SETARA dibatasi (teks lengkap di tooltip) agar nama bahan / combo ganti terbaca
-        if h.sectionSize(4) > 200:
+        if h.sectionSize(4) > LEBAR_SETARA:
             h.setSectionResizeMode(4, QHeaderView.Interactive)
-            t.setColumnWidth(4, 200)
+            t.setColumnWidth(4, LEBAR_SETARA)
         if h.sectionSize(1) < 230:
             h.setSectionResizeMode(1, QHeaderView.Interactive)
             t.setColumnWidth(1, 230)
@@ -2147,9 +2148,7 @@ class PanelRincian(QFrame):
                 self._lay.addSpacing(6)
                 label(nama.upper() + ("" if satu else " UTAMA") + " (VOLUME × KOEFISIEN AHSP)", "formLabel")
                 for d in tampil:
-                    ket = ""
-                    if "zak" in d["keterangan"]:
-                        ket = f"{angka(d['jumlah'], 2)} kg ÷ {BERAT_ZAK_SEMEN} kg = {d['keterangan'].replace('≈ ', '')}"
+                    ket = rumus_zak(d["jumlah"], d["keterangan"], lambda x: angka(x, 2)) if "zak" in d["keterangan"] else ""
                     self._baris_kecil(d["nama"], f"{angka(d['jumlah'], 2)} {d['satuan']}", ket=ket)
                 if len(items) > len(tampil):
                     label(f"+ {len(items) - len(tampil)} bahan lain", "infoKecil")

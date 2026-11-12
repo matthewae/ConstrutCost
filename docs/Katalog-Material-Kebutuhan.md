@@ -156,35 +156,58 @@ kebutuhan selalu mengikuti pilihan material proyek dan elemen.
 
 ### Kolom SETARA (`setara.py`)
 
+Kebutuhan dalam satuan analisa HSPK diterjemahkan ke **satuan jual** di toko bangunan, mis. granit 40×40 yang
+dihitung per buah menjadi jumlah dus berikut isinya.
+
 | Bahan (satuan analisa) | Setara | Dasar konversi |
 |---|---|---|
-| Baja tulangan (kg) | ≈ 4 btg D16 @ 12 m; ≈ 5 btg Ø10 + 3 btg Ø8 @ 12 m | dibagi per diameter sebanding berat penulangan baris yang sama (BBS); berat/m = π/4·d²·7.850; tanpa data diameter: asumsi Ø10 / D13 |
-| Semen, mortar instan (kg) | ≈ n zak @ 50 kg / 40 kg | berat per zak |
-| Pasir, batu split, kerikil, sirtu (kg) | ≈ m³ (dan truk @ 7 m³ bila ≥ 3 m³) | berat isi lepas: pasir 1.400, split 1.350, sirtu 1.600 kg/m³ |
-| Kayu kaso / balok / papan (m³) | ≈ n btg 5/7 @ 4 m | penampang dari nama, panjang 4 m |
-| Paku (kg) | ≈ n btg (± k btg/kg) | perkiraan jumlah per kg menurut panjang |
-| Kawat beton (kg) | beli n rol @ 25 kg (terpakai x%) | berat per rol |
-| Minyak bekisting (liter) | beli n jeriken @ 20 liter | isi jeriken |
-| Cat (kg) | ≈ n pail @ 25 kg + n galon @ 5 kg | kemasan |
-| Keramik (m² atau buah) | ≈ n dus @ 0,96 m² / @ 6 buah | isi per dus menurut ukuran |
-| Bata ringan (buah) | ≈ m³ | 60 × 20 × tebal cm |
-| Pipa, rangka aluminium, hollow, besi siku, UNP/CNP (m') | ≈ n btg @ 6 m (pipa PVC @ 4 m) | panjang batang di pasaran |
-| Pasir, kerikil, batu belah, tanah (m³) | ≈ n truk @ 7 m³ (< 3 m³: pick-up @ 1,5 m³) | isi kendaraan |
-| Lem kayu (kg) | ≈ n kaleng @ 2,5 kg | kemasan |
-| Wiremesh M6 / M8 (kg) | ≈ n lembar @ 2,1 × 5,4 m (± 33,6 / 59,7 kg) | berat lembar dari diameter, jarak 150 mm dua arah |
-| Paku (kg) ≥ 15 kg | ≈ n dus @ 30 kg + jumlah batang | kebutuhan kecil: eceran per kg |
+| Baja tulangan (kg) | ≈ 4 btg D16 @ 12 m; ≈ 5 btg Ø10 + 3 btg Ø8 @ 12 m | dibagi per diameter sebanding berat penulangan baris yang sama (BBS); berat/m = π/4·d²·7.850; diameter di nama (dowel, tie bar, besi angkur) dipakai langsung; tanpa data diameter: asumsi Ø10 / D13 |
+| Semen PC (kg) | ≈ n zak @ 50 kg | berat per zak |
+| Semen putih, mortar instan (kg) | ≈ n zak @ 40 kg | berat per zak |
+| Semen warna / semen nat / grout (kg) | ≈ n kantong @ 1 kg | kemasan nat |
+| Pasir, batu split, kerikil, agregat, sirtu (kg) | ≈ m³ (dan truk @ 7 m³ bila ≥ 3 m³) | berat isi lepas: pasir 1.400, split 1.350, sirtu 1.600 kg/m³ |
+| Pasir, kerikil, koral, batu belah / kali, tanah (m³) | ≈ n truk @ 7 m³ (< 3 m³: pick-up @ 1,5 m³) | isi kendaraan |
+| Beton ready mix (m³) | ≈ n truk mixer @ 7 m³ | isi truk mixer |
+| Kayu kaso / balok / papan / reng / list (m³) | ≈ n btg 5/7 @ 4 m | penampang dari nama (5/7 atau 2x3 cm), panjang 4 m; tanpa ukuran: balok 6/12, papan 2/20 (ditandai *asumsi*) |
+| **Keramik, granit / homogenous tile, porselen** (buah atau m²) | ≈ n dus @ k buah (luas per dus), mis. 40×40: ≈ 182 dus @ 6 buah (0,96 m²) | isi per dus: 10×20 = 50, 20×20 = 25, 20×25 = 20, 25×25 = 16, 20×40 = 12, 25×40 = 10, 30×30 = 11, 40×40 = 6, 50×50 = 4, 30×60 = 8, 60×60 = 4, 80×80 = 3, 60×120 = 2 buah |
+| Ubin PC / teraso / tegel (buah) | ≈ x m² (6,25 buah/m² untuk 40×40) | 1 m² ÷ luas satu ubin; dijual per buah atau per m² |
+| Plint (buah) | ≈ x m' (30 cm/buah) | panjang plint = sisi terpanjang |
+| Paku berukuran (kg) | ≈ n btg (± k btg/kg) · eceran per kg; ≥ 15 kg: ≈ n dus @ 30 kg | jumlah per kg menurut panjang; paku tripleks / beton tanpa ukuran: asumsi 2,5 / 5 cm |
+| Paku per buah (buah) | ≈ x kg (± k btg/kg) · dijual per kg | paku dijual per kg |
+| Paku sekrup (kg / buah) | ≈ n dus @ 500 buah (± 400 buah/kg) | isi dus sekrup kayu ± 3 cm |
 | Self drilling screw, paku rivet (buah) | ≈ n dus @ 1.000 buah | isi dus |
-| Baja ringan, reng (batang) | ≈ n btg @ 6 m; dolken @ 4 m (dari nama) | panjang batang |
-| Papan kayu tanpa ukuran (m³) | ≈ n lbr papan 2/20 @ 4 m (asumsi 2/20) | |
+| Kawat beton (kg) | beli n rol @ 25 kg (terpakai x%) | berat per rol |
+| Cat tembok, plamir tembok, cat dasar, primer (kg) | ≈ n pail @ 25 kg + n galon @ 5 kg | kemasan |
+| Cat kayu / besi / meni / zincromate, plamir kayu, dempul (kg) | ≈ n kaleng @ 1 kg | kemasan |
+| Cat minyak, thinner, pengencer, vernis, pelitur (liter) | ≈ n kaleng @ 1 liter (≥ 20 liter: jeriken @ 20 liter + kaleng) | kemasan |
+| Waterproofing (kg) | ≈ n pail @ 20 kg + n galon @ 4 kg | kemasan |
+| Additive, curing compound (liter) | ≈ n jeriken @ 20 liter + n galon @ 5 liter | kemasan |
+| Minyak bekisting (liter) | beli n jeriken @ 20 liter | isi jeriken |
+| Lem kayu (kg) | ≈ n kaleng @ 2,5 kg | kemasan |
+| Lem lain: kuning (Aibon), epoxy, vinyl, karpet (kg) | ≈ n kaleng @ 1 kg | kemasan |
+| Wiremesh M6 / M8 (kg) | ≈ n lembar @ 2,1 × 5,4 m (± 33,6 / 59,7 kg) | berat lembar dari diameter, jarak 150 mm dua arah |
+| Besi siku / hollow a × b × t (kg) | ≈ n btg @ 6 m (± kg/btg) | luas penampang (mm²) × 0,00785 kg/m; siku t(a+b−t), hollow 2t(a+b−2t) |
 | Besi strip a × b mm (kg) | ≈ n btg @ 6 m | berat = a·b·7.850 per m |
+| Pelat baja tebal t (kg) | ≈ n lembar 4' × 8' (1,22 × 2,44 m) | berat lembar = luas × t × 7,85 |
+| Pipa, profil / kusen aluminium, hollow, besi siku, UNP/CNP, baja ringan (m') | ≈ n btg @ 6 m (pipa PVC @ 4 m, conduit @ 3 m, lisplang GRC @ 3 m, bambu @ 6 m) | panjang batang di pasaran |
+| Baja ringan, reng, dolken, bambu (batang) | ≈ n btg @ 6 m / panjang di nama | panjang batang |
+| Kabel NYA / NYM / NYY / NYFGBY / FRC ≤ 6 mm² (m') | ≈ n rol @ 50 m | panjang rol; penampang > 6 mm²: dipotong per meter |
+| Kabel UTP / LAN (m') | ≈ n box @ 305 m | isi box |
 | Membran bakar (m') | ≈ n rol @ 1 × 10 m | ukuran rol |
-| Minyak bekisting dalam m³ (satuan HSPK analisa sloof) | ⚠ kemungkinan liter: ≈ n jeriken | satuan HSPK tidak lazim, ditandai |
+| Wallpaper (m') | ≈ n rol @ 10 m | panjang rol |
+| Plywood, blockboard, papan semen, veneer, ACP, HPL (m²) | ≈ n lembar @ 122 × 244 cm | ukuran lembar; gypsum / GRC board 120 × 240 cm atau ukuran di nama |
+| Asbes, seng, fiberglass, plafon berukuran (lembar) | ≈ n lembar @ 210 × 105 cm | ukuran dari nama |
+| Bata ringan (buah ↔ m³) | ≈ m³ / ≈ n buah | 60 × 20 × tebal cm |
+| Minyak bekisting / paku dalam m³ atau liter (satuan HSPK tidak lazim) | ⚠ kemungkinan liter / kg: … | ditandai |
 | Air (liter) | ≈ m³ | 1.000 liter = 1 m³ |
+| Bahan yang dijual per satuannya (buah, unit, tube, zak, lembar, ikat) | beli n buah (dibulatkan ke atas), mis. genteng beton 978,7 → beli 979 buah | |
+| Bahan tanpa kemasan khusus (kg, m², m', liter) | dijual per kg / m² / m' / liter, mis. batu paras, baja profil | |
 | Tenaga kerja (OH) | orang-hari | |
 
-Ukuran kemasan dan berat isi adalah angka yang lazim di pasaran dan dapat berbeda per merek / pemasok. Bahan
-yang ukuran kemasannya tidak seragam (listplank GRC, talang seng, dynabolt, sealant, cairan primer) dibiarkan
-kosong.
+Ukuran kemasan dan berat isi adalah angka yang lazim di pasaran dan dapat berbeda per merek / pemasok. Kolom
+dibiarkan kosong hanya untuk komponen yang berupa pekerjaan (bekisting, pasangan, urukan, beton aduk di tempat),
+untuk peralatan, dan untuk dynabolt yang dicatat HSPK dalam kg padahal dijual per buah. Rumus zak di panel rincian
+dan export memakai berat zak bahan itu (50 kg semen PC, 40 kg semen putih / mortar).
 
 ### Ganti bahan langsung di Kebutuhan Bahan
 

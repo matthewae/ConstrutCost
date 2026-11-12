@@ -21,7 +21,7 @@ import re
 from database.material import kode_dasar
 from rab_rinci import TANPA_LANTAI, daftar_lantai, rekap_per_lantai, susun_rinci
 from rules.penulangan import NAMA_KELOMPOK, PANJANG_BATANG, URUTAN, berat_per_m, jenis_baja, label_d, label_tipe
-from setara import BERAT_ZAK_MORTAR, BERAT_ZAK_SEMEN, setara  # noqa: F401 (BERAT_ZAK_* dipakai halaman & export)
+from setara import BERAT_ZAK_MORTAR, BERAT_ZAK_SEMEN, rumus_zak, setara  # noqa: F401 (dipakai halaman & export)
 
 # Rentang wajar rasio besi beton bertulang rumah tinggal (kg/m³). Di luar rentang ini angka ditandai
 # "periksa": biasanya dimensi elemen di model IFC tidak wajar atau konfigurasi tulangan perlu dicek.
@@ -207,10 +207,11 @@ def komponen_pekerjaan(pekerjaan_ids) -> dict:
     return hasil
 
 
-def keterangan_sumber_daya(nama: str, satuan: str, jumlah: float, besi: dict | None = None) -> str:
+def keterangan_sumber_daya(nama: str, satuan: str, jumlah: float, besi: dict | None = None,
+                           tipe: str = "bahan") -> str:
     """Kolom SETARA: satuan beli di lapangan (zak, batang 12 m, m³, rol, jeriken, pail, dus, ...); lihat setara.py.
     `besi` = {diameter: berat kg} penulangan baris yang sama, untuk mengubah baja tulangan kg -> batang."""
-    return setara(nama, satuan, jumlah, besi)
+    return setara(nama, satuan, jumlah, besi, tipe)
 
 
 def kebutuhan_sumber_daya(baris: list, komponen: dict) -> dict:
@@ -250,7 +251,7 @@ def kebutuhan_sumber_daya(baris: list, komponen: dict) -> dict:
         items = [d for d in acc[tipe].values() if d["jumlah"] > 1e-9]
         for d in items:
             d["harga"] = d["biaya"] / d["jumlah"] if d["jumlah"] else 0.0
-            d["keterangan"] = keterangan_sumber_daya(d["nama"], d["satuan"], d["jumlah"], besi)
+            d["keterangan"] = keterangan_sumber_daya(d["nama"], d["satuan"], d["jumlah"], besi, tipe)
         hasil[tipe] = sorted(items, key=lambda d: (-d["biaya"], d["nama"]))
     return hasil
 
