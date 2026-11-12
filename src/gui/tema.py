@@ -1306,6 +1306,7 @@ def atur_lebar(tabel: QTableWidget, stretch: int, isi_konten=(), minimum: int = 
             h.setSectionResizeMode(kol, QHeaderView.Interactive)
     lama = getattr(tabel, "_lebar_minimum", None)
     if lama is not None:
+        lama.aktif = False  # periksa() yang sudah antre dari susunan kolom sebelumnya tidak boleh berjalan lagi
         tabel.viewport().removeEventFilter(lama)
         lama.deleteLater()
     tabel._lebar_minimum = _LebarMinimum(tabel, stretch, minimum) if minimum else None
@@ -1317,6 +1318,7 @@ class _LebarMinimum(QObject):
     def __init__(self, tabel: QTableWidget, kolom: int, minimum: int):
         super().__init__(tabel)
         self.tabel, self.kolom, self.minimum = tabel, kolom, minimum
+        self.aktif = True
         tabel.viewport().installEventFilter(self)
         QTimer.singleShot(0, self.periksa)
 
@@ -1326,6 +1328,8 @@ class _LebarMinimum(QObject):
         return False
 
     def periksa(self):
+        if not self.aktif:  # sudah diganti oleh atur_lebar() berikutnya (mis. pindah tab)
+            return
         try:
             h = self.tabel.horizontalHeader()
         except RuntimeError:  # tabel sudah dihapus

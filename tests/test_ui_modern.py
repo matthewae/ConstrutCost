@@ -191,3 +191,27 @@ def test_dialog_import_tombol_selalu_terlihat(app):
     assert d.gulir.verticalScrollBar().maximum() > 0
     d.close()
     d.deleteLater()
+
+
+def test_atur_lebar_baru_tidak_ditimpa_penjaga_lebar_lama(app):
+    """Pindah tab (mis. Per Elemen -> Kebutuhan Bahan) memanggil atur_lebar lagi pada tabel yang sama. periksa()
+    dari penjaga lebar minimum susunan lama yang masih antre tidak boleh mengubah kolom itu menjadi Interactive
+    selebar minimum lamanya (kolom NO menjadi 170 px dan kolom JUMLAH terdorong keluar layar)."""
+    from PySide6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem
+
+    from gui import tema
+
+    t = QTableWidget(3, 4)
+    t.resize(300, 200)
+    t.show()
+    for c in range(4):
+        t.setItem(0, c, QTableWidgetItem("x"))
+    tema.atur_lebar(t, 0, isi_konten=(1, 2, 3), minimum=170)  # susunan lama: kolom 0 melebar, minimum 170
+    tema.atur_lebar(t, 1, isi_konten=(0, 2, 3), minimum=60)  # susunan baru sebelum periksa() lama berjalan
+    for _ in range(5):
+        app.processEvents()
+    h = t.horizontalHeader()
+    assert h.sectionResizeMode(0) == QHeaderView.ResizeToContents
+    assert h.sectionSize(0) < 170
+    t.close()
+    t.deleteLater()
