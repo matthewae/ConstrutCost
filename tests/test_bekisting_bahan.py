@@ -180,6 +180,11 @@ def test_setara_satuan_beli_di_lapangan():
     assert setara("Keramik 40x40 cm", "m2", 12) == "≈ 13 dus @ 0,96 m²"
     assert setara("Air", "liter", 86.36) == "≈ 0,09 m³"
     assert setara("Pekerja", "OH", 3) == "orang-hari"
+    assert setara("Keramik Lantai uk. 40 x 40 cm, Polished", "buah", 1216) == "≈ 203 dus @ 6 buah"
+    assert setara("Bata ringan tebal 10 cm", "buah", 1889) == "≈ 22,67 m³ (60 × 20 × 10 cm)"
+    assert setara("Pipa besi hitam 3 inch", "m'", 161) == "≈ 27 btg @ 6 m"
+    assert setara("Pipa PVC 4 inch", "m'", 30) == "≈ 8 btg @ 4 m"
+    assert setara("Kabel listrik NYM", "m'", 100) == ""  # bukan profil batang
 
 
 def test_setara_baja_memakai_diameter_penulangan_proyek(proyek):

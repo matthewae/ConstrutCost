@@ -10,7 +10,9 @@ Kolom SETARA di Kebutuhan Bahan: kebutuhan bahan (satuan analisa HSPK) diterjema
     Paku 2 inch 2,28 kg         → ≈ 750 btg (± 330 btg/kg)
     Minyak bekisting 1,14 liter → beli 1 jeriken @ 20 liter
     Cat tembok 30 kg            → ≈ 2 pail @ 25 kg
-    Keramik 40x40 12 m²         → ≈ 13 dus @ 0,96 m²
+    Keramik 40x40 12 m²         → ≈ 13 dus @ 0,96 m²     (per buah: ≈ 203 dus @ 6 buah)
+    Bata ringan 10 cm 1.889 bh  → ≈ 22,67 m³
+    Pipa besi 3 inch 161 m'     → ≈ 27 btg @ 6 m          (pipa PVC: batang 4 m)
 
 Angka konversi adalah ukuran kemasan / berat isi yang lazim di pasaran (dapat berbeda per merek dan pemasok).
 """
@@ -40,6 +42,8 @@ KERAMIK_PER_DUS = {  # m² per dus menurut ukuran (cm)
     (60, 60): 1.44, (20, 40): 0.96, (30, 60): 1.44,
 }
 DIAMETER_ASUMSI = {False: 10.0, True: 13.0}  # tanpa data penulangan: polos Ø10, ulir D13
+PANJANG_PIPA_PVC, PANJANG_BATANG_PROFIL = 4.0, 6.0  # m per batang (pipa PVC; pipa besi / profil aluminium & baja)
+PROFIL = ("pipa", "rangka aluminium", "hollow", "besi siku", "unp", "cnp", "kanal c")  # batang 6 m (PVC 4 m)
 
 
 def _angka(x: float, desimal: int = 2) -> str:
@@ -138,6 +142,21 @@ def setara(nama: str, satuan: str, jumlah: float, besi: dict | None = None) -> s
             per_dus = KERAMIK_PER_DUS.get((a, b))
             if per_dus:
                 return f"≈ {_naik(jumlah / per_dus)} dus @ {_angka(per_dus, 2)} m²"
+    if s in ("buah", "bh") and "keramik" in n:
+        m = re.search(r"(\d+)\s*[x×]\s*(\d+)", n)
+        if m:
+            a, b = sorted((int(m.group(1)), int(m.group(2))))
+            per_dus = KERAMIK_PER_DUS.get((a, b))
+            if per_dus:
+                isi = round(per_dus / (a * b / 10_000))
+                return f"≈ {_naik(jumlah / isi)} dus @ {isi} buah"
+    if s in ("buah", "bh") and "bata ringan" in n:
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*cm", n)
+        tebal = float(m.group(1).replace(",", ".")) / 100 if m else 0.10
+        return f"≈ {_angka(jumlah * 0.60 * 0.20 * tebal, 2)} m³ (60 × 20 × {_angka(tebal * 100, 1)} cm)"
+    if s in ("m'", "m", "m’") and any(k in n for k in PROFIL):
+        panjang = PANJANG_PIPA_PVC if ("pvc" in n or "plastik" in n) else PANJANG_BATANG_PROFIL
+        return f"≈ {_naik(jumlah / panjang)} btg @ {panjang:g} m"
     if s in ("liter", "ltr", "l") and n.startswith("air"):
         return f"≈ {_angka(jumlah / 1000, 2)} m³"
     if s == "lembar" and any(k in n for k in ("plywood", "triplek", "tripleks", "multiplek")):

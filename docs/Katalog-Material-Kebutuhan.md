@@ -161,7 +161,9 @@ kebutuhan selalu mengikuti pilihan material proyek dan elemen.
 | Kawat beton (kg) | beli n rol @ 25 kg (terpakai x%) | berat per rol |
 | Minyak bekisting (liter) | beli n jeriken @ 20 liter | isi jeriken |
 | Cat (kg) | ≈ n pail @ 25 kg + n galon @ 5 kg | kemasan |
-| Keramik (m²) | ≈ n dus @ 0,96 m² | isi per dus menurut ukuran |
+| Keramik (m² atau buah) | ≈ n dus @ 0,96 m² / @ 6 buah | isi per dus menurut ukuran |
+| Bata ringan (buah) | ≈ m³ | 60 × 20 × tebal cm |
+| Pipa, rangka aluminium, hollow, besi siku, UNP/CNP (m') | ≈ n btg @ 6 m (pipa PVC @ 4 m) | panjang batang di pasaran |
 | Air (liter) | ≈ m³ | 1.000 liter = 1 m³ |
 | Tenaga kerja (OH) | orang-hari | |
 
