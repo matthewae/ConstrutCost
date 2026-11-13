@@ -33,6 +33,8 @@ Angka konversi adalah ukuran kemasan / berat isi yang lazim di pasaran (dapat be
 
 import math
 import re
+import threading
+from dataclasses import dataclass
 
 from rules.penulangan import PANJANG_BATANG, berat_per_m, label_d, ulir
 
@@ -112,6 +114,30 @@ BUKAN_BAHAN = ("bekisting", "pasangan", "urukan", "pemasangan", "penulangan", "g
                "instalasi", "pek.", "1 ")  # komponen berupa pekerjaan (analisa bertingkat): tanpa setara
 
 
+@dataclass(frozen=True)
+class Kemasan:
+    """Satu jenis kemasan beli: `jumlah` kemasan (pecahan untuk eceran), nama kemasan, keterangan isi, dan isi satu
+    kemasan dalam satuan analisa (mis. zak semen: isi 50 kg)."""
+    jumlah: float
+    nama: str
+    ket: str
+    isi: float
+
+
+_CATAT = threading.local()  # kemasan yang dicatat aturan setara selama setara_rinci() berjalan
+
+
+def _beli(jumlah: float, nama: str, ket: str, isi: float) -> None:
+    daftar = getattr(_CATAT, "daftar", None)
+    if daftar is not None and jumlah > 0 and isi > 0:
+        daftar.append(Kemasan(jumlah, nama, ket, isi))
+
+
+def _setengah(x: float) -> float:
+    """Pembelian eceran dibulatkan ke atas per 0,5 (mis. paku 2,28 kg -> 2,5 kg)."""
+    return max(0.5, math.ceil(x * 2 - 1e-9) / 2)
+
+
 def _angka(x: float, desimal: int = 2) -> str:
     teks = f"{x:,.{desimal}f}".replace(",", "_").replace(".", ",").replace("_", ".")
     return teks.rstrip("0").rstrip(",") if "," in teks else teks
@@ -142,33 +168,54 @@ def _ukuran(n: str) -> tuple | None:
 def _kemasan(jumlah: float, besar: float, nama_besar: str, kecil: float, nama_kecil: str, satuan: str) -> str:
     """Kemasan besar sebanyak mungkin, sisanya kemasan kecil: '≈ 1 pail @ 25 kg + 1 galon @ 5 kg'."""
     if jumlah < besar:
+        _beli(_naik(jumlah / kecil), nama_kecil, f"{_angka(kecil, 1)} {satuan}", kecil)
         return f"≈ {_naik(jumlah / kecil)} {nama_kecil} @ {_angka(kecil, 1)} {satuan}"
     n, sisa = divmod(jumlah, besar)
+    _beli(int(n), nama_besar, f"{_angka(besar, 1)} {satuan}", besar)
     teks = f"≈ {int(n)} {nama_besar} @ {_angka(besar, 1)} {satuan}"
+    if sisa > 1e-6:
+        _beli(_naik(sisa / kecil), nama_kecil, f"{_angka(kecil, 1)} {satuan}", kecil)
     return teks + (f" + {_naik(sisa / kecil)} {nama_kecil} @ {_angka(kecil, 1)} {satuan}" if sisa > 1e-6 else "")
 
 
-def _baja(nama: str, jumlah: float, besi: dict | None) -> str:
-    """Baja tulangan kg -> batang 12 m per diameter, sebanding berat tiap diameter di penulangan."""
+def sebaran_baja(nama: str, besi: dict | None) -> tuple:
+    """({diameter: bagian berat 0..1}, asumsi?) baja tulangan menurut diameter: diameter di nama (dowel, tie bar,
+    besi angkur), atau sebaran berat penulangan `besi` = {diameter: kg} untuk jenisnya (polos / ulir)."""
     n = nama.lower()
     m = re.search(r"(?:dia\.?|diameter|ø)\s*(\d+(?:[.,]\d+)?)", n)
-    if m:  # diameter tertulis di nama (dowel, tie bar, besi angkur)
-        d = _bil(m.group(1))
-        return f"≈ {_naik(jumlah / (berat_per_m(d) * PANJANG_BATANG))} btg {label_d(d)} @ {PANJANG_BATANG:g} m"
+    if m:
+        return {_bil(m.group(1)): 1.0}, False
     kata_ulir = any(k in n for k in ("bjts", "ulir", "sirip", "u-39", "u39", "u-48", "u48"))
     kata_polos = "bjtp" in n or "polos" in n
     jenis = {True} if kata_ulir and not kata_polos else {False} if kata_polos and not kata_ulir else {False, True}
     sebaran = {d: b for d, b in (besi or {}).items() if ulir(d) in jenis and b > 0}
-    asumsi = not sebaran
-    if asumsi:
-        sebaran = {DIAMETER_ASUMSI[max(jenis)]: 1.0}
+    if not sebaran:
+        return {DIAMETER_ASUMSI[max(jenis)]: 1.0}, True
     total = sum(sebaran.values())
+    return {d: b / total for d, b in sebaran.items()}, False
+
+
+def beli_baja(d: float, kg: float) -> Kemasan:
+    """Batang 12 m diameter d untuk kebutuhan `kg`."""
+    per_btg = berat_per_m(d) * PANJANG_BATANG
+    return Kemasan(_naik(kg / per_btg), f"btg {label_d(d)}", f"{PANJANG_BATANG:g} m", per_btg)
+
+
+def _baja(nama: str, jumlah: float, besi: dict | None) -> str:
+    """Baja tulangan kg -> batang 12 m per diameter, sebanding berat tiap diameter di penulangan."""
+    sebaran, asumsi = sebaran_baja(nama, besi)
     bagian = []
     for d in sorted(sebaran, reverse=True):
-        batang = _naik(jumlah * sebaran[d] / total / (berat_per_m(d) * PANJANG_BATANG))
-        bagian.append(f"{batang} btg {label_d(d)}")
+        k = beli_baja(d, jumlah * sebaran[d])
+        _beli(k.jumlah, k.nama, k.ket, k.isi)
+        bagian.append(f"{k.jumlah} btg {label_d(d)}")
     teks = f"≈ {' + '.join(bagian)} @ {PANJANG_BATANG:g} m"
     return teks + " (asumsi diameter)" if asumsi else teks
+
+
+def tulangan(nama: str) -> bool:
+    """True bila bahan ini baja tulangan (dibeli per batang 12 m per diameter)."""
+    return _tulangan(nama.lower())
 
 
 def _tulangan(n: str) -> bool:
@@ -187,10 +234,11 @@ def _profil_baja(n: str, jumlah: float) -> str:
     per_btg = luas * BAJA_KG_PER_MM2_M * PANJANG_BATANG_PROFIL
     if per_btg <= 0:
         return ""
+    _beli(_naik(jumlah / per_btg), "btg", f"{PANJANG_BATANG_PROFIL:g} m", per_btg)
     return f"≈ {_naik(jumlah / per_btg)} btg @ {PANJANG_BATANG_PROFIL:g} m (± {_angka(per_btg, 1)} kg/btg)"
 
 
-def _kayu(nama: str, jumlah: float) -> str:
+def _kayu(nama: str, jumlah: float, jenis: str = "btg") -> str:
     m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:cm)?\s*[/x×]\s*(\d+(?:[.,]\d+)?)", nama)
     if not m:
         return ""
@@ -198,12 +246,25 @@ def _kayu(nama: str, jumlah: float) -> str:
     per_batang = a * b * PANJANG_KAYU
     if per_batang <= 0:
         return ""
-    return f"≈ {_naik(jumlah / per_batang)} btg {m.group(1)}/{m.group(2)} @ {PANJANG_KAYU:g} m"
+    _beli(_naik(jumlah / per_batang), f"{jenis} {m.group(1)}/{m.group(2)}", f"{PANJANG_KAYU:g} m", per_batang)
+    return f"≈ {_naik(jumlah / per_batang)} {jenis} {m.group(1)}/{m.group(2)} @ {PANJANG_KAYU:g} m"
 
 
-def _agregat_m3(m3: float) -> str:
+def _agregat_m3(m3: float, per_m3: float = 1.0) -> str:
+    """Truk 7 m³ (≥ 3 m³; sisa ≤ 1,5 m³ diangkut pick-up) atau pick-up 1,5 m³; `per_m3` = satuan analisa per m³
+    (kg/m³ bila dihitung dalam kg)."""
     if m3 >= 3:
-        return f"≈ {_naik(m3 / ISI_TRUK)} truk @ {ISI_TRUK:g} m³"
+        truk, sisa = divmod(m3, ISI_TRUK)
+        truk = int(truk)
+        if sisa > ISI_PICKUP:
+            truk, sisa = truk + 1, 0.0
+        _beli(truk, "truk", f"{ISI_TRUK:g} m³", ISI_TRUK * per_m3)
+        teks = f"≈ {truk} truk @ {ISI_TRUK:g} m³"
+        if sisa > 1e-6:
+            _beli(1, "pick-up", f"{_angka(ISI_PICKUP, 1)} m³", ISI_PICKUP * per_m3)
+            teks += f" + 1 pick-up @ {_angka(ISI_PICKUP, 1)} m³"
+        return teks
+    _beli(_naik(m3 / ISI_PICKUP), "pick-up", f"{_angka(ISI_PICKUP, 1)} m³", ISI_PICKUP * per_m3)
     return f"≈ {_naik(m3 / ISI_PICKUP)} pick-up @ {_angka(ISI_PICKUP, 1)} m³"
 
 
@@ -212,6 +273,7 @@ def _wiremesh(nama: str, jumlah: float) -> str:
     d = float(m.group(1)) if m else 6.0
     a, b = LEMBAR_WIREMESH
     per_lembar = 2 * berat_per_m(d) / 0.15 * a * b
+    _beli(_naik(jumlah / per_lembar), f"lembar M{d:g}", f"{_angka(a, 1)} × {_angka(b, 1)} m", per_lembar)
     return f"≈ {_naik(jumlah / per_lembar)} lembar M{d:g} @ {_angka(a, 1)} × {_angka(b, 1)} m (± {_angka(per_lembar, 1)} kg)"
 
 
@@ -236,23 +298,33 @@ def _paku(nama: str, jumlah: float) -> str:
     if "sekrup" in n or "skrup" in n:
         buah = jumlah * PAKU_SEKRUP_PER_KG
         if buah >= ISI_DUS_PAKU_SEKRUP / 2:
+            _beli(_naik(buah / ISI_DUS_PAKU_SEKRUP), "dus", f"{ISI_DUS_PAKU_SEKRUP} buah",
+                  ISI_DUS_PAKU_SEKRUP / PAKU_SEKRUP_PER_KG)
             return f"≈ {_naik(buah / ISI_DUS_PAKU_SEKRUP)} dus @ {ISI_DUS_PAKU_SEKRUP} buah (± {PAKU_SEKRUP_PER_KG} buah/kg)"
+        _beli(_naik(buah), "buah", "eceran", 1 / PAKU_SEKRUP_PER_KG)
         return f"≈ {_ribuan(_naik(buah))} buah (± {PAKU_SEKRUP_PER_KG} buah/kg) · eceran"
     panjang, asumsi = _panjang_paku(n)
+    dus, sisa = divmod(jumlah, BERAT_DUS_PAKU)  # dus 30 kg; sisa < 15 kg dibeli eceran, sisa >= 15 kg satu dus lagi
+    dus = int(dus)
+    if sisa >= BERAT_DUS_PAKU / 2:
+        dus, sisa = dus + 1, 0.0
+    _beli(dus, "dus", f"{BERAT_DUS_PAKU:g} kg", BERAT_DUS_PAKU)
+    if sisa > 1e-6:
+        _beli(_setengah(sisa), "kg", "eceran", 1.0)
+    kemasan = ""
+    if dus:
+        kemasan = f"≈ {dus} dus @ {BERAT_DUS_PAKU:g} kg" + (f" + {_angka(_setengah(sisa), 1)} kg eceran" if sisa > 1e-6 else "")
     if panjang is None:  # ukuran tidak diketahui: kemasan saja
-        if jumlah >= BERAT_DUS_PAKU / 2:
-            return f"≈ {_naik(jumlah / BERAT_DUS_PAKU)} dus @ {BERAT_DUS_PAKU:g} kg"
-        return "eceran per kg"
+        return kemasan or "eceran per kg"
     per_kg = _per_kg(panjang)
     catatan = f", asumsi {_angka(panjang, 1)} cm" if asumsi else ""
     teks = f"≈ {_angka(round(jumlah * per_kg, -1), 0)} btg (± {per_kg} btg/kg{catatan})"
-    if jumlah >= BERAT_DUS_PAKU / 2:
-        return f"≈ {_naik(jumlah / BERAT_DUS_PAKU)} dus @ {BERAT_DUS_PAKU:g} kg · {teks}"
-    return f"{teks} · eceran per kg"
+    return f"{kemasan} · {teks}" if kemasan else f"{teks} · eceran per kg"
 
 
 def _cat(n: str, jumlah: float) -> str:
     if any(k in n for k in CAT_MINYAK):  # cat kayu / besi / meni: kaleng 1 kg
+        _beli(_naik(jumlah / BERAT_KALENG_CAT), "kaleng", f"{BERAT_KALENG_CAT:g} kg", BERAT_KALENG_CAT)
         return f"≈ {_naik(jumlah / BERAT_KALENG_CAT)} kaleng @ {BERAT_KALENG_CAT:g} kg"
     return _kemasan(jumlah, BERAT_PAIL_CAT, "pail", BERAT_GALON_CAT, "galon", "kg")
 
@@ -264,16 +336,21 @@ def _ubin(n: str, s: str, jumlah: float) -> str:
     ukuran = tuple(sorted(ukuran))
     a, b = ukuran
     if "plint" in n:  # plint: panjang = sisi terpanjang
-        return f"≈ {_angka(jumlah * b / 100, 2)} m' ({_angka(b, 1)} cm/buah)" if s == "buah" else ""
+        if s != "buah":
+            return ""
+        _beli(_naik(jumlah), "buah", "", 1.0)
+        return f"≈ {_angka(jumlah * b / 100, 2)} m' ({_angka(b, 1)} cm/buah)"
     if any(k in n for k in UBIN_DUS) and not any(k in n for k in BUKAN_UBIN_DUS):
         isi = ISI_DUS_UBIN.get(ukuran)
         if not isi:
             return ""
         m2 = isi * a * b / 10_000
         dus = jumlah / isi if s == "buah" else jumlah / m2
+        _beli(_naik(dus), "dus", f"{isi} buah ({_angka(m2, 2)} m²)", isi if s == "buah" else m2)
         return f"≈ {_naik(dus)} dus @ {isi} buah ({_angka(m2, 2)} m²)"
     if any(k in n for k in UBIN_SATUAN) and s == "buah":
         per_m2 = 10_000 / (a * b)
+        _beli(_naik(jumlah), "buah", "", 1.0)
         return f"≈ {_angka(jumlah / per_m2, 2)} m² ({_angka(per_m2, 2)} buah/m²)"
     return ""
 
@@ -282,12 +359,15 @@ def _kabel(n: str, jumlah: float) -> str:
     if "+" in n:  # kabel + conduit + aksesoris: satuan pekerjaan
         return ""
     if "utp" in n or "lan" in n.split():
+        _beli(_naik(jumlah / ISI_BOX_UTP), "box", f"{ISI_BOX_UTP:g} m", ISI_BOX_UTP)
         return f"≈ {_naik(jumlah / ISI_BOX_UTP)} box @ {ISI_BOX_UTP:g} m"
     if not any(k in n for k in KABEL_ROL):
         return ""
     m = re.search(r"\d+\s*x\s*(\d+(?:[.,]\d+)?)\s*mm", n)
     if m and _bil(m.group(1)) > PENAMPANG_ROL_MAKS:
+        _beli(_naik(jumlah), "m", "dipotong", 1.0)
         return "dipotong per meter (eceran)"
+    _beli(_naik(jumlah / PANJANG_ROL_KABEL), "rol", f"{PANJANG_ROL_KABEL:g} m", PANJANG_ROL_KABEL)
     return f"≈ {_naik(jumlah / PANJANG_ROL_KABEL)} rol @ {PANJANG_ROL_KABEL:g} m"
 
 
@@ -313,6 +393,7 @@ def _lembar(n: str, jumlah_m2: float) -> str:
     if not ukuran:
         ukuran = LEMBAR_GYPSUM if ("gypsum" in n or "grc" in n) else LEMBAR_PAPAN
     a, b = ukuran
+    _beli(_naik(jumlah_m2 / (a * b / 10_000)), "lembar", f"{_angka(a, 1)} × {_angka(b, 1)} cm", a * b / 10_000)
     return f"≈ {_naik(jumlah_m2 / (a * b / 10_000))} lembar @ {_angka(a, 1)} × {_angka(b, 1)} cm"
 
 
@@ -328,6 +409,43 @@ def rumus_zak(jumlah: float, keterangan: str, fmt=None) -> str:
 def setara(nama: str, satuan: str, jumlah: float, besi: dict | None = None, tipe: str = "bahan") -> str:
     """Teks kolom SETARA. `besi` = {diameter mm: berat kg} penulangan baris yang sama (untuk baja tulangan).
     Bahan yang satuan analisanya sudah satuan beli (buah, unit, lembar, zak, ...) -> 'beli n buah'."""
+    return setara_rinci(nama, satuan, jumlah, besi, tipe)[0]
+
+
+def setara_rinci(nama: str, satuan: str, jumlah: float, besi: dict | None = None, tipe: str = "bahan") -> tuple:
+    """(teks setara, [Kemasan]) untuk daftar pengadaan: kemasan yang dibeli dan isinya dalam satuan analisa.
+    Tanpa kemasan khusus: satuan beli (buah, lembar, ...) dibulatkan ke atas, satuan lain dibeli sesuai kebutuhan.
+    Satuan HSPK yang ditandai ⚠ dibeli sesuai kebutuhan (tanpa konversi)."""
+    _CATAT.daftar = []
+    try:
+        teks = _setara(nama, satuan, jumlah, besi, tipe)
+        kemasan = [] if teks.startswith("⚠") else list(_CATAT.daftar)
+    finally:
+        _CATAT.daftar = None
+    if teks.startswith("⚠") and jumlah > 0 and tipe == "bahan":  # satuan HSPK janggal: tanpa pembulatan
+        kemasan = [Kemasan(jumlah, satuan, "", 1.0)]
+    if not kemasan and jumlah > 0 and tipe == "bahan":
+        s = SATUAN.get(satuan.lower().strip(), satuan.lower().strip())
+        kemasan = [Kemasan(_naik(jumlah), s, "", 1.0)] if s in SATUAN_BELI else [Kemasan(jumlah, satuan, "", 1.0)]
+    return teks, kemasan
+
+
+def jumlah_beli(kemasan: list) -> float:
+    """Jumlah yang dibeli dalam satuan analisa (mis. 21 zak × 50 kg = 1.050 kg)."""
+    return sum(k.jumlah * k.isi for k in kemasan)
+
+
+def teks_kemasan(kemasan: list) -> str:
+    """'21 zak @ 50 kg', '1 pail @ 25 kg + 1 galon @ 5 kg', '15,4 m²' (dibeli sesuai kebutuhan)."""
+    bagian = []
+    for k in kemasan:
+        jumlah = _ribuan(int(k.jumlah)) if float(k.jumlah).is_integer() else _angka(k.jumlah, 2)
+        ket = "" if not k.ket else f" @ {k.ket}" if k.ket[0].isdigit() else f" ({k.ket})"
+        bagian.append(f"{jumlah} {k.nama}{ket}")
+    return " + ".join(bagian)
+
+
+def _setara(nama: str, satuan: str, jumlah: float, besi: dict | None, tipe: str) -> str:
     n = nama.lower().strip()
     s = satuan.lower().strip()
     s = SATUAN.get(s, s)
@@ -364,12 +482,15 @@ def _aturan(nama: str, n: str, s: str, jumlah: float, besi: dict | None) -> str:
         return _aturan_buah(n, jumlah)
     if s == "batang":
         panjang = _panjang_batang(n) or (PANJANG_BATANG_PROFIL if "reng" in n else None)
+        _beli(_naik(jumlah), "btg", f"{panjang:g} m" if panjang else "", 1.0)
         return f"≈ {_naik(jumlah)} btg" + (f" @ {panjang:g} m" if panjang else "")
     if s == "lembar":
         if any(k in n for k in ("plywood", "triplek", "tripleks", "multiplek", "multiplex")):
+            _beli(_naik(jumlah), "lembar", "122 × 244 cm", 1.0)
             return "lembar 122 × 244 cm"
         ukuran = _ukuran(n)
         if ukuran:
+            _beli(_naik(jumlah), "lembar", f"{_angka(ukuran[0], 1)} × {_angka(ukuran[1], 1)} cm", 1.0)
             return f"≈ {_naik(jumlah)} lembar @ {_angka(ukuran[0], 1)} × {_angka(ukuran[1], 1)} cm"
     return ""
 
@@ -383,19 +504,25 @@ def _aturan_kg(nama: str, n: str, jumlah: float, besi: dict | None) -> str:
         return ""
     if "semen" in n or n.startswith("nat"):
         if "warna" in n or re.search(r"\bnat\b", n) or "grout" in n:
+            _beli(_naik(jumlah / BERAT_KANTONG_NAT), "kantong", f"{BERAT_KANTONG_NAT:g} kg", BERAT_KANTONG_NAT)
             return f"≈ {_ribuan(_naik(jumlah / BERAT_KANTONG_NAT))} kantong @ {BERAT_KANTONG_NAT:g} kg"
         berat = BERAT_ZAK_SEMEN_PUTIH if "putih" in n else BERAT_ZAK_SEMEN
+        _beli(_naik(jumlah / berat), "zak", f"{berat} kg", berat)
         return f"≈ {_ribuan(_naik(jumlah / berat))} zak @ {berat} kg"
     if "mortar" in n:
+        _beli(_naik(jumlah / BERAT_ZAK_MORTAR), "zak", f"{BERAT_ZAK_MORTAR} kg", BERAT_ZAK_MORTAR)
         return f"≈ {_ribuan(_naik(jumlah / BERAT_ZAK_MORTAR))} zak @ {BERAT_ZAK_MORTAR} kg"
     isi = next((v for k, v in BERAT_ISI.items() if k in n), None)
     if isi and "serbuk" not in n and "rayap" not in n:
         m3 = jumlah / isi
+        kendaraan = _agregat_m3(m3, isi)  # kemasan beli: truk / pick-up (dalam kg)
         teks = f"≈ {_angka(m3, 2)} m³"
-        return teks + f" ≈ {_naik(m3 / ISI_TRUK)} truk @ {ISI_TRUK:g} m³" if m3 >= 3 else teks
+        return f"{teks} {kendaraan}" if m3 >= 3 else teks
     if "lem kayu" in n:
+        _beli(_naik(jumlah / BERAT_KALENG_LEM), "kaleng", f"{_angka(BERAT_KALENG_LEM, 1)} kg", BERAT_KALENG_LEM)
         return f"≈ {_naik(jumlah / BERAT_KALENG_LEM)} kaleng @ {_angka(BERAT_KALENG_LEM, 1)} kg"
     if n.startswith("lem"):
+        _beli(_naik(jumlah / BERAT_KALENG_LEM_LAIN), "kaleng", f"{BERAT_KALENG_LEM_LAIN:g} kg", BERAT_KALENG_LEM_LAIN)
         return f"≈ {_naik(jumlah / BERAT_KALENG_LEM_LAIN)} kaleng @ {BERAT_KALENG_LEM_LAIN:g} kg"
     if "wiremesh" in n.replace(" ", "").replace("-", ""):
         return _wiremesh(nama, jumlah)
@@ -404,6 +531,7 @@ def _aturan_kg(nama: str, n: str, jumlah: float, besi: dict | None) -> str:
         if m:
             a, b = (_bil(x) for x in m.groups())
             per_btg = a * b * BAJA_KG_PER_MM2_M * PANJANG_BATANG_PROFIL
+            _beli(_naik(jumlah / per_btg), "btg", f"{PANJANG_BATANG_PROFIL:g} m", per_btg)
             return f"≈ {_naik(jumlah / per_btg)} btg @ {PANJANG_BATANG_PROFIL:g} m (± {_angka(per_btg, 2)} kg/btg)"
         return ""
     if any(k in n for k in ("siku", "hollow", "baja l ", "besi l.", "frame besi l")):
@@ -413,6 +541,7 @@ def _aturan_kg(nama: str, n: str, jumlah: float, besi: dict | None) -> str:
         if m:
             a, b = LEMBAR_PLAT
             per_lembar = a * b * _bil(m.group(1)) * 7.85
+            _beli(_naik(jumlah / per_lembar), "lembar", "4' × 8'", per_lembar)
             return (f"≈ {_naik(jumlah / per_lembar)} lembar 4' × 8' @ {_angka(a, 2)} × {_angka(b, 2)} m"
                     f" (± {_angka(per_lembar, 1)} kg)")
         return ""
@@ -421,8 +550,10 @@ def _aturan_kg(nama: str, n: str, jumlah: float, besi: dict | None) -> str:
     if ("kawat" in n or "bendrat" in n) and not any(k in n for k in ("harmonika", "nyamuk", "kasa", "jaring",
                                                                       "strimin", "duri")):
         rol = _naik(jumlah / BERAT_ROL_KAWAT)
+        _beli(rol, "rol", f"{BERAT_ROL_KAWAT:g} kg", BERAT_ROL_KAWAT)
         return f"beli {rol} rol @ {BERAT_ROL_KAWAT:g} kg (terpakai {jumlah / (rol * BERAT_ROL_KAWAT):.0%})"
     if "plamir kayu" in n or "dempul" in n or "wood filler" in n:
+        _beli(_naik(jumlah / BERAT_KALENG_CAT), "kaleng", f"{BERAT_KALENG_CAT:g} kg", BERAT_KALENG_CAT)
         return f"≈ {_naik(jumlah / BERAT_KALENG_CAT)} kaleng @ {BERAT_KALENG_CAT:g} kg"
     if re.search(r"\bcat\b", n) or "meni" in n or "paint" in n or "primer" in n or "plamir" in n:
         return _cat(n, jumlah)
@@ -430,7 +561,8 @@ def _aturan_kg(nama: str, n: str, jumlah: float, besi: dict | None) -> str:
 
 
 def _aturan_m3(nama: str, n: str, jumlah: float) -> str:
-    if "ready mix" in n:
+    if "ready mix" in n:  # dipesan per m³ (dibulatkan 0,5 m³), dikirim dengan truk mixer
+        _beli(_setengah(jumlah), "m³", "ready mix", 1.0)
         return f"≈ {_naik(jumlah / ISI_TRUK_MIXER)} truk mixer @ {ISI_TRUK_MIXER:g} m³"
     if "bata ringan" in n:
         ukuran = re.search(r"(\d+)\s*x\s*(\d+)\s*x\s*(\d+)\s*cm", n)
@@ -438,12 +570,13 @@ def _aturan_m3(nama: str, n: str, jumlah: float) -> str:
         m = re.search(r"t\s*=\s*(\d+)\s*cm", n)
         if m and not ukuran:
             t = int(m.group(1))
+        _beli(_naik(jumlah / (p * l * t / 1e6)), "buah", f"ukuran {p} × {l} × {t} cm", p * l * t / 1e6)
         return f"≈ {_ribuan(_naik(jumlah / (p * l * t / 1e6)))} buah ({p} × {l} × {t} cm)"
     if any(k in n for k in ("kayu", "kaso", "balok", "papan", "reng", "list kayu")) and "perancah" not in n:
         teks = _kayu(nama, jumlah)
         if not teks and "papan" in n:  # papan tanpa ukuran di nama: asumsi 2/20 panjang 4 m
             a, b = PAPAN_ASUMSI
-            teks = _kayu(f"{a}/{b}", jumlah).replace("btg", "lbr papan") + f" (asumsi papan {a}/{b})"
+            teks = _kayu(f"{a}/{b}", jumlah, "lbr papan") + f" (asumsi papan {a}/{b})"
         elif not teks and "balok" in n:
             a, b = BALOK_ASUMSI
             teks = _kayu(f"{a}/{b}", jumlah) + f" (asumsi balok {a}/{b})"
@@ -470,13 +603,16 @@ def _aturan_m2(n: str, jumlah: float) -> str:
 
 def _aturan_m(n: str, jumlah: float) -> str:
     if "membran" in n:
+        _beli(_naik(jumlah / PANJANG_ROL_MEMBRAN), "rol", f"1 × {PANJANG_ROL_MEMBRAN:g} m", PANJANG_ROL_MEMBRAN)
         return f"≈ {_naik(jumlah / PANJANG_ROL_MEMBRAN)} rol @ 1 × {PANJANG_ROL_MEMBRAN:g} m"
     if "kabel" in n or n.startswith(("nym", "nya ")):
         return _kabel(n, jumlah)
     if "wallpaper" in n:
+        _beli(_naik(jumlah / PANJANG_ROL_WALLPAPER), "rol", f"{PANJANG_ROL_WALLPAPER:g} m", PANJANG_ROL_WALLPAPER)
         return f"≈ {_naik(jumlah / PANJANG_ROL_WALLPAPER)} rol @ {PANJANG_ROL_WALLPAPER:g} m"
     panjang = _panjang_batang(n)
     if panjang:
+        _beli(_naik(jumlah / panjang), "btg", f"{panjang:g} m", panjang)
         return f"≈ {_naik(jumlah / panjang)} btg @ {panjang:g} m"
     return ""
 
@@ -486,6 +622,7 @@ def _aturan_liter(n: str, jumlah: float) -> str:
                                                           "teak oil")):
         return _kemasan(jumlah, ISI_JERIKEN, "jeriken", ISI_KALENG_CAIRAN, "kaleng", "liter")
     if "minyak bekisting" in n or n == "minyak":
+        _beli(_naik(jumlah / ISI_JERIKEN), "jeriken", f"{ISI_JERIKEN:g} liter", ISI_JERIKEN)
         return f"beli {_naik(jumlah / ISI_JERIKEN)} jeriken @ {ISI_JERIKEN:g} liter"
     if "additive" in n or "aditif" in n or "curing" in n:
         return _kemasan(jumlah, ISI_JERIKEN, "jeriken", ISI_GALON_CAIRAN, "galon", "liter")
@@ -496,9 +633,11 @@ def _aturan_liter(n: str, jumlah: float) -> str:
 
 def _aturan_buah(n: str, jumlah: float) -> str:
     if "self drilling" in n or "rivet" in n or "roofing screw" in n:
+        _beli(_naik(jumlah / ISI_DUS_SEKRUP), "dus", f"{_ribuan(ISI_DUS_SEKRUP)} buah", ISI_DUS_SEKRUP)
         return f"≈ {_naik(jumlah / ISI_DUS_SEKRUP)} dus @ {_ribuan(ISI_DUS_SEKRUP)} buah"
     if n.startswith("paku") and ("sekrup" in n or "skrup" in n):
         if jumlah >= ISI_DUS_PAKU_SEKRUP / 2:
+            _beli(_naik(jumlah / ISI_DUS_PAKU_SEKRUP), "dus", f"{ISI_DUS_PAKU_SEKRUP} buah", ISI_DUS_PAKU_SEKRUP)
             return f"≈ {_naik(jumlah / ISI_DUS_PAKU_SEKRUP)} dus @ {ISI_DUS_PAKU_SEKRUP} buah"
         return ""
     if n.startswith(("kayu papan", "kayu balok")):  # HSPK bekisting sloof: papan kayu "buah" berharga per m³
@@ -508,6 +647,7 @@ def _aturan_buah(n: str, jumlah: float) -> str:
         panjang, _asumsi = _panjang_paku(n)
         if panjang:
             per_kg = _per_kg(panjang)
+            _beli(_setengah(jumlah / per_kg), "kg", f"± {per_kg} btg", per_kg)
             return f"≈ {_angka(jumlah / per_kg, 2)} kg (± {per_kg} btg/kg) · dijual per kg"
         return ""
     teks = _ubin(n, "buah", jumlah)
@@ -516,5 +656,6 @@ def _aturan_buah(n: str, jumlah: float) -> str:
     if "bata ringan" in n:
         m = re.search(r"(\d+(?:[.,]\d+)?)\s*cm", n)
         tebal = _bil(m.group(1)) / 100 if m else 0.10
+        _beli(_naik(jumlah), "buah", f"ukuran 60 × 20 × {_angka(tebal * 100, 1)} cm", 1.0)
         return f"≈ {_angka(jumlah * 0.60 * 0.20 * tebal, 2)} m³ (60 × 20 × {_angka(tebal * 100, 1)} cm)"
     return ""

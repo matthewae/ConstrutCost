@@ -91,11 +91,14 @@ from kebutuhan_lantai import (
     rab_lantai,
     RASIO_WAJAR,
     TIPE_SUMBER_DAYA,
+    jadwal_pengadaan,
+    kebutuhan_per_tahap,
     kebutuhan_sumber_daya,
     komponen_pekerjaan,
     penutup_bangunan,
     penutup_lantai,
     pisah_berulang,
+    teks_kemasan,
     rasio_wajar,
     rincian_per_lantai,
     ringkas_lantai,
@@ -120,6 +123,9 @@ KETERANGAN_MODE = (
     ("KEBUTUHAN BAHAN",
      "Jumlah bahan yang perlu dibeli (bata, semen, pasir, cat, besi, ...), tenaga kerja, dan alat untuk seluruh "
      "bangunan atau satu lantai."),
+    ("PENGADAAN",
+     ("Jumlah beli dalam kemasan utuh (zak, dus, batang, truk, ...) dan biayanya per tahap pekerjaan & lantai sesuai "
+      "urutan pelaksanaan; sisa kemasan dipakai tahap berikutnya.")),
 )
 SEMUA_KATEGORI = "Semua kategori"
 SEMUA_LANTAI = "Semua lantai"
@@ -131,6 +137,13 @@ TAMPILAN_PAKAI = (  # Kebutuhan Bahan: bahan habis pakai & bahan yang dipakai be
     ("Bahan dipakai berulang saja", "berulang"),
 )
 PREF_TAMPILAN_PAKAI = "kebutuhan_bahan_tampilan_pakai"
+KELOMPOK_PENGADAAN = (  # tab Pengadaan
+    ("Per tahap & lantai (urutan pelaksanaan)", "tahap_lantai"),
+    ("Per tahap pekerjaan", "tahap"),
+    ("Seluruh proyek (beli sekaligus)", "proyek"),
+)
+PREF_KELOMPOK_PENGADAAN = "pengadaan_kelompok"
+LEBAR_KEMASAN = 230  # px, kolom DIBELI (KEMASAN) tab Pengadaan (teks lengkap di tooltip & panel Rincian)
 LABEL_DIMENSI = [
     ("panjang", "Panjang (L)", "m"),
     ("lebar", "Lebar (B)", "m"),
@@ -266,7 +279,7 @@ class EstimasiPage(QWidget):
     minta_harga = Signal(object)  # pekerjaan_id atau None
     minta_buka_proyek = Signal(int, str)  # proyek lain (mis. hasil duplikat)
 
-    MODE_REKAP, MODE_RINCI, MODE_LANTAI, MODE_DETAIL, MODE_BAHAN = 0, 1, 2, 3, 4
+    MODE_REKAP, MODE_RINCI, MODE_LANTAI, MODE_DETAIL, MODE_BAHAN, MODE_PENGADAAN = 0, 1, 2, 3, 4, 5
     HAL_TABEL, HAL_KOSONG, HAL_TIDAK_ADA = range(3)
 
     def __init__(self, proyek_id: int, nama_proyek: str, parent=None):
@@ -410,7 +423,8 @@ class EstimasiPage(QWidget):
             ("RAB Rinci", "tengah", KETERANGAN_MODE[1][1]),
             ("Per Lantai", "tengah", KETERANGAN_MODE[2][1]),
             ("Per Elemen", "tengah", KETERANGAN_MODE[3][1]),
-            ("Kebutuhan Bahan", "kanan", KETERANGAN_MODE[4][1]),
+            ("Kebutuhan Bahan", "tengah", KETERANGAN_MODE[4][1]),
+            ("Pengadaan", "kanan", KETERANGAN_MODE[5][1]),
         )):
             b = QPushButton(teks)
             b.setObjectName("segmen")
@@ -448,6 +462,18 @@ class EstimasiPage(QWidget):
         self.combo_pakai.setCurrentIndex(max(0, self.combo_pakai.findData(self._baca_tampilan_pakai())))
         self.combo_pakai.currentIndexChanged.connect(self._ganti_tampilan_pakai)
         self.combo_pakai.setVisible(False)
+        self.combo_kelompok = QComboBox()  # hanya di tab Pengadaan
+        self.combo_kelompok.setObjectName("kelompokPengadaan")
+        self.combo_kelompok.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        for teks, kunci in KELOMPOK_PENGADAAN:
+            self.combo_kelompok.addItem(teks, kunci)
+        self.combo_kelompok.setToolTip(
+            "Per tahap & lantai: pembelian bertahap sesuai urutan pelaksanaan (fondasi → struktur per lantai → dinding "
+            "→ ...); sisa kemasan dipakai tahap berikutnya. Seluruh proyek: semua bahan dibeli sekaligus.")
+        self.combo_kelompok.setCurrentIndex(max(0, self.combo_kelompok.findData(
+            self._baca_pref(PREF_KELOMPOK_PENGADAAN, "tahap_lantai"))))
+        self.combo_kelompok.currentIndexChanged.connect(self._ganti_kelompok_pengadaan)
+        self.combo_kelompok.setVisible(False)
         self.label_jumlah = tema.label("", "subjudul")  # ditempatkan di baris bawah tabel
         self.btn_urungkan = tema.tombol("↶ Urungkan", "ghost", None, "Batalkan perubahan terakhir (Ctrl+Z)")
         self.btn_ulangi = tema.tombol("↷ Ulangi", "ghost", None, "Ulangi perubahan yang dibatalkan (Ctrl+Y)")
@@ -464,6 +490,7 @@ class EstimasiPage(QWidget):
             lambda t: self.btn_ulangi.setToolTip(f"Ulangi: {t} (Ctrl+Y)" if t else "Ulangi perubahan yang dibatalkan (Ctrl+Y)")
         )
         alat.addWidget(self.combo_pakai)  # baris tab: tidak mempersempit penyaring jenis elemen
+        alat.addWidget(self.combo_kelompok)
         alat.addWidget(self.btn_urungkan)
         alat.addWidget(self.btn_ulangi)
         alat.addSpacing(6)
@@ -675,6 +702,7 @@ class EstimasiPage(QWidget):
         judul_mode, isi_mode = KETERANGAN_MODE[self.mode]
         self.label_mode.setText(f"<b>{judul_mode}</b> — {isi_mode}")
         self.combo_pakai.setVisible(self.mode == self.MODE_BAHAN)
+        self.combo_kelompok.setVisible(self.mode == self.MODE_PENGADAAN)
         if self.mode == self.MODE_REKAP:
             n = self._isi_rekap(baris)
             satuan = "item pekerjaan"
@@ -692,6 +720,13 @@ class EstimasiPage(QWidget):
                 n = self._isi_lantai(baris)
                 satuan = "lantai"
                 self.label_petunjuk.setText("Klik dua kali nama lantai untuk rincian lengkap lantai itu.")
+        elif self.mode == self.MODE_PENGADAAN:
+            n = self._isi_pengadaan(baris)
+            satuan = "baris pembelian"
+            self.label_petunjuk.setText(
+                "Pilih judul tahap untuk kebutuhan bahan, tenaga kerja, dan alat tahap itu; pilih bahan untuk rincian "
+                "pembelian (stok dari tahap sebelumnya, kekurangan, kemasan, sisa, merk)."
+            )
         elif self.mode == self.MODE_BAHAN:
             n = self._isi_bahan(baris)
             satuan = ("jenis bahan" if self.combo_pakai.currentData() in ("habis", "berulang")
@@ -934,12 +969,95 @@ class EstimasiPage(QWidget):
                 f"{n}; tanpa pemakaian ulang dibutuhkan {angka_bahan(jb * n)} {d['satuan']}.")
 
     def _baca_tampilan_pakai(self) -> str:
+        return self._baca_pref(PREF_TAMPILAN_PAKAI, "gabung")
+
+    @staticmethod
+    def _baca_pref(kunci: str, bawaan: str) -> str:
         try:
             from database.preferensi_repository import get_pref
 
-            return get_pref(PREF_TAMPILAN_PAKAI, "gabung") or "gabung"
-        except (sqlite3.Error, OSError):  # preferensi tidak terbaca: tampilan gabungan
-            return "gabung"
+            return get_pref(kunci, bawaan) or bawaan
+        except (sqlite3.Error, OSError):  # preferensi tidak terbaca: pilihan bawaan
+            return bawaan
+
+    def _ganti_kelompok_pengadaan(self, *_):
+        try:
+            from database.preferensi_repository import set_pref
+
+            set_pref(PREF_KELOMPOK_PENGADAAN, self.combo_kelompok.currentData() or "tahap_lantai")
+        except (sqlite3.Error, OSError):
+            logging.getLogger(__name__).warning("Kelompok pengadaan gagal disimpan", exc_info=True)
+        self._isi_ulang()
+
+    def _isi_pengadaan(self, baris) -> int:
+        """Pengadaan: jumlah beli (kemasan utuh) & biaya beli per tahap pekerjaan dan lantai (urutan pelaksanaan),
+        per tahap, atau seluruh proyek sekaligus. Sisa kemasan suatu tahap dipakai tahap berikutnya."""
+        t = self.tabel
+        t.clearSpans()
+        t.clear()
+        tema.siapkan_tabel(t, ["NO", "BAHAN", "KEBUTUHAN", "SAT", "DIBELI (KEMASAN)", "BIAYA BELI", "SISA"],
+                           rata_kanan=(2, 5, 6), tinggi_baris=38)
+        kelompok = self.combo_kelompok.currentData() or "tahap_lantai"
+        kom = self.komponen()
+        grup = []  # (label, judul, kebutuhan kelompok, baris pembelian)
+        if baris and kelompok == "proyek":
+            kb = kebutuhan_sumber_daya(baris, kom)
+            beli = [{"nama": d["nama"], "satuan": d["satuan"], "kebutuhan": d["jumlah"], "stok_awal": 0.0,
+                     "kemasan": d["kemasan"], "dibeli": d["jumlah_beli"], "sisa": d["jumlah_beli"] - d["jumlah"],
+                     "harga": d["harga"], "biaya_beli": d["biaya_beli"], "merk": d.get("merk") or "",
+                     "keterangan": d["keterangan"]} for d in kb["bahan"]]
+            grup.append(("A", "Seluruh proyek (beli sekaligus)", kb,
+                         sorted(beli, key=lambda x: (-x["biaya_beli"], x["nama"]))))
+        elif baris:
+            th = kebutuhan_per_tahap(baris, kom, per_lantai=kelompok == "tahap_lantai")
+            for g, beli in zip(th, jadwal_pengadaan(th), strict=True):
+                if beli:  # tahap tanpa bahan (mis. pekerjaan tanpa analisa) tidak ditampilkan
+                    judul = g["tahap"] + (f" · {g['lantai']}" if g["lantai"] else "")
+                    grup.append((_romawi(g["nomor"]), judul, g["sumber_daya"], beli))
+        kunci = {1: lambda x: x["nama"].lower(), 2: lambda x: x["kebutuhan"], 3: lambda x: x["satuan"],
+                 5: lambda x: x["biaya_beli"], 6: lambda x: x["sisa"]}
+        grup = [(lb, jd, kb, self._terurut(b, kunci)) for lb, jd, kb, b in grup]
+        t.setRowCount(sum(len(g[3]) + 2 for g in grup) + (1 if grup else 0))
+        self._pengadaan = {}
+        warna = tema.WARNA_TIPE.get("bahan", tema.W["teks"])
+        r = n = 0
+        for gi, (label, judul, kb, beli) in enumerate(grup):
+            self._pengadaan[("grup", gi)] = (judul, kb)
+            t.setItem(r, 0, tema.sel(label, warna=warna, tebal=True, data=("grup_beli", gi)))
+            t.setItem(r, 1, tema.sel(judul.upper(), warna=warna, tebal=True,
+                                     tooltip="Pilih untuk melihat kebutuhan bahan, tenaga kerja, dan alat tahap ini"))
+            t.setSpan(r, 1, 1, 6)
+            r += 1
+            for j, x in enumerate(beli, 1):
+                n += 1
+                self._pengadaan[("beli", (gi, j))] = x
+                kemasan = teks_kemasan(x["kemasan"]) if x["kemasan"] else "– (stok tahap sebelumnya cukup)"
+                t.setItem(r, 0, tema.sel(str(j), warna=tema.W["teks_samar"], data=("beli", (gi, j))))
+                t.setItem(r, 1, tema.sel(x["nama"], tooltip=x["nama"] + (f" · merk: {x['merk']}" if x["merk"] else "")))
+                t.setItem(r, 2, tema.sel(angka_bahan(x["kebutuhan"]), "kanan", tebal=True))
+                t.setItem(r, 3, tema.sel(x["satuan"], "tengah", tema.W["teks_redup"]))
+                t.setItem(r, 4, tema.sel(kemasan, warna=tema.W["teks"] if x["kemasan"] else tema.W["teks_samar"],
+                                         tooltip=kemasan))
+                t.setItem(r, 5, tema.sel(tema.format_rupiah(x["biaya_beli"]), "kanan"))
+                t.setItem(r, 6, tema.sel(angka_bahan(x["sisa"]) if x["sisa"] > 1e-6 else "–", "kanan",
+                                         tema.W["teks_redup"]))
+                r += 1
+            t.setItem(r, 1, tema.sel(f"Jumlah beli {judul}", "kanan", tema.W["teks_redup"]))
+            t.setSpan(r, 1, 1, 4)
+            t.setItem(r, 5, tema.sel(tema.format_rupiah(sum(x["biaya_beli"] for x in beli)), "kanan", warna, tebal=True))
+            r += 1
+        if grup:
+            total = sum(x["biaya_beli"] for g in grup for x in g[3])
+            t.setItem(r, 1, tema.sel("JUMLAH BIAYA BELI BAHAN (harga dasar, sebelum biaya umum & keuntungan)", "kanan",
+                                     tema.W["teks"], tebal=True))
+            t.setSpan(r, 1, 1, 4)
+            t.setItem(r, 5, tema.sel(tema.format_rupiah(total), "kanan", warna, tebal=True))
+        tema.atur_lebar(t, 1, isi_konten=(0, 2, 3, 4, 5, 6))
+        h = t.horizontalHeader()
+        if h.sectionSize(4) > LEBAR_KEMASAN:
+            h.setSectionResizeMode(4, QHeaderView.Interactive)
+            t.setColumnWidth(4, LEBAR_KEMASAN)
+        return n
 
     def _ganti_tampilan_pakai(self, *_):
         try:
@@ -1565,6 +1683,10 @@ class EstimasiPage(QWidget):
                                             semua=self._rincian_tampil, kategori=kategori)
             else:
                 self._panel_bawaan()
+        elif jenis == "beli" and ("beli", kunci) in getattr(self, "_pengadaan", {}):
+            self.panel.tampilkan_beli(self._pengadaan[("beli", kunci)])
+        elif jenis == "grup_beli" and ("grup", kunci) in getattr(self, "_pengadaan", {}):
+            self.panel.tampilkan_tahap(*self._pengadaan[("grup", kunci)])
         elif jenis == "bahan" and kunci in getattr(self, "_bahan", {}):
             self.panel.tampilkan_bahan(self._bahan[kunci], self.combo_lantai.currentText())
         elif jenis in ("lantai_el", "jenis_el") and (jenis, kunci) in getattr(self, "_kelompok_detail", {}):
@@ -1956,12 +2078,73 @@ class PanelRincian(QFrame):
             b.addWidget(tema.chip(chip_teks, JENIS_CHIP_SUMBER.get(chip_teks, "netral")))
         self._lay.addLayout(b)
 
-    def _daftar_kebutuhan(self, judul: str, baris: list, komponen: dict | None, maks: int = 14):
-        """Kebutuhan bahan (volume x koefisien analisa) untuk baris-baris ini, plus ringkas tenaga kerja."""
+    def _sumber_daya_lengkap(self, kb: dict):
+        """Bahan (dengan setara), tenaga kerja, dan alat, masing-masing dengan jumlah harganya."""
+        for tipe, nama in TIPE_SUMBER_DAYA:
+            items = kb.get(tipe) or []
+            if not items:
+                continue
+            self._lay.addSpacing(4)
+            judul = tema.label(f"{nama.upper()} · {tema.format_rupiah(sum(d['biaya'] for d in items))}", "formLabel")
+            judul.setStyleSheet(f"color: {tema.WARNA_TIPE.get(tipe, tema.W['teks'])};")
+            self._lay.addWidget(judul)
+            for d in items:
+                ket = d["keterangan"] if tipe == "bahan" else tema.format_rupiah(d["biaya"])
+                self._baris_kecil(d["nama"], f"{angka_bahan(d['jumlah'])} {d['satuan']}", ket=ket)
+
+    def tampilkan_beli(self, x: dict):
+        """Rincian pembelian satu bahan di satu tahap: stok dari tahap sebelumnya, kekurangan, kemasan, sisa."""
+        self._bersihkan()
+        self._lay.addWidget(tema.label("PENGADAAN BAHAN", "bagian"))
+        self._lay.addWidget(tema.label(x["nama"], "judulPanel", wrap=True))
+        sat = x["satuan"]
+        self._baris_nilai("Kebutuhan", f"{angka_bahan(x['kebutuhan'])} {sat}")
+        if x["stok_awal"] > 1e-6:
+            self._baris_nilai("Stok tahap sebelumnya", f"{angka_bahan(x['stok_awal'])} {sat}")
+            self._baris_nilai("Kekurangan", f"{angka_bahan(max(0.0, x['kebutuhan'] - x['stok_awal']))} {sat}")
+        self._baris_nilai("Dibeli", teks_kemasan(x["kemasan"]) if x["kemasan"] else "tidak perlu (stok cukup)")
+        if x["kemasan"]:
+            self._baris_nilai("Jumlah beli", f"{angka_bahan(x['dibeli'])} {sat}")
+        self._baris_nilai("Harga dasar", f"{tema.format_rupiah(x['harga'])} / {sat}")
+        self._baris_nilai("Biaya beli", tema.format_rupiah(x["biaya_beli"]))
+        self._baris_nilai("Sisa", f"{angka_bahan(x['sisa'])} {sat}" if x["sisa"] > 1e-6 else "–")
+        self._baris_nilai("Merk", x["merk"] or "– (isi di halaman Harga Satuan)")
+        if x.get("keterangan"):
+            self._baris_nilai("Setara", x["keterangan"])
+        self._lay.addWidget(tema.label(
+            "Kemasan dibeli utuh; sisanya dipakai tahap berikutnya (pembelian bertahap), sehingga yang dibeli hanya "
+            "kekurangannya.", "infoKecil", wrap=True))
+        self._lay.addStretch()
+
+    def tampilkan_tahap(self, judul: str, kb: dict):
+        """Kebutuhan satu tahap pekerjaan / lantai: bahan, tenaga kerja (OH), dan alat."""
+        self._bersihkan()
+        self._lay.addWidget(tema.label("KEBUTUHAN TAHAP", "bagian"))
+        self._lay.addWidget(tema.label(judul, "judulPanel", wrap=True))
+        total = sum(d["biaya"] for t, _ in TIPE_SUMBER_DAYA for d in kb.get(t, []))
+        oh = sum(d["jumlah"] for d in kb.get("upah", []) if d["satuan"].lower() == "oh")
+        self._baris_nilai("Jumlah harga dasar", tema.format_rupiah(total))
+        if oh:
+            self._baris_nilai("Tenaga kerja", f"{angka_bahan(oh)} OH")
+        self._lay.addWidget(tema.garis())
+        self._sumber_daya_lengkap(kb)
+        self._lay.addStretch()
+
+    def _daftar_kebutuhan(self, judul: str, baris: list, komponen: dict | None, maks: int = 14,
+                          lengkap: bool = False):
+        """Kebutuhan bahan (volume x koefisien analisa) untuk baris-baris ini, plus ringkas tenaga kerja. `lengkap`:
+        semua bahan, setiap jenis tenaga kerja, dan alat beserta jumlah harganya (item pekerjaan RAB)."""
         if not komponen or not baris:
             return
         kb = kebutuhan_sumber_daya(baris, komponen)
         if not kb["bahan"] and not kb["upah"]:
+            return
+        if lengkap:
+            self._lay.addWidget(tema.garis())
+            lbl = tema.label(judul, "bagian", wrap=True)
+            lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            self._lay.addWidget(lbl)
+            self._sumber_daya_lengkap(kb)
             return
         self._lay.addWidget(tema.garis())
         lbl = tema.label(judul, "bagian", wrap=True)  # judul panjang dibungkus, panel tidak melebar
@@ -2335,7 +2518,8 @@ class PanelRincian(QFrame):
         self._baris_nilai("Volume total", f"{tema.format_angka(volume, 3)} {r0['satuan']}")
         self._baris_nilai("Dari", f"{len(baris)} elemen")
         self._baris_nilai("Jumlah harga", tema.format_rupiah(jumlah))
-        self._daftar_kebutuhan(f"KEBUTUHAN BAHAN · {tema.format_angka(volume, 2)} {r0['satuan']}", baris, komponen)
+        self._daftar_kebutuhan(f"KEBUTUHAN ITEM INI · {tema.format_angka(volume, 2)} {r0['satuan']}", baris, komponen,
+                               lengkap=True)
 
         self._lay.addWidget(tema.garis())
         self._lay.addWidget(tema.label(f"ANALISA HARGA SATUAN PER {r0['satuan'].upper()}", "bagian"))

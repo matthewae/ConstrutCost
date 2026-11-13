@@ -39,10 +39,14 @@ from kebutuhan_lantai import (
     TIPE_SUMBER_DAYA,
     kebutuhan_per_elemen,
     kebutuhan_sumber_daya,
+    jadwal_pengadaan,
+    kebutuhan_per_pekerjaan,
+    kebutuhan_per_tahap,
     komponen_pekerjaan,
     penutup_bangunan,
     pisah_berulang,
     rab_lantai,
+    teks_kemasan,
     matriks_lantai,
     rasio_wajar,
     rincian_per_lantai,
@@ -891,6 +895,9 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
             wp_.cell(r, 2, teks).font = f_catatan
             r += 1
         atur_cetak(wp_, hdr_p)
+        _sheet_tahap_pekerjaan_pengadaan(wb, data["baris"], komp, kb, judul_sheet, header, gaya_baris, atur_cetak, L,
+                                         {"f_bold": f_bold, "f_catatan": f_catatan, "fill_kat": fill_kat,
+                                          "fill_grup": fill_grup, "ANGKA": ANGKA, "ANGKA3": ANGKA3, "Alignment": Alignment})
 
         we = wb.create_sheet("Kebutuhan per Elemen")
         for i, lebar in enumerate((6, 54, 14, 8, 22, 18), 1):
@@ -1003,6 +1010,216 @@ def _struktur_per_kategori(baris: list) -> dict:
             d = hasil.setdefault(r["kategori"], {"beton": 0.0, "bekisting": 0.0, "besi": 0.0})
             d[kunci] += r["volume_pekerjaan"] or 0.0
     return hasil
+
+
+def _sheet_tahap_pekerjaan_pengadaan(wb, baris, komp, kb, judul_sheet, header, gaya_baris, atur_cetak, L, g):
+    """Sheet Kebutuhan per Tahap, Kebutuhan per Pekerjaan, Pengadaan Bahan (beli sekaligus), dan Jadwal Pengadaan
+    (per tahap & lantai, sisa kemasan dipakai tahap berikutnya)."""
+    f_bold, f_catatan, fill_kat, fill_grup = g["f_bold"], g["f_catatan"], g["fill_kat"], g["fill_grup"]
+    ANGKA, ANGKA3, Alignment = g["ANGKA"], g["ANGKA3"], g["Alignment"]
+    kanan, tengah = Alignment(horizontal="right"), Alignment(horizontal="center")
+
+    def angka(ws, r, c, x):
+        ws.cell(r, c, x).number_format = ANGKA3 if abs(x) < 10 else ANGKA
+
+    # ---------- Kebutuhan per Tahap (pelaksanaan) ----------
+    ws = wb.create_sheet("Kebutuhan per Tahap")
+    for i, lebar in enumerate((7, 50, 14, 8, 26, 16, 18), 1):
+        ws.column_dimensions[L(i)].width = lebar
+    r = judul_sheet(ws, "KEBUTUHAN BAHAN, TENAGA KERJA & ALAT PER TAHAP PEKERJAAN DAN LANTAI", 7)
+    hdr = r
+    header(ws, r, ["No", "Uraian", "Kebutuhan", "Sat", "Setara", "Harga Dasar (Rp)", "Jumlah (Rp)"])
+    r += 1
+    tahap = kebutuhan_per_tahap(baris, komp)
+    sub_total = []
+    tahap_kini, sub_tahap = None, []
+    for g_ in tahap:
+        if g_["tahap"] != tahap_kini:
+            if sub_tahap:
+                gaya_baris(ws, r, 7, f_bold)
+                ws.cell(r, 2, f"Jumlah tahap {tahap_kini}").alignment = kanan
+                ws.cell(r, 7, "=" + "+".join(f"G{x}" for x in sub_tahap)).number_format = ANGKA
+                sub_total.append(r)
+                r += 1
+            tahap_kini, sub_tahap = g_["tahap"], []
+            gaya_baris(ws, r, 7, f_bold, fill_kat)
+            ws.cell(r, 1, f"{_romawi(g_['nomor'])}.")
+            ws.cell(r, 2, g_["tahap"].upper())
+            r += 1
+        gaya_baris(ws, r, 7, f_bold, fill_grup)
+        ws.cell(r, 2, g_["lantai"])
+        r += 1
+        awal = r
+        for tipe, nama_t in TIPE_SUMBER_DAYA:
+            items = g_["sumber_daya"].get(tipe) or []
+            if not items:
+                continue
+            gaya_baris(ws, r, 7, f_bold)
+            ws.cell(r, 2, nama_t)
+            r += 1
+            for n, d in enumerate(items, 1):
+                gaya_baris(ws, r, 7)
+                ws.cell(r, 1, n).alignment = tengah
+                ws.cell(r, 2, d["nama"])
+                angka(ws, r, 3, d["jumlah"])
+                ws.cell(r, 4, d["satuan"]).alignment = tengah
+                ws.cell(r, 5, d["keterangan"])
+                ws.cell(r, 6, d["harga"]).number_format = ANGKA
+                ws.cell(r, 7, f"=C{r}*F{r}").number_format = ANGKA
+                r += 1
+        if g_["sumber_daya"].get("tanpa_analisa"):
+            gaya_baris(ws, r, 7)
+            ws.cell(r, 2, "Pekerjaan tanpa analisa: " + ", ".join(g_["sumber_daya"]["tanpa_analisa"])).font = f_catatan
+            r += 1
+        gaya_baris(ws, r, 7, f_bold)
+        ws.cell(r, 2, f"Jumlah {g_['tahap']} · {g_['lantai']}").alignment = kanan
+        ws.cell(r, 7, f"=SUM(G{awal}:G{r - 1})" if r > awal else 0).number_format = ANGKA
+        sub_tahap.append(r)
+        r += 1
+    if sub_tahap:
+        gaya_baris(ws, r, 7, f_bold)
+        ws.cell(r, 2, f"Jumlah tahap {tahap_kini}").alignment = kanan
+        ws.cell(r, 7, "=" + "+".join(f"G{x}" for x in sub_tahap)).number_format = ANGKA
+        sub_total.append(r)
+        r += 1
+    if sub_total:
+        gaya_baris(ws, r, 7, f_bold)
+        ws.cell(r, 2, "JUMLAH SELURUH TAHAP (harga dasar, sebelum biaya umum & keuntungan)").alignment = kanan
+        ws.cell(r, 7, "=" + "+".join(f"G{x}" for x in sub_total)).number_format = ANGKA
+        r += 2
+    ws.cell(r, 2, "Tahap = kategori pekerjaan RAB, urut pelaksanaan; di dalamnya per lantai dari terbawah. Jumlah seluruh "
+                  "tahap sama dengan jumlah bahan + tenaga kerja + alat di sheet Kebutuhan Bahan.").font = f_catatan
+    atur_cetak(ws, hdr)
+
+    # ---------- Kebutuhan per Pekerjaan (item RAB) ----------
+    ws = wb.create_sheet("Kebutuhan per Pekerjaan")
+    for i, lebar in enumerate((7, 48, 11, 14, 8, 26, 16, 18), 1):
+        ws.column_dimensions[L(i)].width = lebar
+    r = judul_sheet(ws, "KEBUTUHAN BAHAN, TENAGA KERJA & ALAT PER ITEM PEKERJAAN RAB", 8)
+    hdr = r
+    header(ws, r, ["No", "Uraian", "Koefisien", "Kebutuhan", "Sat", "Setara", "Harga Dasar (Rp)", "Jumlah (Rp)"])
+    r += 1
+    for k in kebutuhan_per_pekerjaan(baris, komp):
+        gaya_baris(ws, r, 8, f_bold, fill_kat)
+        ws.cell(r, 1, f"{_romawi(k['nomor'])}.")
+        ws.cell(r, 2, k["kategori"].upper())
+        r += 1
+        for n, it in enumerate(k["items"], 1):
+            gaya_baris(ws, r, 8, f_bold, fill_grup)
+            ws.cell(r, 1, n).alignment = tengah
+            ws.cell(r, 2, f"{it['nama']} ({it['kode']})")
+            angka(ws, r, 4, it["volume"])
+            ws.cell(r, 5, it["satuan"]).alignment = tengah
+            r += 1
+            awal = r
+            for tipe, nama_t in TIPE_SUMBER_DAYA:
+                for d in it["sumber_daya"].get(tipe) or []:
+                    gaya_baris(ws, r, 8)
+                    ws.cell(r, 2, f"{nama_t.split(' /')[0]}: {d['nama']}")
+                    koef = it["koefisien"].get((tipe, d["nama"].lower(), d["satuan"].lower()))
+                    if koef is not None:
+                        ws.cell(r, 3, koef).number_format = "#,##0.0000"
+                    angka(ws, r, 4, d["jumlah"])
+                    ws.cell(r, 5, d["satuan"]).alignment = tengah
+                    ws.cell(r, 6, d["keterangan"])
+                    ws.cell(r, 7, d["harga"]).number_format = ANGKA
+                    ws.cell(r, 8, f"=D{r}*G{r}").number_format = ANGKA
+                    r += 1
+            gaya_baris(ws, r, 8)
+            ws.cell(r, 2, "Jumlah harga dasar").alignment = kanan
+            ws.cell(r, 8, f"=SUM(H{awal}:H{r - 1})" if r > awal else 0).number_format = ANGKA
+            r += 1
+            gaya_baris(ws, r, 8, f_bold)
+            ws.cell(r, 2, "Jumlah di RAB (termasuk biaya umum & keuntungan)").alignment = kanan
+            ws.cell(r, 8, it["jumlah_rab"]).number_format = ANGKA
+            r += 1
+    r += 1
+    ws.cell(r, 2, "Kebutuhan = volume item × koefisien analisa HSPK. Jumlah di RAB = jumlah harga dasar × (1 + biaya umum & "
+                  "keuntungan), sama dengan sheet RAB.").font = f_catatan
+    atur_cetak(ws, hdr)
+
+    # ---------- Pengadaan Bahan (beli sekaligus) ----------
+    ws = wb.create_sheet("Pengadaan Bahan")
+    for i, lebar in enumerate((7, 44, 13, 8, 34, 13, 15, 17, 17, 16), 1):
+        ws.column_dimensions[L(i)].width = lebar
+    r = judul_sheet(ws, "PENGADAAN BAHAN: JUMLAH BELI DALAM KEMASAN (SELURUH PROYEK SEKALIGUS)", 10)
+    hdr = r
+    header(ws, r, ["No", "Bahan", "Kebutuhan", "Sat", "Dibeli (Kemasan)", "Jumlah Beli", "Harga Dasar (Rp)",
+                   "Biaya Kebutuhan (Rp)", "Biaya Beli (Rp)", "Merk"])
+    r += 1
+    awal = r
+    for n, d in enumerate(sorted(kb["bahan"], key=lambda d: (-d["biaya_beli"], d["nama"])), 1):
+        gaya_baris(ws, r, 10)
+        ws.cell(r, 1, n).alignment = tengah
+        ws.cell(r, 2, d["nama"])
+        angka(ws, r, 3, d["jumlah"])
+        ws.cell(r, 4, d["satuan"]).alignment = tengah
+        ws.cell(r, 5, teks_kemasan(d["kemasan"]))
+        angka(ws, r, 6, d["jumlah_beli"])
+        ws.cell(r, 7, d["harga"]).number_format = ANGKA
+        ws.cell(r, 8, f"=C{r}*G{r}").number_format = ANGKA
+        ws.cell(r, 9, f"=F{r}*G{r}").number_format = ANGKA
+        ws.cell(r, 10, d.get("merk") or "")
+        r += 1
+    gaya_baris(ws, r, 10, f_bold)
+    ws.cell(r, 2, "JUMLAH (harga dasar, sebelum biaya umum & keuntungan)").alignment = kanan
+    ws.cell(r, 8, f"=SUM(H{awal}:H{r - 1})" if r > awal else 0).number_format = ANGKA
+    ws.cell(r, 9, f"=SUM(I{awal}:I{r - 1})" if r > awal else 0).number_format = ANGKA
+    r += 2
+    for teks in (
+        ("Dibeli = kemasan utuh menurut kolom Setara (zak, dus, batang 12 m per diameter, truk, ...); Jumlah Beli = isi "
+         "kemasan dalam satuan analisa; Biaya Beli = Jumlah Beli × harga dasar. Selisih dengan Biaya Kebutuhan adalah "
+         "sisa kemasan."),
+        ("Merk diisi di halaman Harga Satuan. Pembelian bertahap per tahap & lantai ada di sheet Jadwal Pengadaan."),
+    ):
+        ws.cell(r, 2, teks).font = f_catatan
+        r += 1
+    atur_cetak(ws, hdr, "landscape")
+
+    # ---------- Jadwal Pengadaan (per tahap & lantai, stok berpindah) ----------
+    ws = wb.create_sheet("Jadwal Pengadaan")
+    for i, lebar in enumerate((7, 44, 13, 8, 13, 34, 13, 13, 15, 17), 1):
+        ws.column_dimensions[L(i)].width = lebar
+    r = judul_sheet(ws, "JADWAL PENGADAAN BAHAN PER TAHAP PEKERJAAN & LANTAI (URUTAN PELAKSANAAN)", 10)
+    hdr = r
+    header(ws, r, ["No", "Bahan", "Kebutuhan", "Sat", "Stok Awal", "Dibeli (Kemasan)", "Jumlah Beli", "Sisa",
+                   "Harga Dasar (Rp)", "Biaya Beli (Rp)"])
+    r += 1
+    sub = []
+    for g_, beli in zip(tahap, jadwal_pengadaan(tahap), strict=True):
+        if not beli:  # tahap tanpa bahan (mis. pekerjaan tanpa analisa)
+            continue
+        gaya_baris(ws, r, 10, f_bold, fill_kat)
+        ws.cell(r, 1, f"{_romawi(g_['nomor'])}.")
+        ws.cell(r, 2, f"{g_['tahap'].upper()} · {g_['lantai']}")
+        r += 1
+        awal = r
+        for n, x in enumerate(beli, 1):
+            gaya_baris(ws, r, 10)
+            ws.cell(r, 1, n).alignment = tengah
+            ws.cell(r, 2, x["nama"])
+            angka(ws, r, 3, x["kebutuhan"])
+            ws.cell(r, 4, x["satuan"]).alignment = tengah
+            angka(ws, r, 5, x["stok_awal"])
+            ws.cell(r, 6, teks_kemasan(x["kemasan"]) if x["kemasan"] else "– (stok cukup)")
+            angka(ws, r, 7, x["dibeli"])
+            angka(ws, r, 8, x["sisa"])
+            ws.cell(r, 9, x["harga"]).number_format = ANGKA
+            ws.cell(r, 10, f"=G{r}*I{r}").number_format = ANGKA
+            r += 1
+        gaya_baris(ws, r, 10, f_bold)
+        ws.cell(r, 2, f"Jumlah beli {g_['tahap']} · {g_['lantai']}").alignment = kanan
+        ws.cell(r, 10, f"=SUM(J{awal}:J{r - 1})" if r > awal else 0).number_format = ANGKA
+        sub.append(r)
+        r += 1
+    if sub:
+        gaya_baris(ws, r, 10, f_bold)
+        ws.cell(r, 2, "JUMLAH BIAYA BELI BERTAHAP").alignment = kanan
+        ws.cell(r, 10, "=" + "+".join(f"J{x}" for x in sub)).number_format = ANGKA
+        r += 2
+    ws.cell(r, 2, ("Stok Awal = sisa kemasan dari tahap sebelumnya; yang dibeli hanya kekurangannya, dalam kemasan utuh. "
+                   "Stok baja tulangan dihitung per diameter.")).font = f_catatan
+    atur_cetak(ws, hdr, "landscape")
 
 
 def _sheet_lantai(ws, x, i, n_lantai, judul_sheet, header, gaya_baris, atur_cetak, L, g):
@@ -1597,6 +1814,21 @@ def export_pdf(path, data: dict, meta: dict, opsi: OpsiExport | None = None, cat
                   t, Paragraph(f"Analisa bekisting HSPK berjudul \"{pakai} kali pakai\": kebutuhan kayu, triplek, dan "
                                f"dolken sudah dibagi {pakai}; bila setiap bekisting memakai bahan baru dibutuhkan {pakai} "
                                "kali lipat. Paku &amp; minyak bekisting habis pada setiap pemakaian.", s_cat)]
+        # pengadaan bahan (beli sekaligus)
+        isi_b = [[Paragraph(t_, s_head) for t_ in ("No", "Bahan", "Kebutuhan", "Sat", "Dibeli (kemasan)", "Biaya Beli (Rp)")]]
+        bahan_b = sorted(kb["bahan"], key=lambda d: (-d["biaya_beli"], d["nama"]))
+        for n, d in enumerate(bahan_b, 1):
+            isi_b.append([str(n), Paragraph(_esc(d["nama"]), s_sel), _rp(d["jumlah"], 3 if d["jumlah"] < 10 else 2),
+                          d["satuan"], Paragraph(_esc(teks_kemasan(d["kemasan"])), s_sel), _rp(d["biaya_beli"])])
+        isi_b.append(["", Paragraph("<b>JUMLAH BIAYA BELI</b>", s_sel), "", "", "", _rp(sum(d["biaya_beli"] for d in bahan_b))])
+        t = Table(isi_b, colWidths=[lebar_isi * f for f in (0.06, 0.34, 0.12, 0.07, 0.25, 0.16)], repeatRows=1)
+        t.setStyle(TableStyle(list(dasar) + [("ALIGN", (2, 1), (2, -1), "RIGHT"), ("ALIGN", (5, 1), (5, -1), "RIGHT"),
+                                             ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold")]))
+        story += [Spacer(1, 8), Paragraph("<b>Pengadaan bahan: jumlah beli dalam kemasan (seluruh proyek sekaligus)</b>",
+                                          s_info), Spacer(1, 3), t,
+                  Paragraph("Biaya beli = isi kemasan utuh × harga dasar; selisih dengan jumlah kebutuhan adalah sisa kemasan. "
+                            "Jadwal pengadaan per tahap &amp; lantai, kebutuhan per tahap, dan kebutuhan per item pekerjaan "
+                            "ada di file Excel.", s_cat)]
 
     if opsi.detail:
         story += [PageBreak()] + kop("DETAIL VOLUME PER ELEMEN & LANTAI")

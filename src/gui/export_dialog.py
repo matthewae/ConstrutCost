@@ -200,7 +200,7 @@ class ExportDialog(QDialog):
                 (self.cek_lantai, "Biaya, beton, besi & bahan tiap lantai"),
                 (self.cek_per_lantai, "Satu sheet per lantai: struktur, besi Ø, bahan"),
                 (self.cek_detail, "Rekap volume + rincian tiap elemen"),
-                (self.cek_bahan, "Bata, semen, pasir, cat ... + pilihan material"),
+                (self.cek_bahan, "Per bahan, tahap, item pekerjaan, pengadaan (kemasan)"),
             ],
         )
         kolom_kolom = self._kolom_opsi(

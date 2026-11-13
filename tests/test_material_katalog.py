@@ -270,6 +270,7 @@ def test_export_kebutuhan_bahan_proyek_dan_per_elemen(db_sementara, tmp_path):
     path = export_excel(tmp_path / "bahan.xlsx", data, meta, opsi)
     wb = load_workbook(path)
     assert wb.sheetnames == ["RAB", "ANALISA", "HARGA", "ASUMSI", "Kebutuhan Bahan", "Bahan Habis Pakai & Berulang",
+                             "Kebutuhan per Tahap", "Kebutuhan per Pekerjaan", "Pengadaan Bahan", "Jadwal Pengadaan",
                              "Kebutuhan per Elemen"]
     teks = [str(c.value) for row in wb["Kebutuhan Bahan"].iter_rows() for c in row if c.value is not None]
     assert "PILIHAN MATERIAL PROYEK" in teks and "Granit 60×60 cm" in teks and "diubah" in teks
@@ -352,7 +353,7 @@ def test_dialog_katalog_tambah_dan_hapus_item(db_sementara, qapp, monkeypatch):
     hal.muat()
     r = next(x for x in hal._data if x["item_tambahan"])
     assert r["kategori"] == "Sanitair" and r["lantai"] == lantai[0] and r["volume_pekerjaan"] == 2
-    for mode in range(5):  # semua mode tampil tanpa galat
+    for mode in range(6):  # semua mode tampil tanpa galat (termasuk Pengadaan)
         hal.grup_mode.button(mode).setChecked(True)
         hal._isi_ulang()
     hal.grup_mode.button(hal.MODE_DETAIL).setChecked(True)

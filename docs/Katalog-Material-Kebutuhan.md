@@ -259,6 +259,47 @@ batang, tripleks 60 lembar, kaso 2,37 m³, papan kelas III). Tanpa pemakaian ula
 Catatan data HSPK: analisa bekisting sloof (2.2.1.3.2) mencatat "Kayu papan kelas III" bersatuan *buah* padahal
 harganya per m³; kolom Setara menandainya "⚠ satuan HSPK buah, kemungkinan m³".
 
+### Pengadaan, kebutuhan per tahap, dan kebutuhan per item pekerjaan
+
+Untuk tiga keperluan lapangan:
+
+| Keperluan | Di aplikasi | Di export Excel |
+|---|---|---|
+| **Pengadaan / pembelian** | Tab **Pengadaan**: per bahan *Kebutuhan*, *Dibeli (kemasan)* mis. "140 zak @ 50 kg", *Biaya beli*, *Sisa*; pilih bahan → stok dari tahap sebelumnya, kekurangan, jumlah beli, merk | Sheet **Pengadaan Bahan** (seluruh proyek sekaligus: Dibeli, Jumlah Beli, Biaya Kebutuhan, Biaya Beli, Merk) dan **Jadwal Pengadaan** (per tahap & lantai: Stok Awal, Dibeli, Jumlah Beli, Sisa, Biaya Beli) |
+| **Pelaksanaan per tahap** | Tab Pengadaan, kelompok *Per tahap & lantai* / *Per tahap*; pilih judul tahap → bahan, tenaga kerja (OH), dan alat tahap itu. Tab Kebutuhan Bahan dengan filter kategori & lantai | Sheet **Kebutuhan per Tahap**: tahap → lantai → bahan / tenaga kerja / alat, jumlah per lantai & tahap |
+| **Per item pekerjaan RAB** | Tab RAB: pilih item → panel *Kebutuhan item ini*: semua bahan (dengan setara), setiap jenis tenaga kerja, dan alat beserta jumlah harganya | Sheet **Kebutuhan per Pekerjaan**: tiap item RAB → koefisien, kebutuhan, setara, harga dasar, jumlah; jumlah harga dasar dan jumlah di RAB |
+
+**Tahap** = kategori pekerjaan RAB (Persiapan, Tanah, Fondasi, Beton, Dinding, Lantai, Tangga & Railing, Pintu &
+Jendela, Atap, Plafon, Cat, Fasad, Sanitair, Lansekap, ...), yang sudah tersusun menurut urutan pelaksanaan; di dalam
+tahap, lantai dari yang terbawah.
+
+**Kemasan beli (angka).** Setiap aturan Setara juga mencatat kemasannya: jumlah kemasan, nama, dan isi dalam satuan
+analisa (`setara_rinci`). Jumlah beli = Σ jumlah kemasan × isi, dan biaya beli = jumlah beli × harga dasar.
+- Kemasan utuh dibulatkan ke atas. Sisa yang kecil dibeli dengan kemasan kecil: paku 211,4 kg menjadi 7 dus @ 30 kg
+  + 1,5 kg eceran; pasir 35,5 m³ menjadi 5 truk @ 7 m³ + 1 pick-up @ 1,5 m³.
+- Eceran (paku, paku per buah → kg) dibulatkan per 0,5 kg. Ready mix dipesan per 0,5 m³.
+- Bahan tanpa kemasan khusus dibeli sesuai kebutuhan. Satuan HSPK yang ditandai ⚠ juga tidak dibulatkan.
+- Jumlah beli tidak pernah kurang dari kebutuhan; ini diuji untuk seluruh bahan katalog HSPK.
+
+**Pembelian bertahap dengan sisa stok berpindah.** Pada jadwal pengadaan, sisa kemasan suatu tahap dipakai tahap
+berikutnya; yang dibeli hanya kekurangannya, dalam kemasan utuh. Contoh semen: Beton Lantai 1 membeli 58 zak dan
+bersisa 18,5 kg. Beton Lantai 2 butuh 7.000 kg, tersedia 18,5 kg, sehingga membeli 140 zak (setara keseluruhannya
+141 zak). Stok baja tulangan dihitung per diameter (sisa D16 tidak dapat menggantikan D13).
+
+Contoh Tipe 120 3 lantai (bahan, harga dasar):
+
+| | Rp |
+|---|---|
+| Kebutuhan (RAB) | 811,9 jt |
+| Beli sekaligus seluruh proyek | 833,3 jt |
+| Beli bertahap per tahap & lantai (stok berpindah) | 828,5 jt |
+
+Selisih beli dengan kebutuhan adalah sisa kemasan. Beli bertahap dapat sedikit lebih murah daripada beli sekaligus,
+karena tambahan kecil di tahap akhir cukup diangkut pick-up atau dibeli eceran.
+
+Kebutuhan per item pekerjaan cocok dengan RAB: jumlah harga dasar item × (1 + biaya umum & keuntungan) = jumlah item
+di RAB (diuji untuk setiap item). Jumlah seluruh tahap = jumlah bahan + tenaga + alat di sheet Kebutuhan Bahan.
+
 ### Ganti bahan langsung di Kebutuhan Bahan
 
 Nama bahan yang dapat diganti tampil sebagai combo (▾), mis. *Kaso 5/7 kayu kelas II ▾*, *Tripleks 9 mm ▾*,

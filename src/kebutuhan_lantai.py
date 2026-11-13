@@ -20,9 +20,20 @@ import re
 
 from bahan_berulang import jumlah_pakai, pakai_komponen
 from database.material import kode_dasar
-from rab_rinci import TANPA_LANTAI, daftar_lantai, rekap_per_lantai, susun_rinci
+from rab_rinci import TANPA_LANTAI, daftar_lantai, rekap_per_lantai, susun_rinci, urutan_kategori
 from rules.penulangan import NAMA_KELOMPOK, PANJANG_BATANG, URUTAN, berat_per_m, jenis_baja, label_d, label_tipe
-from setara import BERAT_ZAK_MORTAR, BERAT_ZAK_SEMEN, rumus_zak, setara  # noqa: F401 (dipakai halaman & export)
+from setara import (  # noqa: F401 (BERAT_ZAK_*, rumus_zak, teks_kemasan dipakai halaman & export)
+    BERAT_ZAK_MORTAR,
+    BERAT_ZAK_SEMEN,
+    beli_baja,
+    jumlah_beli,
+    sebaran_baja,
+    rumus_zak,
+    setara,
+    setara_rinci,
+    teks_kemasan,
+    tulangan,
+)
 
 # Rentang wajar rasio besi beton bertulang rumah tinggal (kg/m³). Di luar rentang ini angka ditandai
 # "periksa": biasanya dimensi elemen di model IFC tidak wajar atau konfigurasi tulangan perlu dicek.
@@ -193,7 +204,7 @@ def komponen_pekerjaan(pekerjaan_ids) -> dict:
     try:
         rows = conn.execute(
             f"""SELECT k.pekerjaan_id, k.tipe, COALESCE(s.nama, k.nama_komponen) AS nama, k.satuan, k.koefisien,
-                       k.harga_satuan AS harga
+                       k.harga_satuan AS harga, s.merk AS merk
                 FROM komponen_harga k LEFT JOIN sumber_daya s ON s.id = k.sumber_daya_id
                 WHERE k.pekerjaan_id IN ({','.join('?' * len(ids))}) ORDER BY k.id""",
             ids,
@@ -208,6 +219,7 @@ def komponen_pekerjaan(pekerjaan_ids) -> dict:
         hasil.setdefault(r["pekerjaan_id"], []).append({
             "tipe": r["tipe"], "nama": nama, "satuan": r["satuan"], "koefisien": r["koefisien"], "harga": r["harga"],
             "pakai": pakai_komponen(nama, pakai.get(r["pekerjaan_id"], 0)) if r["tipe"] == "bahan" else 0,
+            "merk": (r["merk"] or "").strip(),
         })
     return hasil
 
@@ -241,7 +253,10 @@ def kebutuhan_sumber_daya(baris: list, komponen: dict) -> dict:
             kunci = (k["nama"].lower(), k["satuan"].lower())
             d = acc[k["tipe"]].setdefault(kunci, {"nama": k["nama"], "satuan": k["satuan"], "jumlah": 0.0, "biaya": 0.0,
                                                   "pekerjaan": {}, "lantai": {}, "jumlah_berulang": 0.0,
-                                                  "biaya_berulang": 0.0, "lantai_berulang": {}, "pakai": 0})
+                                                  "biaya_berulang": 0.0, "lantai_berulang": {}, "pakai": 0,
+                                                  "merk": ""})
+            if k.get("merk") and not d["merk"]:
+                d["merk"] = k["merk"]
             jumlah = v * k["koefisien"]
             d["jumlah"] += jumlah
             d["biaya"] += jumlah * k["harga"]
@@ -267,10 +282,19 @@ def kebutuhan_sumber_daya(baris: list, komponen: dict) -> dict:
         items = [d for d in acc[tipe].values() if d["jumlah"] > 1e-9]
         for d in items:
             d["harga"] = d["biaya"] / d["jumlah"] if d["jumlah"] else 0.0
-            d["keterangan"] = keterangan_sumber_daya(d["nama"], d["satuan"], d["jumlah"], besi, tipe)
+            _isi_setara(d, besi, tipe)
         hasil[tipe] = sorted(items, key=lambda d: (-d["biaya"], d["nama"]))
     hasil["besi"] = besi
     return hasil
+
+
+def _isi_setara(d: dict, besi: dict | None, tipe: str = "bahan") -> None:
+    """Setara dan, untuk bahan, kemasan beli: 'kemasan' [Kemasan], 'jumlah_beli' (satuan analisa), 'biaya_beli'."""
+    d["keterangan"], kemasan = setara_rinci(d["nama"], d["satuan"], d["jumlah"], besi, tipe)
+    if tipe == "bahan":
+        d["kemasan"] = kemasan
+        d["jumlah_beli"] = jumlah_beli(kemasan) if kemasan else d["jumlah"]
+        d["biaya_beli"] = d["jumlah_beli"] * d["harga"]
 
 
 def pisah_berulang(items: list, besi: dict | None = None) -> tuple:
@@ -296,12 +320,109 @@ def pisah_berulang(items: list, besi: dict | None = None) -> tuple:
                  "pekerjaan": {n: p for n, p in d["pekerjaan"].items() if bool(p.get("pakai")) == berulang},
                  "jumlah_berulang": jumlah if berulang else 0.0, "biaya_berulang": biaya if berulang else 0.0,
                  "lantai_berulang": lantai if berulang else {}, "pakai": d["pakai"] if berulang else 0}
-            x["keterangan"] = keterangan_sumber_daya(x["nama"], x["satuan"], jumlah, besi)
+            _isi_setara(x, besi)
             if berulang:
                 x["sekali_pakai"] = jumlah * d["pakai"]
             daftar.append(x)
     return (sorted(habis, key=lambda d: (-d["biaya"], d["nama"])),
             sorted(ulang, key=lambda d: (-d["biaya"], d["nama"])))
+
+
+# ---------------------------------------------------------------- per tahap & per item pekerjaan
+
+
+def _total(kb: dict) -> dict:
+    return {
+        "biaya": sum(d["biaya"] for t, _ in TIPE_SUMBER_DAYA for d in kb.get(t, [])),
+        "biaya_bahan": sum(d["biaya"] for d in kb.get("bahan", [])),
+        "biaya_beli": sum(d.get("biaya_beli", d["biaya"]) for d in kb.get("bahan", [])),
+        "oh": sum(d["jumlah"] for d in kb.get("upah", []) if d["satuan"].lower() == "oh"),
+    }
+
+
+def kebutuhan_per_tahap(baris: list, komponen: dict, per_lantai: bool = True) -> list:
+    """Kebutuhan bahan, tenaga, dan alat per tahap pekerjaan (kategori RAB: Persiapan, Tanah, Fondasi, Beton, ...)
+    dan, bila `per_lantai`, per lantai di dalamnya. Urutan = urutan pelaksanaan: tahap menurut urutan RAB, lantai dari
+    terbawah. Kemasan beli dihitung per kelompok (satu kali pengiriman per tahap & lantai), sehingga jumlah beli
+    seluruh kelompok dapat sedikit lebih besar daripada pembelian sekaligus untuk seluruh proyek.
+    Return [{'tahap', 'nomor', 'lantai' (None bila tidak per lantai), 'baris', 'sumber_daya', 'biaya',
+    'biaya_bahan', 'biaya_beli', 'oh'}]."""
+    urut_lantai = {lt: i for i, lt in enumerate(daftar_lantai(baris))}
+    grup = {}
+    for r in baris:
+        lt = (r.get("lantai") or TANPA_LANTAI) if per_lantai else None
+        grup.setdefault((r.get("kategori") or "Lain-lain", lt), []).append(r)
+    tahap = sorted({k[0] for k in grup}, key=urutan_kategori)
+    hasil = []
+    for k in sorted(grup, key=lambda k: (urutan_kategori(k[0]), urut_lantai.get(k[1], -1))):
+        kb = kebutuhan_sumber_daya(grup[k], komponen)
+        hasil.append({"tahap": k[0], "nomor": tahap.index(k[0]) + 1, "lantai": k[1], "baris": grup[k],
+                      "sumber_daya": kb, **_total(kb)})
+    return hasil
+
+
+def jadwal_pengadaan(kelompok: list) -> list:
+    """Pembelian bahan per kelompok kebutuhan_per_tahap() berurutan, dengan sisa stok berpindah: kelompok berikutnya
+    hanya membeli kekurangannya (kemasan utuh), sisa kemasan dipakai tahap berikutnya. Stok baja tulangan dihitung
+    per diameter (sisa D16 tidak dapat menggantikan D13). Return per kelompok
+    [{'nama', 'satuan', 'kebutuhan', 'stok_awal', 'kemasan', 'dibeli', 'sisa', 'harga', 'biaya_beli', 'merk',
+    'keterangan'}] (urut biaya beli terbesar), dengan urutan kelompok sama."""
+    stok = {}
+    hasil = []
+    for g in kelompok:
+        besi = g["sumber_daya"].get("besi")
+        baris_g = []
+        for d in g["sumber_daya"]["bahan"]:
+            kunci = (d["nama"].lower(), d["satuan"].lower())
+            if tulangan(d["nama"]) and d["satuan"].lower() == "kg":  # stok per diameter
+                awal, kemasan = 0.0, []
+                for dia, bagian in sebaran_baja(d["nama"], besi)[0].items():
+                    perlu = d["jumlah"] * bagian
+                    ada = stok.get((*kunci, dia), 0.0)
+                    awal += ada
+                    k = beli_baja(dia, perlu - ada) if perlu - ada > 1e-9 else None
+                    if k:
+                        kemasan.append(k)
+                    stok[(*kunci, dia)] = ada + (k.jumlah * k.isi if k else 0.0) - perlu
+                dibeli = jumlah_beli(kemasan)
+                stok[kunci] = awal + dibeli - d["jumlah"]
+            else:
+                awal = stok.get(kunci, 0.0)
+                kurang = d["jumlah"] - awal
+                kemasan = setara_rinci(d["nama"], d["satuan"], kurang, besi)[1] if kurang > 1e-9 else []
+                dibeli = jumlah_beli(kemasan) if kemasan else 0.0
+                stok[kunci] = awal + dibeli - d["jumlah"]
+            baris_g.append({"nama": d["nama"], "satuan": d["satuan"], "kebutuhan": d["jumlah"], "stok_awal": awal,
+                            "kemasan": kemasan, "dibeli": dibeli, "sisa": stok[kunci], "harga": d["harga"],
+                            "biaya_beli": dibeli * d["harga"], "merk": d.get("merk") or "",
+                            "keterangan": d.get("keterangan") or ""})
+        hasil.append(sorted(baris_g, key=lambda x: (-x["biaya_beli"], x["nama"])))
+    return hasil
+
+
+def kebutuhan_per_pekerjaan(baris: list, komponen: dict) -> list:
+    """Bahan, tenaga, dan alat untuk setiap item pekerjaan RAB (urutan sama dengan RAB: kategori lalu nama).
+    Return [{'kategori', 'nomor', 'items': [{'pekerjaan_id', 'kode', 'nama', 'satuan', 'volume', 'jumlah_rab',
+    'koefisien': {(tipe, nama, satuan): koef}, 'sumber_daya', 'biaya', ...}], 'total_rab'}]."""
+    per_pekerjaan = {}
+    for r in baris:
+        d = per_pekerjaan.setdefault(r["pekerjaan_id"], {
+            "pekerjaan_id": r["pekerjaan_id"], "kategori": r.get("kategori") or "Lain-lain",
+            "kode": r.get("kode_ahsp") or "", "nama": r["nama_pekerjaan"], "satuan": r.get("satuan") or "",
+            "volume": 0.0, "jumlah_rab": 0.0, "baris": []})
+        d["volume"] += r["volume_pekerjaan"] or 0.0
+        d["jumlah_rab"] += r.get("subtotal_biaya") or 0.0
+        d["baris"].append(r)
+    per_kategori = {}
+    for d in per_pekerjaan.values():
+        kom = komponen.get(d["pekerjaan_id"]) or []
+        d["koefisien"] = {(k["tipe"], k["nama"].lower(), k["satuan"].lower()): k["koefisien"] for k in kom}
+        d["sumber_daya"] = kebutuhan_sumber_daya(d["baris"], komponen)
+        d.update(_total(d["sumber_daya"]))
+        per_kategori.setdefault(d["kategori"], []).append(d)
+    return [{"kategori": k, "nomor": i, "items": sorted(per_kategori[k], key=lambda x: x["nama"]),
+             "total_rab": sum(x["jumlah_rab"] for x in per_kategori[k])}
+            for i, k in enumerate(sorted(per_kategori, key=urutan_kategori), 1)]
 
 
 # ---------------------------------------------------------------- per lantai
