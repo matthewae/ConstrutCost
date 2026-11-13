@@ -501,6 +501,9 @@ def _aturan_buah(n: str, jumlah: float) -> str:
         if jumlah >= ISI_DUS_PAKU_SEKRUP / 2:
             return f"≈ {_naik(jumlah / ISI_DUS_PAKU_SEKRUP)} dus @ {ISI_DUS_PAKU_SEKRUP} buah"
         return ""
+    if n.startswith(("kayu papan", "kayu balok")):  # HSPK bekisting sloof: papan kayu "buah" berharga per m³
+        teks = _aturan_m3(n, n, jumlah)
+        return f"⚠ satuan HSPK buah, kemungkinan m³: {teks}" if teks else ""
     if n.startswith("paku"):  # paku dijual per kg
         panjang, _asumsi = _panjang_paku(n)
         if panjang:

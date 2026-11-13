@@ -41,6 +41,7 @@ from kebutuhan_lantai import (
     kebutuhan_sumber_daya,
     komponen_pekerjaan,
     penutup_bangunan,
+    pisah_berulang,
     rab_lantai,
     matriks_lantai,
     rasio_wajar,
@@ -832,8 +833,64 @@ def export_excel(path, data: dict, meta: dict, opsi: OpsiExport | None = None) -
             wb_.cell(r, 7, "=" + "+".join(f"G{x}" for x in sub_b)).number_format = ANGKA
             r += 2
         wb_.cell(r, 2, "Kebutuhan = volume pekerjaan × koefisien analisa HSPK yang dipakai di RAB (mengikuti pilihan "
-                       "material). Kebutuhan tiap lantai ada di sheet Kebutuhan per Lantai.").font = f_catatan
+                       "material). Kebutuhan tiap lantai ada di sheet Kebutuhan per Lantai. Bahan habis pakai dan "
+                       "bahan dipakai berulang (bekisting) dipisah di sheet Bahan Habis Pakai & Berulang.").font = f_catatan
         atur_cetak(wb_, hdr_b)
+
+        # Bahan habis pakai & bahan dipakai berulang (kayu, triplek, dolken bekisting: analisa HSPK "3 kali pakai")
+        habis, ulang = pisah_berulang(kb["bahan"], kb.get("besi"))
+        wp_ = wb.create_sheet("Bahan Habis Pakai & Berulang")
+        for i, lebar in enumerate((7, 46, 13, 8, 11, 15, 26, 16, 18), 1):
+            wp_.column_dimensions[L(i)].width = lebar
+        r = judul_sheet(wp_, "BAHAN HABIS PAKAI & BAHAN DIPAKAI BERULANG", 9)
+        hdr_p = r
+        header(wp_, r, ["No", "Uraian", "Kebutuhan", "Sat", "Dipakai", "Bila Sekali Pakai", "Setara",
+                        "Harga Dasar (Rp)", "Jumlah (Rp)"])
+        r += 1
+        sub_p = []
+        for kode_g, judul_g, items in (("A.1", "BAHAN HABIS PAKAI", habis),
+                                       ("A.2", "BAHAN DIPAKAI BERULANG (BEKISTING & PERANCAH)", ulang)):
+            gaya_baris(wp_, r, 9, f_bold, fill_kat)
+            wp_.cell(r, 1, kode_g)
+            wp_.cell(r, 2, judul_g)
+            r += 1
+            awal_p = r
+            for n, d in enumerate(items, 1):
+                gaya_baris(wp_, r, 9)
+                wp_.cell(r, 1, n).alignment = Alignment(horizontal="center")
+                wp_.cell(r, 2, d["nama"])
+                wp_.cell(r, 3, d["jumlah"]).number_format = ANGKA3 if d["jumlah"] < 10 else ANGKA
+                wp_.cell(r, 4, d["satuan"]).alignment = Alignment(horizontal="center")
+                if d.get("pakai"):
+                    wp_.cell(r, 5, f"{d['pakai']}×").alignment = Alignment(horizontal="center")
+                    wp_.cell(r, 6, f"=C{r}*{d['pakai']}").number_format = ANGKA3 if d["jumlah"] * d["pakai"] < 10 else ANGKA
+                else:
+                    wp_.cell(r, 5, "habis pakai").alignment = Alignment(horizontal="center")
+                wp_.cell(r, 7, d["keterangan"])
+                wp_.cell(r, 8, d["harga"]).number_format = ANGKA
+                wp_.cell(r, 9, f"=C{r}*H{r}").number_format = ANGKA
+                r += 1
+            gaya_baris(wp_, r, 9, f_bold)
+            wp_.cell(r, 2, f"Jumlah {judul_g.split(' (')[0].lower()}").alignment = Alignment(horizontal="right")
+            wp_.cell(r, 9, f"=SUM(I{awal_p}:I{r - 1})" if items else 0).number_format = ANGKA
+            sub_p.append(r)
+            r += 1
+        gaya_baris(wp_, r, 9, f_bold)
+        wp_.cell(r, 2, "JUMLAH BAHAN / MATERIAL (A.1 + A.2)").alignment = Alignment(horizontal="right")
+        wp_.cell(r, 9, "=" + "+".join(f"I{x}" for x in sub_p)).number_format = ANGKA
+        r += 2
+        pakai = max((d["pakai"] for d in ulang), default=0)
+        for teks in (
+            (f"Analisa bekisting HSPK berjudul \"{pakai or 3} kali pakai\": kebutuhan kayu, triplek / plywood, dan "
+             "dolken sudah dibagi jumlah pemakaian, sehingga kolom Kebutuhan adalah jumlah yang dibeli bila bekisting "
+             "dibongkar lalu dipasang lagi. Kolom Bila Sekali Pakai = kebutuhan bila setiap bekisting memakai bahan baru."),
+            ("Paku, minyak bekisting, dan bahan yang tertanam di bangunan (semen, besi, bata, kayu kusen / rangka atap, "
+             "dll.) termasuk bahan habis pakai. Jumlah A.1 + A.2 sama dengan Jumlah bahan / material di sheet "
+             "Kebutuhan Bahan; tenaga kerja & alat ada di sheet itu."),
+        ):
+            wp_.cell(r, 2, teks).font = f_catatan
+            r += 1
+        atur_cetak(wp_, hdr_p)
 
         we = wb.create_sheet("Kebutuhan per Elemen")
         for i, lebar in enumerate((6, 54, 14, 8, 22, 18), 1):
@@ -1514,6 +1571,32 @@ def export_pdf(path, data: dict, meta: dict, opsi: OpsiExport | None = None, cat
         t.setStyle(TableStyle(list(dasar) + [("ALIGN", (2, 1), (2, -1), "RIGHT"), ("ALIGN", (5, 1), (5, -1), "RIGHT")]))
         story += [t, Paragraph("Kebutuhan = volume pekerjaan × koefisien analisa HSPK; jumlah belum termasuk biaya umum "
                                "&amp; keuntungan. Rincian per elemen ada di file Excel (sheet Kebutuhan per Elemen).", s_cat)]
+        # bahan habis pakai & bahan dipakai berulang (bekisting)
+        habis, ulang = pisah_berulang(kb["bahan"], kb.get("besi"))
+        isi_p = [[Paragraph(t_, s_head) for t_ in ("No", "Uraian", "Kebutuhan", "Sat", "Dipakai", "Setara", "Jumlah (Rp)")]]
+        tebal = []
+        for kode_g, judul_g, items in (("A.1", "BAHAN HABIS PAKAI", habis),
+                                       ("A.2", "BAHAN DIPAKAI BERULANG (BEKISTING &amp; PERANCAH)", ulang)):
+            isi_p.append([kode_g, Paragraph(f"<b>{judul_g}</b>", s_sel), "", "", "", "", ""])
+            for n, d in enumerate(items, 1):
+                isi_p.append([str(n), Paragraph(_esc(d["nama"]), s_sel), _rp(d["jumlah"], 3 if d["jumlah"] < 10 else 2),
+                              d["satuan"], f"{d['pakai']}×" if d.get("pakai") else "habis",
+                              Paragraph(_esc(d["keterangan"]), s_sel), _rp(d["biaya"])])
+            tebal.append(len(isi_p))
+            isi_p.append(["", Paragraph(f"Jumlah {judul_g.split(' (')[0].lower()}", s_sel), "", "", "", "",
+                          _rp(sum(d["biaya"] for d in items))])
+        tebal.append(len(isi_p))
+        isi_p.append(["", Paragraph("<b>JUMLAH BAHAN / MATERIAL (A.1 + A.2)</b>", s_sel), "", "", "", "",
+                      _rp(sum(d["biaya"] for d in habis + ulang))])
+        t = Table(isi_p, colWidths=[lebar_isi * f for f in (0.06, 0.36, 0.12, 0.07, 0.08, 0.15, 0.16)], repeatRows=1)
+        t.setStyle(TableStyle(list(dasar) + [("ALIGN", (2, 1), (2, -1), "RIGHT"), ("ALIGN", (4, 1), (4, -1), "CENTER"),
+                                             ("ALIGN", (6, 1), (6, -1), "RIGHT")]
+                              + [("FONTNAME", (0, i), (-1, i), "Helvetica-Bold") for i in tebal]))
+        pakai = max((d["pakai"] for d in ulang), default=0) or 3
+        story += [Spacer(1, 8), Paragraph("<b>Bahan habis pakai &amp; bahan dipakai berulang</b>", s_info), Spacer(1, 3),
+                  t, Paragraph(f"Analisa bekisting HSPK berjudul \"{pakai} kali pakai\": kebutuhan kayu, triplek, dan "
+                               f"dolken sudah dibagi {pakai}; bila setiap bekisting memakai bahan baru dibutuhkan {pakai} "
+                               "kali lipat. Paku &amp; minyak bekisting habis pada setiap pemakaian.", s_cat)]
 
     if opsi.detail:
         story += [PageBreak()] + kop("DETAIL VOLUME PER ELEMEN & LANTAI")
@@ -1565,4 +1648,5 @@ def _isi(opsi: OpsiExport) -> str:
 
 
 def _esc(teks) -> str:
-    return str(teks).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # "⚠" tidak ada di font PDF (Helvetica) dan tercetak sebagai kotak hitam
+    return str(teks).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("⚠", "(!)")

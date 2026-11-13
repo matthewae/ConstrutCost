@@ -18,6 +18,7 @@ Lantai dikenali dari IfcBuildingStorey, berapa pun jumlahnya, urut elevasi (rab_
 import math
 import re
 
+from bahan_berulang import jumlah_pakai, pakai_komponen
 from database.material import kode_dasar
 from rab_rinci import TANPA_LANTAI, daftar_lantai, rekap_per_lantai, susun_rinci
 from rules.penulangan import NAMA_KELOMPOK, PANJANG_BATANG, URUTAN, berat_per_m, jenis_baja, label_d, label_tipe
@@ -180,7 +181,8 @@ def nama_dasar(nama: str, sheet: set) -> str:
 
 
 def komponen_pekerjaan(pekerjaan_ids) -> dict:
-    """{pekerjaan_id: [{'tipe', 'nama', 'satuan', 'koefisien', 'harga'}]} dari analisa harga satuan."""
+    """{pekerjaan_id: [{'tipe', 'nama', 'satuan', 'koefisien', 'harga', 'pakai'}]} dari analisa harga satuan.
+    'pakai' = berapa kali bahan itu dipakai (bahan bekisting pada analisa "3 kali pakai": 3), 0 = habis pakai."""
     from database.estimasi_repository import _connect
 
     ids = sorted({int(i) for i in pekerjaan_ids})
@@ -196,13 +198,16 @@ def komponen_pekerjaan(pekerjaan_ids) -> dict:
                 WHERE k.pekerjaan_id IN ({','.join('?' * len(ids))}) ORDER BY k.id""",
             ids,
         ).fetchall()
+        pakai = {r["id"]: jumlah_pakai(f"{r['nama_pekerjaan']} {r['catatan'] or ''}") for r in conn.execute(
+            f"SELECT id, nama_pekerjaan, catatan FROM pekerjaan WHERE id IN ({','.join('?' * len(ids))})", ids)}
     finally:
         conn.close()
     hasil = {}
     for r in rows:
+        nama = nama_dasar(" ".join(r["nama"].split()), sheet)
         hasil.setdefault(r["pekerjaan_id"], []).append({
-            "tipe": r["tipe"], "nama": nama_dasar(" ".join(r["nama"].split()), sheet), "satuan": r["satuan"],
-            "koefisien": r["koefisien"], "harga": r["harga"],
+            "tipe": r["tipe"], "nama": nama, "satuan": r["satuan"], "koefisien": r["koefisien"], "harga": r["harga"],
+            "pakai": pakai_komponen(nama, pakai.get(r["pekerjaan_id"], 0)) if r["tipe"] == "bahan" else 0,
         })
     return hasil
 
@@ -217,8 +222,10 @@ def keterangan_sumber_daya(nama: str, satuan: str, jumlah: float, besi: dict | N
 def kebutuhan_sumber_daya(baris: list, komponen: dict) -> dict:
     """{'bahan': [...], 'upah': [...], 'alat': [...], 'tanpa_analisa': [nama pekerjaan]}.
     Item: {'nama', 'satuan', 'jumlah', 'harga', 'biaya', 'keterangan', 'pekerjaan', 'lantai'}; urut biaya
-    terbesar dulu. 'pekerjaan' = {nama pekerjaan: {'volume', 'satuan', 'koefisien', 'jumlah'}} dan 'lantai' =
-    {lantai: jumlah}: asal kebutuhan itu (mis. semen dari pasangan bata, plesteran, dan acian)."""
+    terbesar dulu. 'pekerjaan' = {nama pekerjaan: {'volume', 'satuan', 'koefisien', 'jumlah', 'pakai'}} dan 'lantai' =
+    {lantai: jumlah}: asal kebutuhan itu (mis. semen dari pasangan bata, plesteran, dan acian).
+    Bagian yang dipakai berulang (kayu / triplek / dolken bekisting): 'jumlah_berulang', 'biaya_berulang',
+    'lantai_berulang', dan 'pakai' (berapa kali dipakai); lihat pisah_berulang()."""
     acc = {t: {} for t, _ in TIPE_SUMBER_DAYA}
     tanpa = set()
     for r in baris:
@@ -233,15 +240,24 @@ def kebutuhan_sumber_daya(baris: list, komponen: dict) -> dict:
                 continue
             kunci = (k["nama"].lower(), k["satuan"].lower())
             d = acc[k["tipe"]].setdefault(kunci, {"nama": k["nama"], "satuan": k["satuan"], "jumlah": 0.0, "biaya": 0.0,
-                                                  "pekerjaan": {}, "lantai": {}})
-            d["jumlah"] += v * k["koefisien"]
-            d["biaya"] += v * k["koefisien"] * k["harga"]
+                                                  "pekerjaan": {}, "lantai": {}, "jumlah_berulang": 0.0,
+                                                  "biaya_berulang": 0.0, "lantai_berulang": {}, "pakai": 0})
+            jumlah = v * k["koefisien"]
+            d["jumlah"] += jumlah
+            d["biaya"] += jumlah * k["harga"]
+            pakai = k.get("pakai") or 0
             p = d["pekerjaan"].setdefault(r["nama_pekerjaan"], {"volume": 0.0, "satuan": r.get("satuan") or "",
-                                                                "koefisien": k["koefisien"], "jumlah": 0.0})
+                                                                "koefisien": k["koefisien"], "jumlah": 0.0,
+                                                                "pakai": pakai})
             p["volume"] += v
-            p["jumlah"] += v * k["koefisien"]
+            p["jumlah"] += jumlah
             lt = r.get("lantai") or TANPA_LANTAI
-            d["lantai"][lt] = d["lantai"].get(lt, 0.0) + v * k["koefisien"]
+            d["lantai"][lt] = d["lantai"].get(lt, 0.0) + jumlah
+            if pakai:
+                d["jumlah_berulang"] += jumlah
+                d["biaya_berulang"] += jumlah * k["harga"]
+                d["lantai_berulang"][lt] = d["lantai_berulang"].get(lt, 0.0) + jumlah
+                d["pakai"] = max(d["pakai"], pakai)
     hasil = {"tanpa_analisa": sorted(tanpa)}
     besi = {}  # sebaran diameter penulangan baris ini: baja tulangan kg -> batang per diameter
     for r in baris:
@@ -253,7 +269,39 @@ def kebutuhan_sumber_daya(baris: list, komponen: dict) -> dict:
             d["harga"] = d["biaya"] / d["jumlah"] if d["jumlah"] else 0.0
             d["keterangan"] = keterangan_sumber_daya(d["nama"], d["satuan"], d["jumlah"], besi, tipe)
         hasil[tipe] = sorted(items, key=lambda d: (-d["biaya"], d["nama"]))
+    hasil["besi"] = besi
     return hasil
+
+
+def pisah_berulang(items: list, besi: dict | None = None) -> tuple:
+    """(bahan habis pakai, bahan dipakai berulang) dari item kebutuhan_sumber_daya()['bahan']. Bahan yang dipakai di
+    kedua jenis pekerjaan (mis. kaso 5/7 untuk bekisting dan rangka plafon) dibagi dua baris; setara dihitung ulang.
+    Item berulang memuat 'pakai' (n kali) dan 'sekali_pakai' (kebutuhan bila tanpa pemakaian ulang = jumlah × n)."""
+    habis, ulang = [], []
+    for d in items:
+        jb = d.get("jumlah_berulang") or 0.0
+        if jb <= 1e-9:
+            habis.append(d)
+            continue
+        if jb >= d["jumlah"] - 1e-9:
+            ulang.append({**d, "sekali_pakai": d["jumlah"] * d["pakai"]})
+            continue
+        for berulang, daftar in ((False, habis), (True, ulang)):
+            jumlah = jb if berulang else d["jumlah"] - jb
+            biaya = d["biaya_berulang"] if berulang else d["biaya"] - d["biaya_berulang"]
+            lantai = dict(d["lantai_berulang"]) if berulang else {
+                lt: j - d["lantai_berulang"].get(lt, 0.0) for lt, j in d["lantai"].items()
+                if j - d["lantai_berulang"].get(lt, 0.0) > 1e-9}
+            x = {**d, "jumlah": jumlah, "biaya": biaya, "harga": biaya / jumlah if jumlah else 0.0, "lantai": lantai,
+                 "pekerjaan": {n: p for n, p in d["pekerjaan"].items() if bool(p.get("pakai")) == berulang},
+                 "jumlah_berulang": jumlah if berulang else 0.0, "biaya_berulang": biaya if berulang else 0.0,
+                 "lantai_berulang": lantai if berulang else {}, "pakai": d["pakai"] if berulang else 0}
+            x["keterangan"] = keterangan_sumber_daya(x["nama"], x["satuan"], jumlah, besi)
+            if berulang:
+                x["sekali_pakai"] = jumlah * d["pakai"]
+            daftar.append(x)
+    return (sorted(habis, key=lambda d: (-d["biaya"], d["nama"])),
+            sorted(ulang, key=lambda d: (-d["biaya"], d["nama"])))
 
 
 # ---------------------------------------------------------------- per lantai

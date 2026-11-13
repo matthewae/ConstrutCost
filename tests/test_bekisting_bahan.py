@@ -257,6 +257,8 @@ def test_setara_bahan_yang_dijual_bukan_per_satuan_analisa():
     assert setara("Asbes gelombang besar 5 mm, 210x105 cm", "lembar", 12.3) == "≈ 13 lembar @ 210 × 105 cm"
     # dijual per satuannya: dibulatkan ke atas; komponen berupa pekerjaan & tenaga/alat: kosong
     assert setara("Genteng beton", "buah", 978.74) == "beli 979 buah"
+    # HSPK bekisting sloof: "Kayu papan kelas III" bersatuan buah padahal berharga per m³ -> ditandai
+    assert setara("Kayu papan kelas III", "buah", 0.888).startswith("⚠ satuan HSPK buah, kemungkinan m³: ≈ 56 lbr papan")
     assert setara("Sealant", "tube", 8.62) == "beli 9 tube"
     assert setara("Batu paras", "m2", 15.4) == "dijual per m²"
     assert setara("Bekisting", "m2", 4) == ""

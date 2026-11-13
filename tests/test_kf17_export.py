@@ -58,7 +58,7 @@ def test_kolom_dan_sheet_sesuai_pilihan(data_export, tmp_path):
                                         "Rekap_Volume", "Rekap_Besi",
                                         "BBS", "RAB Rinci", "Rekap per Lantai", "Kebutuhan per Lantai",
                                         "Rincian Perhitungan Lantai", *lantai, "Kebutuhan Bahan",
-                                        "Kebutuhan per Elemen", "Detail_Elemen"]
+                                        "Bahan Habis Pakai & Berulang", "Kebutuhan per Elemen", "Detail_Elemen"]
     assert _terlihat(wb["RAB"]) == [
         "No", "Uraian Pekerjaan", "Kode Analisa", "Volume", "Sat.", "HS Upah (Rp)", "HS Bahan (Rp)", "HS Alat (Rp)",
         "Harga Satuan (Rp)", "Jumlah Harga (Rp)", "Bobot", "Sumber Volume",

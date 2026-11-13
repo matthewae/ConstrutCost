@@ -209,6 +209,56 @@ dibiarkan kosong hanya untuk komponen yang berupa pekerjaan (bekisting, pasangan
 untuk peralatan, dan untuk dynabolt yang dicatat HSPK dalam kg padahal dijual per buah. Rumus zak di panel rincian
 dan export memakai berat zak bahan itu (50 kg semen PC, 40 kg semen putih / mortar).
 
+### Bahan habis pakai & bahan dipakai berulang (`bahan_berulang.py`)
+
+**Pemakaian berulang sudah diperhitungkan sejak awal.** Semua analisa bekisting HSPK Kota Bandung 2027 yang dipakai
+(2.2.1.3.1 s.d. 2.2.1.3.7) berjudul *"(3 kali pakai)"*. Koefisien kayu, triplek / plywood, dan dolken (perancah) di
+analisa itu adalah kebutuhan satu set bekisting dibagi 3 pemakaian; paku dan minyak bekisting habis pada setiap
+pemakaian. Jadi harga satuan bekisting di RAB dan jumlah kayu / triplek / dolken di Kebutuhan Bahan sudah berupa
+jumlah yang dibeli bila bekisting dibongkar lalu dipasang lagi 3 kali (mis. lantai 1 → lantai 2 → lantai 3).
+
+| Komponen analisa bekisting kolom per m² | Koefisien HSPK | Sifat |
+|---|---|---|
+| Plywood 12 mm (diganti tripleks 9 mm) | 0,127 lembar | dipakai 3× (satu set ± 0,381 lembar/m² dibagi 3) |
+| Kayu balok 6/12 (diganti kaso 5/7) | 0,00465 m³ | dipakai 3× |
+| Dolken φ 8–10 cm, 4 m | 0,65 batang | dipakai 3× |
+| Paku | 0,4 kg | habis pakai |
+| Minyak bekisting | 0,2 liter | habis pakai |
+
+Aturan penandaan:
+1. Jumlah pemakaian dibaca dari judul analisa HSPK pekerjaan itu, mis. "(3 kali pakai)"; "(10 - 12 kali pakai)"
+   dibaca 10.
+2. Pada pekerjaan dengan pemakaian ≥ 2, bahan bekisting/perancah (kayu, kaso, balok, papan, triplek, plywood,
+   multiplek, dolken, bambu) ditandai **dipakai berulang**. Paku, minyak, formtie / spacer, kawat, dan lem tetap
+   **habis pakai**.
+3. Komponen "Bekisting" di analisa lain (mis. sumur resapan HSPK 6.2.4.1) mengikuti analisa bekisting HSPK: 3×.
+4. Kayu kusen, rangka atap, plafon, lisplang, dan sejenisnya terpasang permanen: habis pakai. Bahan yang dipakai di
+   kedua jenis pekerjaan (mis. kaso untuk bekisting dan rangka plafon) dibagi menjadi dua baris.
+
+**Di aplikasi** (tab Kebutuhan Bahan, combo di baris tab):
+
+| Tampilan | Isi |
+|---|---|
+| Bahan: gabungan (bawaan) | A Bahan / material, B Tenaga kerja, C Peralatan, seperti sebelumnya |
+| Bahan: pisah habis pakai & berulang | A.1 Bahan habis pakai, A.2 Bahan dipakai berulang (bekisting & perancah, 3× pakai), Jumlah bahan (A.1 + A.2), B, C |
+| Bahan habis pakai saja / Bahan dipakai berulang saja | hanya kelompok itu |
+
+Pilihan tampilan diingat. Memilih bahan berulang menampilkan di panel Rincian: pemakaian (3× sesuai analisa HSPK),
+kebutuhan **bila sekali pakai** (jumlah × 3), dan pekerjaan asalnya. Combo ganti kayu & triplek bekisting tetap
+tersedia di baris bahan berulang.
+
+**Di export** (isi *Kebutuhan bahan*): sheet **Kebutuhan Bahan** tetap berisi keseluruhan; sheet baru **Bahan Habis
+Pakai & Berulang** berisi A.1 dan A.2 dengan kolom *Dipakai* (3× / habis pakai) dan *Bila Sekali Pakai* (rumus
+= Kebutuhan × 3), serta Jumlah A.1 + A.2 yang sama dengan jumlah bahan di sheet Kebutuhan Bahan. PDF memuat tabel yang
+sama setelah tabel kebutuhan keseluruhan.
+
+Contoh Tipe 120 3 lantai: bahan Rp 811,9 jt = habis pakai Rp 777,9 jt + dipakai berulang Rp 34,0 jt (dolken 450
+batang, tripleks 60 lembar, kaso 2,37 m³, papan kelas III). Tanpa pemakaian ulang dibutuhkan 3 kali lipatnya
+(mis. tripleks 181 lembar).
+
+Catatan data HSPK: analisa bekisting sloof (2.2.1.3.2) mencatat "Kayu papan kelas III" bersatuan *buah* padahal
+harganya per m³; kolom Setara menandainya "⚠ satuan HSPK buah, kemungkinan m³".
+
 ### Ganti bahan langsung di Kebutuhan Bahan
 
 Nama bahan yang dapat diganti tampil sebagai combo (▾), mis. *Kaso 5/7 kayu kelas II ▾*, *Tripleks 9 mm ▾*,
