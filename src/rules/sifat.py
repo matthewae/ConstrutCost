@@ -1,0 +1,210 @@
+"""
+Sifat elemen yang dipakai bersama preprocessor dan basis aturan.
+
+`bukan_beton(e)` mengenali elemen yang di model IFC terklasifikasi sebagai pelat/balok/kolom tetapi
+bukan beton bertulang, sehingga tidak boleh dihitung sebagai beton + besi + bekisting:
+
+- pelat (dan dak) yang terlalu tipis, mis. lapisan keramik/parket 1-2 cm yang dimodelkan sebagai IfcSlab;
+- balok/kolom profil baja (WF, IWF, UB, kanal C, hollow, ...), dikenali dari nama profil atau dari
+  volume yang jauh lebih kecil dari b x h x L (penampang berongga, bukan persegi pejal);
+- balok/kolom yang penampangnya terlalu kecil untuk beton bertulang (mis. gording kayu 8/16);
+- pelat/balok/kolom yang namanya menunjukkan kayu atau finishing (mis. "Wood Joist", "Parket").
+
+Batas yang dipakai sama dengan batas wajar beton bertulang di rules/penulangan.py.
+"""
+
+import re
+
+from .penulangan import PENAMPANG_MIN_LINIER, TEBAL_MIN_BIDANG
+
+# Isi penampang minimum (V / (b x h x L)). Persegi pejal = 1, lingkaran = 0,785; profil baja WF umumnya < 0,2.
+ISI_MIN_BETON = 0.5
+
+_PROFIL_BAJA = re.compile(
+    r"(?<![a-z0-9])("
+    r"w\d+\s*x\s*\d+|wf|iwf|h-?beam|wide\s*flange|ub|uc|he[abm]|ipe|unp|cnp|lip\s*channel|"
+    r"hollow|hss|rhs|shs|chs|steel|baja"
+    r")(?![a-z])",
+    re.IGNORECASE,
+)
+
+# Elemen kayu / finishing (lantai papan, parket, rangka kayu) yang dimodelkan sebagai pelat/balok/kolom.
+_KAYU = re.compile(
+    r"(?<![a-z])(kayu|wood|timber|joist|parket|parquet|vinyl|carpet|karpet|laminate)(?![a-z])",
+    re.IGNORECASE,
+)
+
+KELAS_LINIER = ("COLUMN", "BEAM")
+KELAS_BIDANG = ("SLAB", "ROOF")
+# Tangga beton (pelat miring 10-15 cm + anak tangga) mengisi ± 11-20% kotak L x B x H. Tangga kayu (pijakan
+# papan) dan baja (ibu tangga kanal + pelat bordes) hanya ± 0,5-3%.
+ISI_MIN_TANGGA = 0.06
+
+
+def _cm(x: float) -> str:
+    return f"{x * 100:.1f}".replace(".", ",")
+
+
+def tebal_bidang(e: dict) -> float | None:
+    t = e.get("tebal")
+    if t:
+        return t
+    if e.get("volume") and e.get("luas"):
+        return e["volume"] / e["luas"]
+    return None
+
+
+def penampang_linier(e: dict):
+    """(b, h, L) kolom/balok, atau None bila salah satu tidak diketahui."""
+    if e.get("kelas") == "COLUMN":
+        b, h, L = e.get("lebar"), e.get("tebal"), e.get("tinggi")
+    else:
+        b, h, L = e.get("lebar"), e.get("tinggi"), e.get("panjang")
+    if b and h and L:
+        return b, h, L
+    return None
+
+
+def bukan_beton(e: dict) -> str | None:
+    """Alasan elemen tidak dihitung sebagai beton bertulang, atau None bila elemen dianggap beton."""
+    kelas = e.get("kelas")
+    info = e.get("info_kolom") or {}
+    if kelas == "COLUMN" and info.get("duplikat"):
+        return (f"menempati ruang yang sama dengan kolom '{info.get('nama_duplikat') or info['duplikat']}' "
+                "(objek ganda / pembungkus arsitektur); volumenya sudah dihitung pada kolom tersebut")
+    if kelas in KELAS_LINIER + KELAS_BIDANG + ("STAIR",) and _KAYU.search(e.get("nama") or ""):
+        return "nama elemen menunjukkan bahan kayu/finishing, bukan beton"
+    if kelas == "STAIR":
+        if _PROFIL_BAJA.search(e.get("nama") or ""):
+            return "nama elemen menunjukkan tangga baja"
+        L, B, H, v = e.get("panjang"), e.get("lebar"), e.get("tinggi"), e.get("volume")
+        if L and B and H and v and v / (L * B * H) < ISI_MIN_TANGGA:
+            return (f"volume hanya {v / (L * B * H) * 100:.0f}% dari L × B × H, kemungkinan tangga baja/kayu "
+                    "(ibu tangga + pijakan)")
+        return None
+    if kelas in KELAS_BIDANG:
+        t = tebal_bidang(e)
+        if t is not None and t < TEBAL_MIN_BIDANG - 1e-9:
+            return f"tebal {_cm(t)} cm < {_cm(TEBAL_MIN_BIDANG)} cm, dianggap lapisan finishing/penutup"
+        return None
+    if kelas not in KELAS_LINIER:
+        return None
+    if _PROFIL_BAJA.search(e.get("nama") or ""):
+        return "nama elemen menunjukkan profil baja"
+    u = penampang_linier(e)
+    if u is None:
+        return None
+    b, h, L = u
+    if min(b, h) < PENAMPANG_MIN_LINIER - 1e-9:
+        return f"penampang {_cm(b)}/{_cm(h)} cm terlalu kecil untuk beton bertulang (kayu/baja)"
+    v = e.get("volume")
+    if v:
+        isi = v / (b * h * L)
+        if isi < ISI_MIN_BETON:
+            return (f"volume hanya {isi * 100:.0f}% dari b × h × L, penampang berongga "
+                    "(kemungkinan profil baja)")
+    return None
+
+
+def beton(e: dict) -> bool:
+    return bukan_beton(e) is None
+
+
+# Rabat beton / lantai kerja: pelat tipis tak bertulang di atas tanah. Volumenya dihitung sebagai rabat beton
+# (LTK.LANTAI), bukan pelat beton struktural f'c 20 MPa beserta besi dan bekistingnya.
+_RABAT = re.compile(r"rabat|lantai\s*kerja|lean\s*concrete|blinding|mud\s*slab", re.IGNORECASE)
+_BERTULANG = re.compile(r"bertulang|wire\s*-?\s*mesh|tulangan|reinforced", re.IGNORECASE)
+TEBAL_RABAT_MAKS = 0.10  # m
+# Bordes tangga: pelat yang menggantung di antara dua lantai walau disimpan di lantai bawahnya.
+_BORDES = re.compile(r"bordes|landing", re.IGNORECASE)
+
+
+def rabat(e: dict) -> bool:
+    if e.get("kelas") != "SLAB":
+        return False
+    nama = e.get("nama") or ""
+    if not _RABAT.search(nama) or _BERTULANG.search(nama):
+        return False
+    t = e.get("tebal")
+    return t is None or t <= TEBAL_RABAT_MAKS + 1e-9
+
+
+_AANSTAMPING = re.compile(r"aanstamping|anstamping|batu[\s_]*kosong|hardcore", re.IGNORECASE)
+_LANTAI_KERJA = re.compile(r"lantai[\s_]*kerja|lean[\s_]*concrete|blinding", re.IGNORECASE)
+_DI_BAWAH_LANTAI = re.compile(r"(bawah|under)[\s_]*(lantai|floor|slab)|carport|teras|court|selasar|jalan", re.IGNORECASE)
+_DI_BAWAH_SLOOF = re.compile(r"sloof|tie[\s_]*beam|ground[\s_]*beam", re.IGNORECASE)
+
+
+def pekerjaan_tanah(e: dict) -> str | None:
+    """Kode pekerjaan untuk urugan / lantai kerja / aanstamping yang dimodelkan (kelas EARTHWORK)."""
+    if e.get("kelas") != "EARTHWORK":
+        return None
+    teks = f"{e.get('predefined_type') or ''} {e.get('nama') or ''}"
+    if _AANSTAMPING.search(teks):
+        return "FDN.AANSTAMPING"
+    lantai = bool(_DI_BAWAH_LANTAI.search(teks))
+    if _LANTAI_KERJA.search(teks):
+        return "LTK.LANTAI" if lantai else "LTK.FONDASI"
+    if _DI_BAWAH_SLOOF.search(teks):
+        return "TNH.PASIR.SLOOF"
+    return "TNH.PASIR.LANTAI" if lantai else "TNH.PASIR.FONDASI"
+
+
+def bordes(e: dict) -> bool:
+    return e.get("kelas") == "SLAB" and (
+        (e.get("predefined_type") or "") == "LANDING" or bool(_BORDES.search(e.get("nama") or ""))
+    )
+
+
+_SUMURAN = re.compile(r"sumuran|caisson|bore[\s_-]*pile|bored[\s_-]*pile|strauss|broncaptering", re.IGNORECASE)
+
+
+def sumuran_model(e: dict) -> bool:
+    """Fondasi sumuran / tiang bor yang dimodelkan sebagai IfcFooting: dicor di lubang galian (buis beton sebagai
+    bekisting permanen), dihitung dengan analisa sumuran, tanpa bekisting."""
+    return e.get("kelas") == "FOOTING" and (
+        (e.get("predefined_type") or "") == "CAISSON_FOUNDATION" or bool(_SUMURAN.search(e.get("nama") or ""))
+    )
+
+
+def kolom_struktur(e: dict) -> bool:
+    """Kolom yang memikul beban ke fondasi. Kolom praktis (sisi terkecil ≤ 15 cm, di dalam pasangan
+    dinding) berdiri di atas sloof/fondasi menerus sehingga tidak mendapat fondasi sumuran sendiri; begitu
+    juga kolom arsitektur (non-struktural, kolom.py). Kolom kanopi/carport tetap memikul atap ke tanah.
+    Bila penampang tidak diketahui, kolom dianggap kolom struktur (aman: fondasi tetap dihitung)."""
+    if (e.get("info_kolom") or {}).get("fungsi") in ("praktis", "arsitektur"):
+        return False
+    b, h = e.get("lebar"), e.get("tebal")
+    if b and h:
+        return min(b, h) > 0.15 + 1e-9
+    return True
+
+
+# Balok yang dimodelkan sebagai sloof (Revit sering memodelkan sloof sebagai Structural Framing = IfcBeam).
+_SLOOF = re.compile(r"(?<![a-z])(sloof|tie\s*-?\s*beam|ground\s*beam|footing\s*beam|grade\s*beam)(?![a-z])",
+                    re.IGNORECASE)
+_MENERUS_BATU = re.compile(r"(?<![a-z])(batu|stone|rubble|masonry)(?![a-z])", re.IGNORECASE)
+_MENERUS_BETON = re.compile(r"(?<![a-z])(beton|concrete|bertulang|reinforced|footing)(?![a-z])", re.IGNORECASE)
+
+# Dinding pasangan (bata) minimum: 1/2 bata tanpa plester ±11 cm. Partisi ringan (gypsum, GRC) lebih tipis
+# dan tidak mendapat fondasi/sloof turunan.
+TEBAL_MIN_PASANGAN = 0.10  # m
+
+
+def balok_sloof(e: dict) -> bool:
+    """Balok yang namanya menunjukkan sloof (dihitung sebagai sloof, bukan balok)."""
+    return e.get("kelas") == "BEAM" and bool(_SLOOF.search(e.get("nama") or ""))
+
+
+def dinding_pasangan(e: dict) -> bool:
+    t = e.get("tebal")
+    return t is None or t >= TEBAL_MIN_PASANGAN - 1e-9
+
+
+def menerus_beton_dari_nama(nama: str | None) -> bool:
+    """Fondasi menerus dari model: beton bertulang bila namanya menyebut beton/concrete/footing dan tidak
+    menyebut batu. Tanpa petunjuk = pasangan batu kali (praktik rumah tinggal)."""
+    teks = nama or ""
+    if _MENERUS_BATU.search(teks):
+        return False
+    return bool(_MENERUS_BETON.search(teks))

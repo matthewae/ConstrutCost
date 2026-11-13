@@ -1,0 +1,148 @@
+# Koreksi Basis Aturan (Rule Engine) setelah Audit
+
+> Pilihan material, katalog HSPK lengkap, dan kebutuhan bahan per elemen: lihat `docs/Katalog-Material-Kebutuhan.md`.
+> Mulai versi itu pasangan dinding bawaan adalah bata ringan 60×20×10 (HSPK 3.6.4.2); angka dampak di bawah dihitung dengan bata merah.
+
+Mesin aturannya sudah benar sejak awal:
+- pencocokan kelas, syarat, dan dimensi wajib;
+- *forward chaining* satu siklus;
+- satuan yang sama dengan analisa HSPK.
+
+Audit pada tiga model uji menemukan beberapa **asumsi konstruksi** yang membuat RAB menyimpang. Dokumen ini
+mencatat setiap koreksi, alasannya, dan dampaknya. Jumlah aturan bertambah dari 52 menjadi 69, lalu 77 setelah uji model Rumah Tipe 120, 85 setelah sumuran model dan pilihan jenis fondasi kolom (16 kelas elemen), lalu 91 setelah semua elemen model
+masuk RAB (kelas LAINNYA dan struktur bukan beton, 17 kelas; lihat `docs/Elemen-Lain.md`).
+
+## Ringkasan koreksi
+
+| No | Masalah | Koreksi | Kode |
+|---|---|---|---|
+| 1 | Pelat lantai dasar (slab on grade) dihitung D13-150 dua lapis penuh (±29 kg/m²) | Kelompok tipe baru **Pelat Lantai Dasar (L1, L2, …)**, bawaan Ø8-150 satu lapis (setara wiremesh M8-150, ±5,5 kg/m²) | `rules/penulangan.py` |
+| 1 | Pelat lantai atas dan dak dihitung dua lapis penuh | Susunan bawaan **bawah penuh + atas tumpuan**: tulangan atas ¼ bentang dari tiap tepi = ½ lapis, faktor 1,5. Pilihan "1 lapis" dan "2 lapis penuh" tetap tersedia di Tipe Penulangan | `rules/penulangan.py`, `gui/penulangan_dialog.py` |
+| 2 | Lapisan finishing (keramik/parket 1–2 cm) dan lantai kayu yang dimodelkan sebagai IfcSlab dihitung sebagai beton + besi + bekisting | Elemen **bukan beton** dikenali dari tiga ciri: tebal < 7 cm, nama kayu/finishing, atau profil baja. Beton, besi, bekisting, serta keramik/plafon/tanah dari pelat tidak dihitung, dan pengguna mendapat peringatan | `rules/sifat.py` |
+| 3 | Kolom praktis (13/13) mendapat fondasi sumuran Ø100 cm sendiri | Sumuran turunan hanya untuk **kolom struktur** (sisi terkecil > 15 cm). Kolom tanpa ukuran tetap dianggap kolom struktur | `rules/sifat.py`, `rules/definitions.py` |
+| 4 | Model tanpa fondasi: batu kali diturunkan tetapi **sloof** tidak | **Sloof turunan** di bawah dinding pasangan lantai dasar (beton, besi tipe S, bekisting 2 sisi). Ukuran otomatis 15/20 (1 lantai) atau 20/30 (≥ 2 lantai); bisa diubah di Parameter Aturan | `rules/konteks.py`, `rules/definitions.py` |
+| 5 | Balok/kolom baja (WF, UB, HSS) dan gording kayu dihitung sebagai beton bertulang | Dikenali dari nama profil, dari volume < 50% b × h × L (penampang berongga), atau dari penampang < 10 cm | `rules/sifat.py` |
+| 6 | (diperiksa) Plafon dari sumber "pelat" ikut menghitung pelat lantai dasar | **Bukan kesalahan**: plafon tiap lantai ≈ luas lantai tersebut (pelat dasar = plafon lantai 1, pelat lantai 2 = plafon lantai 2). Totalnya sudah benar, jadi tidak diubah | — |
+| 7 | Tangga, railing, member, proxy, dan curtain wall diabaikan tanpa pemberitahuan | Dilaporkan di dialog Konfirmasi Import dan di peringatan estimasi, supaya pekerjaannya bisa ditambah manual | `klasifikasi.py`, `ifc_reader.py`, `gui/import_dialog.py` |
+| 8 | Fondasi menerus dari model selalu dihargai sebagai batu kali | Parameter **Fondasi menerus dihitung sebagai**: otomatis dari nama (bawaan), batu kali, atau beton bertulang. Fondasi beton dihitung beton + besi + bekisting + lantai kerja dan tidak memerlukan sloof turunan | `rules/konteks.py`, `rules/parameter.py` |
+| 9 | Bekisting balok selalu (b + 2h)L | Balok yang dicor bersama pelat: **(b + 2(h − t_pelat))L**, dengan t = median tebal pelat/dak beton. Ring balok/latei (≤ 15/20) dan sloof tidak dikurangi. Bisa dimatikan di Parameter Aturan | `rules/konteks.py`, `rules/definitions.py` |
+| 10 | Sisi luar dinding luar memakai item cat interior | Dinding luar dikenali dari `Pset_WallCommon.IsExternal`, dan sisi luarnya menjadi item **Pengecatan Tembok Eksterior**. Harganya sementara mengikuti analisa interior (lihat catatan HSPK di bawah) | `ifc_reader.py`, `rules/definitions.py`, `database/seed_data.py` |
+| 11 | Pekerjaan persiapan belum ada | **Pembersihan lahan** (luas pelat/ruang lantai dasar) dan **pengukuran + bowplank** (keliling dinding luar lantai dasar + 8a, dengan a = jarak bowplank, bawaan 1,5 m) | `rules/definitions.py`, `database/seed_data.py` |
+
+Perbaikan pendukung:
+- **Dinding pasangan:** batu kali dan sloof turunan hanya diberikan pada dinding setebal ≥ 10 cm, sehingga partisi gypsum/GRC tidak mendapat fondasi.
+- **Balok bernama sloof** ("Sloof", "Tie beam", "Ground beam") dihitung sebagai sloof: bekisting dua sisi, tipe tulangan S.
+- **Tipe penulangan bawaan** yang belum diubah pengguna otomatis mengikuti konfigurasi bawaan terbaru saat estimasi atau hitung ulang. Tipe yang sudah diubah pengguna tidak disentuh.
+
+## Koreksi lanjutan dari uji model rumah tinggal (Rumah Tipe 90, 2 lantai + carport)
+
+| Masalah | Koreksi | Kode |
+|---|---|---|
+| "BSK.BALOK: lebar, tinggi kosong" pada *Ring Balok Miring Gevel 13/15*. Balok miring tanpa quantity set: bounding box elemen miring tidak mewakili penampang | Penampang dibaca dari **profil persegi yang diekstrusi** (IfcRectangleProfileDef XDim × YDim, panjang = Depth). Cadangan terakhir: ukuran di **nama elemen** ("13/15" = 13 × 15 cm). Asal nilai tercatat `profil` / `nama` | `ifc_reader.py` |
+| Tangga dan railing hanya dilaporkan "tidak dihitung" | **Tangga beton** (IfcStairFlight, atau IfcStair yang tidak dipecah) dihitung: beton f'c 20 MPa, bekisting tangga B × √(L² + H²) + B × H (HSPK 2.2.1.3.7), dan besi dengan rasio 100 kg/m³ (parameter). Tangga kayu/baja dikenali dari nama, atau dari volume < 6% L × B × H. **Railing**: railing tangga/hand rail (HSPK 3.13.5) bila HANDRAIL, namanya menyebut tangga, atau miring; selain itu railing pengaman 1,2 m (HSPK 3.13.4) | `klasifikasi.py`, `rules/definitions.py`, `rules/sifat.py` |
+| Enam baris "tidak dihitung" terpisah | Diringkas menjadi **satu catatan** berisi jumlah dan **contoh nama** tiap jenis (IfcMember, IfcPlate, proxy, penutup lain), plus keterangan bahwa rangka atap baja ringan sudah dihitung per m² luas atap | `klasifikasi.py` |
+| Dialog Konfirmasi Import lebih tinggi dari layar, sehingga tombol Import tidak terjangkau | Ringkasan dapat digulir; kolom nama proyek dan tombol Batal/Import selalu terlihat di bawah; tinggi dialog maksimal 88% tinggi layar | `gui/import_dialog.py` |
+| **Regresi:** hampir semua sloof, balok, ring balok, balok latei, dan balok praktis beton ditolak sebagai "penampang berongga (kemungkinan profil baja)" | Model menggambar balok sebagai **denah** L × b yang diekstrusi setinggi h (Depth = tinggi), bukan penampang b × h yang diekstrusi sepanjang L. Pembaca profil dulu selalu menganggap XDim = lebar, sehingga lebar = panjang bentang (Sloof 25/40 bentang 2,67 m → isi 0,40 / 2,67 = 15%). Sekarang sisi yang mewakili panjang dipilih dulu (panjang dari quantity set, atau sisi terpanjang), dan dua sisi lainnya menjadi penampang. **Pengaman:** bila b × h × L tidak cocok dengan volume tetapi ukuran di nama ("25/40") cocok, ukuran nama yang dipakai | `ifc_reader.py` |
+| Tangga beton "Anak Tangga 1A (1-10)" ditolak (isi 15%) | Batas isi tangga diturunkan dari 25% menjadi **6%**. Tangga beton (pelat miring 10–15 cm + anak tangga) mengisi ± 11–20% kotak L × B × H. Tangga kayu/baja hanya ± 0,5–3% | `rules/sifat.py` |
+| Catatan "tidak dihitung" untuk proxy *Lantai Kerja FP…* dan penutup *Keramik Dinding* | Catatan menurut nama: lantai kerja sudah dihitung dari ukuran fondasi telapak, sehingga tidak perlu ditambah lagi. Keramik dinding ruang basah dihitung dari ruang (IfcSpace) bila ada | `klasifikasi.py` |
+
+## Koreksi dari uji model Rumah Tipe 120 (1 lantai kupu-kupu & 2 lantai courtyard)
+
+Kedua model memodelkan lebih banyak pekerjaan secara langsung: tulangan (IfcReinforcingBar), urugan pasir,
+lantai kerja, aanstamping (IfcBuildingElementProxy), dan keramik dinding (IfcCovering). Prinsip baru:
+**yang dimodelkan menang atas yang diturunkan** (`Konteks.kode_dari_model`), supaya tidak terhitung ganda.
+
+| Masalah | Koreksi | Kode |
+|---|---|---|
+| Tulangan yang dimodelkan (IfcReinforcingBar) diabaikan; besi tetap dari tipe penulangan | Tulangan dibaca per **elemen induk** (relasi Decomposes/Nests, atau properti `HostGlobalId`; rakitan IfcElementAssembly ditelusuri ke atas). Berat = π d²/4 × 7850 × L per diameter, × 1,05 sisa potongan. Bila elemen punya tulangan model, tipe penulangan tidak dipakai untuk elemen itu. Tulangan tanpa induk dilaporkan. Tulangan model gugur bila pengguna mengubah dimensi elemen | `ifc_reader.py`, `rules/penulangan.py`, `rules/definitions.py`, `estimasi_service.py` |
+| Rabat / lantai kerja yang dimodelkan sebagai IfcSlab dihitung pelat struktur (beton f'c 20 + besi + bekisting) | Pelat bernama rabat/lantai kerja, tidak bertulang/wiremesh, tebal ≤ 10 cm = **rabat beton f'c 7,5 MPa** (LTK.LANTAI) tanpa besi dan bekisting | `rules/sifat.py`, `rules/definitions.py` |
+| Bordes tangga (IfcSlab LANDING) dianggap pelat di atas tanah (tanpa bekisting, tulangan 1 lapis) | Bordes bukan pelat lantai dasar: mendapat bekisting dan tulangan pelat | `rules/sifat.py`, `rules/konteks.py` |
+| Urugan pasir, lantai kerja, aanstamping yang dimodelkan tidak dihitung, sementara versi turunannya dihitung | Kelas baru **EARTHWORK** (IfcBuildingElementProxy menurut nama/ObjectType): urugan pasir bawah fondasi/sloof/lantai, lantai kerja fondasi/lantai, aanstamping (HSPK baru FDN.AANSTAMPING). Item turunan dengan kode sama dari kelas lain tidak dihitung lagi | `klasifikasi.py`, `rules/definitions.py`, `database/seed_data.py` |
+| Keramik dinding yang dimodelkan (IfcCovering) hanya dicatat | Kelas baru **WALL_TILE**: luas dari quantity set (atau geometri) menjadi KRM.DINDING; keramik dinding dari ruang tidak dihitung lagi | `klasifikasi.py`, `ifc_reader.py`, `rules/definitions.py` |
+| Peringatan "tidak dihitung" hanya untuk beberapa jenis IFC | **Semua IfcElement** yang tidak dihitung dilaporkan (talang, roster, cladding, perabot, MEP, …) beserta contoh nama; tidak termasuk lubang, elemen virtual, tulangan, rakitan, dan elemen yang dipecah | `klasifikasi.py` |
+
+Hasil Rumah Tipe 120 2 lantai courtyard setelah koreksi (cocok dengan quantity model): beton struktur 47,19 m³;
+besi 5.709 kg (= tulangan model 5.240 kg × 1,05 + wiremesh pelat dasar); aanstamping 4,53 m³; urugan pasir
+12,10 m³; lantai kerja fondasi 0,85 m³; keramik dinding 36,21 m². Biaya langsung Rp 1.023.700.010.
+
+### Kolom fisik dan fungsi kolom (Tipe 120 1 lantai: "36 kolom" seharusnya 16)
+
+Model memecah setiap titik as menjadi dua IfcColumn: **Pedestal PD-1** (atas footplate s.d. bawah sloof,
+lantai *00 FONDASI*) dan **Kolom KA/KB** (sloof s.d. ring balok, lantai *01 LANTAI 1*). Dua titik CP1/CP2
+adalah kolom carport. Pemeriksaan tumpang tindih geometri menunjukkan **volume tidak dobel**: sloof dipotong
+di muka kolom dan pedestal berhenti di atas footplate. Volume model 8,546 m³ dan bekisting 113,94 m² sama
+dengan hasil aplikasi. Yang salah adalah **jumlah kolom** dan pengelompokan tipenya ("Kolom K1 — 36 buah").
+
+| Masalah | Koreksi | Kode |
+|---|---|---|
+| Satu kolom yang dimodelkan per segmen dihitung beberapa kolom | Segmen yang bertumpuk vertikal digabung menjadi **satu kolom fisik** bila: posisi denah sama, penampang saling menutup ≥ 50%, celah ≤ 10 cm, **dan** segmen bawahnya pedestal (puncaknya ≤ peil lantai dasar + 15 cm, atau bernama pedestal/stek) atau keduanya di lantai yang sama. Kolom lantai 1 dan lantai 2 tetap dua kolom, karena volume kolom diukur per lantai. Volume, bekisting, dan besi tetap dihitung per segmen | `kolom.py`, `ifc_reader.py` |
+| Kolom kanopi/carport ikut dihitung sebagai kolom utama | **Fungsi kolom** per kolom fisik: *arsitektur* (LoadBearing = FALSE, atau nama dekoratif/ornamen/pilaster); *kanopi/carport/teras* (nama kanopi/carport/teras/pergola/gazebo, atau berdiri di luar selubung dinding lantainya > 30 cm); *praktis* (beton sisi ≤ 15 cm); selain itu *struktur utama*. Kolom kanopi dan arsitektur mendapat tipe penulangan sendiri (Kolom Sekunder C1, Kolom Arsitektur A1) | `kolom.py`, `rules/penulangan.py` |
+| Dua IfcColumn menempati ruang yang sama (kolom arsitektur pembungkus, objek tersalin) | **Objek ganda** (tumpang tindih ≥ 50% penampang dan tinggi): volume dihitung sekali pada kolom yang memikul beban; yang lain tidak dihitung beton/besi/bekisting dan dilaporkan | `kolom.py`, `rules/sifat.py` |
+| Fondasi sumuran turunan berpotensi dihitung untuk setiap segmen | Fondasi turunan **satu per kolom fisik**, pada segmen terbawah di lantai dasar. Kolom arsitektur tidak mendapat fondasi turunan | `rules/konteks.py`, `rules/definitions.py` |
+| Tulangan tipe per segmen menambah kait di sambungan pedestal–kolom | Kait standar 12d hanya di ujung bebas. Di sambungan, tulangan menerus dengan satu **lewatan 40d** (pada segmen atas), dan sengkang di sambungan dihitung sekali | `rules/penulangan.py` |
+
+Dialog Konfirmasi Import kini menampilkan *16 kolom struktur utama* dan *2 kolom sekunder (kanopi / carport / teras / taman)*,
+dengan catatan "36 objek IfcColumn: 18 segmen (pedestal / potongan kolom) digabung dengan kolom di atasnya".
+Tipe penulangan menjadi *Kolom K1 (30/30) — 16 buah* dan *Kolom Sekunder C1 (30/30) — 2 buah*.
+Biaya langsung model ini tidak berubah (Rp 831.615.420), karena tulangannya dari model dan volumenya tidak dobel.
+
+### Sumuran, bekisting balok, kolom menerus antarlantai (Tipe 120 2 & 3 lantai)
+
+| Masalah | Koreksi | Kode |
+|---|---|---|
+| Sumuran yang dimodelkan (IfcFooting CAISSON_FOUNDATION) dihitung beton footplate f'c 20 **dengan bekisting** (19,2 m² Courtyard, 32,0 m² 3 lantai) | Sumuran dicor di lubang galian berlapis buis beton (bekisting permanen): analisa **sumuran masif HSPK 2.2.2.2.6** (beton siklop + batu belah, sesuai spesifikasi model), tanpa bekisting dan tanpa tipe tulangan. Besi hanya dari stek yang dimodelkan. Galian = volume lubang | `rules/sifat.py`, `rules/definitions.py`, `rules/tanah.py` |
+| Ring balok 20/30 di level atap ikut dikurangi tebal pelat; ring balok / balok praktis yang dicor di atas dinding diberi bekisting alas | **Relasi geometri** (`relasi.py`): pelat yang puncaknya rata dengan puncak balok dan menempel di sisinya → sisi itu h − t (per sisi; sisi luar balok tepi setinggi penuh). Balok tanpa pelat yang duduk di atas pasangan dinding (puncak dinding = alas balok) → bekisting alas hanya pada bagian yang tidak ditopang. Balok latei di dalam dinding tetap berbekisting alas | `relasi.py`, `rules/konteks.py`, `rules/definitions.py` |
+| Kolom lantai 1 di bawah lantai 2 (carport terbuka) dan kolom sudut lantai 3 tanpa dinding tergolong kanopi | Kolom yang **menerus antarlantai** selalu kolom struktur utama. Selubung bangunan diambil dari dinding semua lantai + kolom menerus. Kolom dinding taman/pagar masuk **kolom sekunder** (kanopi/carport/teras/taman) | `kolom.py` |
+
+Sisa selisih bekisting terhadap angka model:
+- Bekisting tangga: aplikasi menghitung pelat bawah + bidang tegak anak tangga, model hanya pelat bawah.
+- Balok tepi: aplikasi membekisting sisi luar setinggi penuh, model mengurangi kedua sisi.
+- Ring balok yang membentang tanpa dinding di bawahnya: aplikasi memberi bekisting alas.
+
+Ketiganya disengaja karena mengikuti kondisi pelaksanaan.
+
+Pilihan jenis fondasi kolom (footplate / cakar ayam sistem Sedijatmo) tanpa mengubah model: lihat
+`docs/Fondasi-Pilihan.md`.
+
+## Analisa pekerjaan persiapan
+
+Pekerjaan persiapan memakai analisa HSPK Kota Bandung 2027 dari sheet *Persiapan* (bab 1.1):
+
+| Kode HSPK | Analisa | Harga satuan |
+|---|---|---|
+| 1.1.3.1 | Pembersihan dan pengupasan permukaan tanah (striping) s.d. tanaman Ø 2 cm | Rp 24.413 /m² |
+| 1.1.4.2 | Pasangan 1 m' bouwplank | Rp 76.453 /m' |
+
+**Koreksi:** versi sebelumnya memakai analisa pengganti SNI 2835:2008 (Rp 39.686/m² dan Rp 106.880/m').
+Alasannya keliru, yaitu anggapan bahwa HSPK tidak memuat pekerjaan persiapan; sebenarnya sheet *Persiapan*
+saja yang belum ikut diimpor. Urugan tanah kembali dan urugan pasir juga sudah dipindahkan ke analisa
+HSPK 1.3.1.1 dan 1.3.1.2.
+
+## Catatan data HSPK: cat tembok eksterior
+
+Analisa HSPK **3.8.10.2** (pengecatan tembok baru eksterior) memakai harga dasar *"Cat penutup (cat tembok
+eksterior)"* **Rp 1.624.000/kg**. Akibatnya harga satuannya Rp 509.761/m², sekitar 6 kali cat interior
+(Rp 82.542/m²). Angka ini kemungkinan harga per pail yang tercatat sebagai harga per kg.
+
+Karena itu item **CAT.EKSTERIOR** sementara memakai analisa **3.8.10.1**. Volumenya tetap dipisah, sehingga
+cukup mengganti komponen analisanya setelah harga cat eksterior diverifikasi.
+
+## Dampak pada model uji
+
+Total RAB (biaya langsung, HSPK Bandung 2027), dihitung ulang dengan `jalankan_estimasi`:
+
+| Model | Sebelum | Sesudah | Selisih | Penyebab utama |
+|---|---|---|---|---|
+| AC20-FZK-Haus | Rp 895.387.245 | Rp 800.630.509 | −10,6% | Besi pelat dasar 3,5 t → 0,66 t; pelat atas ke tulangan tumpuan; gording kayu bukan beton; ditambah sloof turunan 20/30 dan pembersihan lahan; railing tangga 6,3 m' |
+| Duplex_A_20110907 | Rp 1.837.987.806 | Rp 1.193.024.683 | −35,1% | Lantai "Wood Joist" dan atap "Wood Joist Flat Roof" bukan beton; balok baja W310/W410; lapisan finishing; fondasi menerus "Bearing Footing" = beton; ditambah cat eksterior, persiapan, dan railing 26,2 m' (tangga kayu tidak dihitung beton) |
+| SampleStructuralModel | Rp 1.675.856.975 | Rp 1.320.404.167 | −21,2% | 268 balok UB baja dan kolom UB/HSS bukan beton; lantai plywood; fondasi menerus beton; pelat atas ke tulangan tumpuan |
+
+Ketiga model uji ini bukan rumah tinggal Indonesia. Duplex dan SampleStructural memakai konstruksi kayu/baja,
+sehingga selisih besar di sana adalah koreksi, bukan regresi. Uji akurasi terhadap RAB referensi tetap
+memakai model rumah tinggal dari PT Mandajaya.
+
+## Pengujian
+
+`tests/test_rule_koreksi.py` (35 tes) menguji setiap koreksi di atas, termasuk dialog Parameter Aturan
+(pilihan dan nilai "otomatis") dan dialog Tipe Penulangan. `tests/test_penulangan.py` menambah tes susunan
+"atas tumpuan", tipe Pelat Lantai Dasar, dan pembaruan tipe bawaan.
