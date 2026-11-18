@@ -82,7 +82,7 @@ Start Menu (target `CostStruct.exe`) serta asosiasi `.coststruct` diperiksa, lal
 ### Memasang di laptop
 
 1. Buka repositori di GitHub → tab **Actions** → pilih run **Windows - tes & build .exe** terbaru yang berstatus
-   hijau → bagian **Artifacts** → klik **CostStruct-Setup**. Yang terunduh adalah file `.zip` (± 270 MB).
+   hijau → bagian **Artifacts** → klik **CostStruct-Setup**. Yang terunduh adalah file `.zip` (± 71 MB).
    Artifact disimpan 14 hari; setelah itu ambil dari run yang lebih baru.
 2. Ekstrak zip, lalu klik dua kali `CostStruct-Setup-<versi>.exe`.
 3. Bila muncul **Windows protected your PC** (SmartScreen), klik **More info → Run anyway**.

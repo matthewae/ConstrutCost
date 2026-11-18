@@ -90,6 +90,14 @@ def _target_shortcut(lnk: Path) -> str:
     return r.stdout.strip()
 
 
+def _file_sama(a: str, b: Path) -> bool:
+    """True bila dua path menunjuk berkas yang sama; nama pendek 8.3 dan nama panjang dianggap sama."""
+    try:
+        return bool(a) and os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def uji(setup: Path) -> int:
     """Pasang untuk pengguna ini ke folder sementara, jalankan uji mandiri dari hasil instalasi, periksa shortcut
     desktop & Start Menu serta asosiasi file, lalu copot dan periksa folder, shortcut, dan registri bersih.
@@ -121,7 +129,7 @@ def uji(setup: Path) -> int:
             gagal.append(f"shortcut {tempat} tidak dibuat ({lnk})")
             continue
         target = _target_shortcut(lnk)
-        if target.lower() != str(exe).lower():
+        if not _file_sama(target, exe):  # bandingkan berkasnya, bukan teks (RUNNER~1 vs runneradmin)
             gagal.append(f"shortcut {tempat} tidak mengarah ke {exe} (target: {target!r})")
         else:
             print(f">> Shortcut {tempat}: {lnk} -> {target}")
