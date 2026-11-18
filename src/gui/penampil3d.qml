@@ -7,16 +7,31 @@ import QtQuick3D
 Item {
     id: root
 
+    // latar bergradasi (langit terang di atas, gelap di bawah): bangunan tampak lebih berdimensi daripada latar polos
+    Rectangle {
+        anchors.fill: parent
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: backend.warnaLatarAtas }
+            GradientStop { position: 1.0; color: backend.warnaLatarBawah }
+        }
+    }
+
     View3D {
         id: view
         anchors.fill: parent
         camera: kamera
         renderMode: View3D.Offscreen
         environment: SceneEnvironment {
-            clearColor: backend.warnaLatar
-            backgroundMode: SceneEnvironment.Color
+            backgroundMode: SceneEnvironment.Transparent
+            clearColor: "transparent"
             antialiasingMode: SceneEnvironment.MSAA
             antialiasingQuality: SceneEnvironment.High
+            // oklusi ambien: sudut pertemuan dinding-lantai-kolom sedikit lebih gelap (kesan kedalaman)
+            aoEnabled: backend.oklusi
+            aoStrength: 55
+            aoDistance: 0.45
+            aoSoftness: 45
+            aoSampleRate: 3
         }
 
         Node {
@@ -29,31 +44,62 @@ Item {
             PerspectiveCamera {
                 id: kamera
                 z: backend.jarak
-                clipNear: 0.05
+                clipNear: 0.1
                 clipFar: 5000
                 fieldOfView: backend.fov
                 Behavior on z { enabled: backend.animasi; NumberAnimation { duration: 450; easing.type: Easing.InOutCubic } }
             }
             // lampu ikut kamera: sisi yang menghadap pengguna selalu terang
-            DirectionalLight { eulerRotation: Qt.vector3d(-35, -30, 0); brightness: 0.85; ambientColor: Qt.rgba(0.42, 0.42, 0.45, 1) }
+            DirectionalLight { eulerRotation: Qt.vector3d(-35, -30, 0); brightness: 0.80; ambientColor: Qt.rgba(0.40, 0.40, 0.43, 1) }
         }
-        DirectionalLight { eulerRotation: Qt.vector3d(-60, 40, 0); brightness: 0.55 }
+        // matahari tetap dari kiri atas: bidang atas (atap, pelat) lebih terang dari bidang tegak
+        DirectionalLight { eulerRotation: Qt.vector3d(-62, 38, 0); brightness: 0.55; color: Qt.rgba(1.0, 0.97, 0.92, 1) }
+
+        // grid lantai di muka tanah (±0,00), memudar ke tepi
+        Model {
+            visible: backend.grid
+            geometry: gridLantai
+            pickable: false
+            castsShadows: false
+            receivesShadows: false
+            materials: PrincipledMaterial {
+                lighting: PrincipledMaterial.NoLighting
+                vertexColorsEnabled: true
+                baseColor: backend.warnaGrid
+                alphaMode: PrincipledMaterial.Blend
+            }
+        }
 
         Repeater3D {
             model: adegan
             delegate: Model {
+                id: elemen
                 property string gid: model.gid
                 geometry: model.geom
                 visible: model.tampil
                 pickable: model.klik
                 materials: PrincipledMaterial {
                     baseColor: model.warna
-                    roughness: 0.82
+                    roughness: 0.78
                     metalness: 0.0
                     emissiveFactor: Qt.vector3d(model.warna.r * model.sinar, model.warna.g * model.sinar, model.warna.b * model.sinar)
                     opacity: model.buram
                     alphaMode: model.buram < 0.999 ? PrincipledMaterial.Blend : PrincipledMaterial.Opaque
                     cullMode: Material.NoCulling
+                }
+                // garis tepi elemen (sudut kolom, tepi pelat, kusen): bentuk terbaca jelas seperti gambar kerja
+                Model {
+                    visible: backend.tepi && !!model.garis
+                    geometry: model.garis
+                    pickable: false
+                    castsShadows: false
+                    receivesShadows: false
+                    materials: PrincipledMaterial {
+                        lighting: PrincipledMaterial.NoLighting
+                        baseColor: model.sinar > 0.135 ? backend.warnaTepiPilih : backend.warnaTepi
+                        opacity: Math.min(1.0, model.buram * 1.6)
+                        alphaMode: PrincipledMaterial.Blend
+                    }
                 }
             }
         }

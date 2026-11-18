@@ -7,6 +7,7 @@ titik tengah denah berada di (0, 0) dan muka terbawah di y = 0. Tulangan, lubang
 ditampilkan (ribuan batang tulangan tidak perlu untuk memilih elemen dan memperlambat tampilan).
 """
 
+import math
 import os
 from dataclasses import dataclass, field
 
@@ -54,6 +55,14 @@ class Model3D:
     def per_gid(self) -> dict:
         return {e.gid: e for e in self.elemen}
 
+    def tinggi_tanah(self) -> float:
+        """Ketinggian muka tanah (±0,00) di koordinat tampilan (Y): elevasi lantai yang paling dekat ke 0, mis.
+        "01 LANTAI 1" (bukan "00 FONDASI" -1,50). Dipakai untuk meletakkan grid lantai di tampilan 3D."""
+        if not self.lantai:
+            return 0.0
+        elev = min((e for _n, e in self.lantai), key=abs)
+        return float(elev - self.geser[2])
+
 
 def _lantai(entity):
     """IfcBuildingStorey tempat elemen berada (containment / agregasi / dinding induk untuk pintu & jendela)."""
@@ -99,6 +108,43 @@ def segitiga_rata(verts: np.ndarray, faces: np.ndarray) -> tuple:
     sah = panjang[:, 0] > 1e-12
     tri, n = tri[sah], n[sah] / panjang[sah]
     return tri.reshape(-1, 3).astype(np.float32), np.repeat(n, 3, axis=0).astype(np.float32)
+
+
+def garis_tepi(posisi: np.ndarray, normal: np.ndarray, sudut: float = 28.0, angkat: float = 0.008) -> np.ndarray:
+    """Garis tepi elemen (pasangan titik, (2m, 3) float32) untuk digambar di atas bidangnya di tampilan 3D.
+
+    Sisi segitiga dipakai sebagai garis bila hanya dimiliki satu segitiga (tepi terbuka) atau bila dua bidang yang
+    bertemu di sisi itu membentuk sudut > `sudut` derajat (sudut kolom, tepi pelat, kusen). Diagonal hasil pemecahan
+    bidang datar menjadi segitiga tidak digambar. Garis diangkat `angkat` meter ke arah luar bidang agar tidak
+    berkedip (z-fighting) dengan bidangnya sendiri."""
+    if len(posisi) < 3:
+        return np.zeros((0, 3), np.float32)
+    tri = posisi.reshape(-1, 3, 3).astype(np.float64)
+    n_tri = normal[::3].astype(np.float64)
+    a = tri.reshape(-1, 3)
+    b = tri[:, [1, 2, 0]].reshape(-1, 3)
+    qa = np.round(a * 1e4).astype(np.int64)
+    qb = np.round(b * 1e4).astype(np.int64)
+    # ujung sisi diurutkan (titik "lebih kecil" dulu) agar sisi A-B dan B-A dikenali sebagai sisi yang sama
+    tukar = (qa[:, 0] > qb[:, 0]) | ((qa[:, 0] == qb[:, 0]) & ((qa[:, 1] > qb[:, 1]) |
+                                                              ((qa[:, 1] == qb[:, 1]) & (qa[:, 2] > qb[:, 2]))))
+    rendah = np.where(tukar[:, None], qb, qa)
+    tinggi = np.where(tukar[:, None], qa, qb)
+    _u, inv, jumlah = np.unique(np.hstack([rendah, tinggi]), axis=0, return_inverse=True, return_counts=True)
+    inv = inv.reshape(-1)
+    n_sisi = np.repeat(n_tri, 3, axis=0)
+    urut = np.argsort(inv, kind="stable")
+    awal = np.cumsum(jumlah) - jumlah
+    pertama = urut[awal]
+    kedua = urut[np.minimum(awal + 1, len(urut) - 1)]
+    titik = np.einsum("ij,ij->i", n_sisi[pertama], n_sisi[kedua])
+    tepi = (jumlah == 1) | (jumlah > 2) | ((jumlah == 2) & (titik < math.cos(math.radians(sudut))))
+    i1, i2 = pertama[tepi], kedua[tepi]
+    arah = n_sisi[i1] + np.where((jumlah[tepi] == 2)[:, None], n_sisi[i2], 0.0)
+    arah /= np.maximum(np.linalg.norm(arah, axis=1, keepdims=True), 1e-9)
+    geser = arah * angkat
+    p1, p2 = a[i1] + geser, b[i1] + geser
+    return np.stack([p1, p2], axis=1).reshape(-1, 3).astype(np.float32)
 
 
 def ke_y_atas(p: np.ndarray, geser=(0.0, 0.0, 0.0)) -> np.ndarray:

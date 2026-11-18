@@ -20,22 +20,23 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import (
-    Property, QAbstractListModel, QByteArray, QModelIndex, QObject, Qt, QTimer, QUrl, Signal, Slot,
+    Property, QAbstractListModel, QByteArray, QModelIndex, QObject, QPointF, QRectF, Qt, QTimer, QUrl, Signal, Slot,
 )
 from PySide6.QtGui import (
-    QColor, QFont, QKeySequence, QLinearGradient, QPainter, QPen, QShortcut, QStandardItem, QStandardItemModel,
-    QVector3D,
+    QColor, QFont, QFontMetrics, QKeySequence, QLinearGradient, QPainter, QPen, QShortcut, QStandardItem,
+    QStandardItemModel, QVector3D,
 )
 from PySide6.QtQuick import QSGRendererInterface
 from PySide6.QtQuick3D import QQuick3DGeometry
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox,
-    QPushButton, QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox,
+    QPushButton, QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
 from biaya_elemen import peta_biaya, rincian
 from database.material import SLOT, kode_varian
+from database.preferensi_repository import get_pref, set_pref
 from gui import tema
 from gui.galat import tanpa_terjemahan_python
 from klasifikasi import LABEL, ElementType
@@ -54,7 +55,7 @@ WARNA_JENIS = {
 }
 WARNA_TERMASUK = "#a3a3a3"  # batang rangka atap / bagian tangga: biayanya ada di pekerjaan lain
 WARNA_LAIN = "#8d8d8d"  # elemen yang tidak menghasilkan item RAB
-WARNA_PILIH = "#ffd43b"
+WARNA_PILIH = "#eeac16"  # kuning logo CostStruct
 WARNA_TERKAIT = "#69db7c"
 SKALA_BIAYA = ("#3b4cc0", "#88abfd", "#dddddd", "#f4987a", "#b40426")  # rendah -> tinggi
 
@@ -72,6 +73,8 @@ TAMPIL_LENGKAP, TAMPIL_TEMBUS, TAMPIL_STRUKTUR, TAMPIL_BESI = range(4)
 BETON = {"COLUMN", "BEAM", "SLAB", "FOOTING", "PILE", "STAIR", "ROOF"}  # ditampilkan tembus pandang di mode besi
 WARNA_BESI = "#d9480f"
 WARNA_JENIS_MODE, WARNA_BIAYA_MODE = range(2)
+# opsi tampilan 3D yang diingat antar sesi ("1" = tampil)
+PREF_3D = {k: f"3d_{k}" for k in ("tepi", "grid", "oklusi", "petunjuk", "legenda_lipat")}
 
 PERAN_RINGKAS = {
     "Elemen terpilih": "Elemen ini", "Pedestal (bagian kolom ini)": "Pedestal", "Segmen kolom yang sama": "Segmen kolom",
@@ -179,12 +182,57 @@ class Geometri3D(QQuick3DGeometry):
         self.setBounds(QVector3D(*map(float, mn)), QVector3D(*map(float, mx)))
 
 
+class GeometriGaris(QQuick3DGeometry):
+    """Garis lepas (pasangan titik), mis. garis tepi elemen (model3d.garis_tepi)."""
+
+    def __init__(self, titik: np.ndarray, parent=None):
+        super().__init__(parent)
+        data = np.ascontiguousarray(titik, dtype=np.float32)
+        self.setVertexData(QByteArray(data.tobytes()))
+        self.setStride(12)
+        self.setPrimitiveType(QQuick3DGeometry.PrimitiveType.Lines)
+        self.addAttribute(QQuick3DGeometry.Attribute.PositionSemantic, 0, QQuick3DGeometry.Attribute.F32Type)
+        if len(data):
+            mn, mx = data.min(axis=0), data.max(axis=0)
+            self.setBounds(QVector3D(*map(float, mn)), QVector3D(*map(float, mx)))
+
+
+class GeometriGrid(QQuick3DGeometry):
+    """Grid lantai di bidang Y = `y` (muka tanah): garis tiap 1 m, garis tebal tiap 5 m, memudar ke tepi."""
+
+    def __init__(self, xmin: float, xmax: float, zmin: float, zmax: float, y: float, parent=None):
+        super().__init__(parent)
+        cx, cz = (xmin + xmax) / 2, (zmin + zmax) / 2
+        r = max(xmax - xmin, zmax - zmin) / 2 + 8.0  # sedikit lebih luas dari bangunan
+        r = math.ceil(r / 5.0) * 5.0
+        x0, z0 = math.floor(cx) - r, math.floor(cz) - r
+        n = int(2 * r)
+        data = []
+
+        def alpha(x, z, kuat):
+            d = math.hypot(x - cx, z - cz) / r
+            return max(0.0, 1.0 - d) ** 1.6 * (0.55 if kuat else 0.28)
+
+        for i in range(n + 1):
+            for j in range(n):  # tiap garis dipecah per 1 m agar transparansinya dapat memudar
+                for (xa, za), (xb, zb), kuat in (((x0 + i, z0 + j), (x0 + i, z0 + j + 1), (int(x0) + i) % 5 == 0),
+                                                 ((x0 + j, z0 + i), (x0 + j + 1, z0 + i), (int(z0) + i) % 5 == 0)):
+                    data += [xa, y, za, 1, 1, 1, alpha(xa, za, kuat), xb, y, zb, 1, 1, 1, alpha(xb, zb, kuat)]
+        arr = np.asarray(data, dtype=np.float32)
+        self.setVertexData(QByteArray(arr.tobytes()))
+        self.setStride(28)
+        self.setPrimitiveType(QQuick3DGeometry.PrimitiveType.Lines)
+        self.addAttribute(QQuick3DGeometry.Attribute.PositionSemantic, 0, QQuick3DGeometry.Attribute.F32Type)
+        self.addAttribute(QQuick3DGeometry.Attribute.ColorSemantic, 12, QQuick3DGeometry.Attribute.F32Type)
+        self.setBounds(QVector3D(x0, y, z0), QVector3D(x0 + n, y, z0 + n))
+
+
 class AdeganModel(QAbstractListModel):
     """Satu baris per elemen 3D; QML membuat satu Model per baris (Repeater3D)."""
 
-    GID, GEOM, WARNA, BURAM, TAMPIL, KLIK, SINAR = range(Qt.UserRole + 1, Qt.UserRole + 8)
+    GID, GEOM, WARNA, BURAM, TAMPIL, KLIK, SINAR, GARIS = range(Qt.UserRole + 1, Qt.UserRole + 9)
     _NAMA = {GID: b"gid", GEOM: b"geom", WARNA: b"warna", BURAM: b"buram", TAMPIL: b"tampil", KLIK: b"klik",
-             SINAR: b"sinar"}
+             SINAR: b"sinar", GARIS: b"garis"}
     _KUNCI = {WARNA: "warna", BURAM: "buram", TAMPIL: "tampil", KLIK: "klik", SINAR: "sinar"}
 
     def __init__(self, parent=None):
@@ -206,14 +254,16 @@ class AdeganModel(QAbstractListModel):
             return b["gid"]
         if role == self.GEOM:
             return b["geom"]
+        if role == self.GARIS:
+            return b["garis"]
         kunci = self._KUNCI.get(role)
         return b[kunci] if kunci else None
 
     def atur(self, elemen: list) -> None:
-        """elemen: [(gid, Geometri3D)]."""
+        """elemen: [(gid, Geometri3D)] atau [(gid, Geometri3D, GeometriGaris | None)]."""
         self.beginResetModel()
-        self._baris = [{"gid": g, "geom": geo, "warna": QColor(WARNA_LAIN), "buram": 1.0, "tampil": True,
-                        "klik": True, "sinar": 0.0} for g, geo in elemen]
+        self._baris = [{"gid": x[0], "geom": x[1], "garis": x[2] if len(x) > 2 else None, "warna": QColor(WARNA_LAIN),
+                        "buram": 1.0, "tampil": True, "klik": True, "sinar": 0.0} for x in elemen]
         self._indeks = {b["gid"]: i for i, b in enumerate(self._baris)}
         self.endResetModel()
 
@@ -253,6 +303,7 @@ class Backend(QObject):
     animasiChanged = Signal()
     teksSorotChanged = Signal()
     warnaChanged = Signal()
+    opsiChanged = Signal()
 
     dipilih = Signal(str)
     disorot = Signal(str)
@@ -271,10 +322,16 @@ class Backend(QObject):
         gelap = QColor(tema.W["latar"]).lightnessF() < 0.5
         self._warna = {
             "latar": QColor("#1c1d20" if gelap else "#e9ebee"),
+            "latar_atas": QColor("#33363d" if gelap else "#fbfcfd"),
+            "latar_bawah": QColor("#141518" if gelap else "#d6dbe2"),
+            "grid": QColor("#c9ced6" if gelap else "#5d6672"),
+            "tepi": QColor(18, 18, 20, 150) if gelap else QColor(30, 34, 40, 120),
+            "tepi_pilih": QColor("#6b4e00"),
             "label": QColor(tema.W["permukaan"]),
             "garis": QColor(tema.W["garis_kuat"]),
             "teks": QColor(tema.W["teks"]),
         }
+        self._opsi = {"grid": True, "tepi": True, "oklusi": True}
         self._henti = QTimer(self, singleShot=True, interval=520, timeout=lambda: self._set_animasi(False))
 
     # --- properti untuk QML
@@ -317,6 +374,15 @@ class Backend(QObject):
         if self._animasi and not self._henti.isActive():
             self._set_animasi(False)
 
+    def atur_opsi(self, nama: str, nilai: bool):
+        """Opsi tampilan 3D: "grid" (grid lantai), "tepi" (garis tepi elemen), "oklusi" (bayangan sudut)."""
+        if self._opsi.get(nama) != bool(nilai):
+            self._opsi[nama] = bool(nilai)
+            self.opsiChanged.emit()
+
+    def opsi(self, nama: str) -> bool:
+        return self._opsi[nama]
+
     def _get_teks(self):
         return self._teks_sorot
 
@@ -331,6 +397,14 @@ class Backend(QObject):
     animasi = Property(bool, _get_animasi, _set_animasi, notify=animasiChanged)
     teksSorot = Property(str, _get_teks, notify=teksSorotChanged)
     warnaLatar = Property(QColor, lambda s: s._warna["latar"], notify=warnaChanged)
+    warnaLatarAtas = Property(QColor, lambda s: s._warna["latar_atas"], notify=warnaChanged)
+    warnaLatarBawah = Property(QColor, lambda s: s._warna["latar_bawah"], notify=warnaChanged)
+    warnaGrid = Property(QColor, lambda s: s._warna["grid"], notify=warnaChanged)
+    warnaTepi = Property(QColor, lambda s: s._warna["tepi"], notify=warnaChanged)
+    warnaTepiPilih = Property(QColor, lambda s: s._warna["tepi_pilih"], notify=warnaChanged)
+    grid = Property(bool, lambda s: s._opsi["grid"], notify=opsiChanged)
+    tepi = Property(bool, lambda s: s._opsi["tepi"], notify=opsiChanged)
+    oklusi = Property(bool, lambda s: s._opsi["oklusi"], notify=opsiChanged)
     warnaLabel = Property(QColor, lambda s: s._warna["label"], notify=warnaChanged)
     warnaGaris = Property(QColor, lambda s: s._warna["garis"], notify=warnaChanged)
     warnaTeks = Property(QColor, lambda s: s._warna["teks"], notify=warnaChanged)
@@ -382,21 +456,45 @@ class Backend(QObject):
 
 # ---------------------------------------------------------------- legenda di atas tampilan 3D
 
+def _gaya_kaca(nama: str, jenis: str = "QFrame") -> str:
+    """Panel mengambang di atas tampilan 3D: latar permukaan agak tembus, garis tipis, sudut membulat."""
+    latar = QColor(tema.W["permukaan"])
+    return (f"{jenis}#{nama} {{ background-color: rgba({latar.red()},{latar.green()},{latar.blue()},228);"
+            f" border: 1px solid {tema.W['garis']}; border-radius: 11px; }}")
+
+
 class Legenda(QFrame):
+    """Legenda warna di pojok kiri bawah tampilan 3D. Klik judulnya untuk melipat / membuka."""
+
+    dilipat = Signal(bool)
+    TINGGI_JUDUL = 30
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("legenda3d")
-        self.setAttribute(Qt.WA_TransparentForMouseEvents)
-        latar = QColor(tema.W["permukaan"])
-        self.setStyleSheet(
-            f"QFrame#legenda3d {{ background-color: rgba({latar.red()},{latar.green()},{latar.blue()},225);"
-            f" border: 1px solid {tema.W['garis']}; border-radius: 10px; }}"
-            f" QLabel {{ background: transparent; font-size: 11px; color: {tema.W['teks_redup']}; }}"
-        )
+        self.setStyleSheet(_gaya_kaca("legenda3d"))
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("Klik judul untuk melipat / membuka legenda")
         self._mode = WARNA_JENIS_MODE
+        self._judul = "Warna menurut jenis"
         self._entri = []
         self._skala = ("", "", "")
         self._kolom, self._lebar_kolom = 1, 160
+        self._lipat = False
+
+    @property
+    def terlipat(self) -> bool:
+        return self._lipat
+
+    def atur_lipat(self, lipat: bool):
+        self._lipat = bool(lipat)
+        self._ukur()
+
+    def mousePressEvent(self, event):
+        if event.position().y() <= self.TINGGI_JUDUL + 4:
+            self.atur_lipat(not self._lipat)
+            self.dilipat.emit(self._lipat)
+        event.accept()
 
     def atur_jenis(self, kelas_ada: list, ada_lain: bool, ada_termasuk: bool = False):
         self._mode = WARNA_JENIS_MODE
@@ -418,19 +516,28 @@ class Legenda(QFrame):
 
     def atur_biaya(self, rendah: str, tengah: str, tinggi: str):
         self._mode = WARNA_BIAYA_MODE
+        self._judul = "Warna menurut biaya elemen"
         self._skala = (rendah, tengah, tinggi)
         self._entri = [(WARNA_LAIN, "Tidak dihitung di RAB"), (WARNA_PILIH, "Elemen dipilih"),
                        (WARNA_TERKAIT, "Ikut dihitung")]
         self._ukur()
 
     def _ukur(self):
-        fm = self.fontMetrics()
-        self._kolom = 2 if len(self._entri) > 8 else 1
-        self._lebar_kolom = max([fm.horizontalAdvance(t) for _w, t in self._entri] + [80]) + 34
+        f = self.font()
+        f.setPixelSize(11)
+        fm = QFontMetrics(f)
+        f.setBold(True)
+        lebar_judul = QFontMetrics(f).horizontalAdvance(self._judul) + 44
+        if self._lipat:
+            self.setFixedSize(lebar_judul, self.TINGGI_JUDUL)
+            self.update()
+            return
+        self._kolom = 2 if len(self._entri) > 9 else 1
+        self._lebar_kolom = max([fm.horizontalAdvance(t) for _w, t in self._entri] + [70]) + 30
         baris = math.ceil(len(self._entri) / self._kolom)
-        lebar = 12 + self._lebar_kolom * self._kolom
-        tinggi = 32 + 19 * baris + (52 if self._mode == WARNA_BIAYA_MODE else 0)
-        self.setFixedSize(max(lebar, 200 if self._mode == WARNA_BIAYA_MODE else 170), tinggi)
+        lebar = 20 + self._lebar_kolom * self._kolom
+        tinggi = self.TINGGI_JUDUL + 17 * baris + 8 + (50 if self._mode == WARNA_BIAYA_MODE else 0)
+        self.setFixedSize(max(lebar, lebar_judul, 210 if self._mode == WARNA_BIAYA_MODE else 0), tinggi)
         self.update()
 
     def paintEvent(self, event):
@@ -442,34 +549,43 @@ class Legenda(QFrame):
         f.setBold(True)
         p.setFont(f)
         p.setPen(QColor(tema.W["teks"]))
-        p.drawText(12, 20, getattr(self, "_judul", "Warna menurut jenis") if self._mode == WARNA_JENIS_MODE
-                   else "Warna menurut biaya elemen")
+        p.drawText(12, 19, self._judul)
+        # panah lipat di kanan judul
+        p.setPen(QPen(QColor(tema.W["teks_samar"]), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        x, y = self.width() - 18, 15
+        if self._lipat:
+            p.drawPolyline([QPointF(x - 4, y - 2), QPointF(x, y + 2), QPointF(x + 4, y - 2)])
+        else:
+            p.drawPolyline([QPointF(x - 4, y + 2), QPointF(x, y - 2), QPointF(x + 4, y + 2)])
+        if self._lipat:
+            p.end()
+            return
         f.setBold(False)
         p.setFont(f)
-        y = 30
+        y = self.TINGGI_JUDUL
         if self._mode == WARNA_BIAYA_MODE:
             g = QLinearGradient(12, 0, self.width() - 12, 0)
             for i, w in enumerate(SKALA_BIAYA):
                 g.setColorAt(i / (len(SKALA_BIAYA) - 1), QColor(w))
             p.setPen(Qt.NoPen)
             p.setBrush(g)
-            p.drawRoundedRect(12, y + 2, self.width() - 24, 10, 4, 4)
+            p.drawRoundedRect(12, y, self.width() - 24, 9, 4, 4)
             p.setPen(QColor(tema.W["teks_redup"]))
             rendah, tengah, tinggi = self._skala
-            p.drawText(12, y + 28, rendah)
-            p.drawText(self.width() - 12 - p.fontMetrics().horizontalAdvance(tinggi), y + 28, tinggi)
+            p.drawText(12, y + 25, rendah)
+            p.drawText(self.width() - 12 - p.fontMetrics().horizontalAdvance(tinggi), y + 25, tinggi)
             p.setPen(QColor(tema.W["teks_samar"]))
-            p.drawText(12, y + 43, f"median {tengah}")
-            y += 52
+            p.drawText(12, y + 40, f"median {tengah}")
+            y += 50
         baris = math.ceil(len(self._entri) / self._kolom)
         for i, (warna, teks) in enumerate(self._entri):
             x = 12 + (i // baris) * self._lebar_kolom
-            yy = y + (i % baris) * 19
-            p.setPen(QPen(QColor(0, 0, 0, 60), 1))
+            yy = y + (i % baris) * 17
+            p.setPen(QPen(QColor(0, 0, 0, 70), 1))
             p.setBrush(QColor(warna))
-            p.drawRoundedRect(x, yy + 3, 12, 12, 3, 3)
+            p.drawRoundedRect(QRectF(x, yy + 2, 11, 11), 3, 3)
             p.setPen(QColor(tema.W["teks_redup"]))
-            p.drawText(x + 20, yy + 13, teks)
+            p.drawText(x + 18, yy + 12, teks)
         p.end()
 
 
@@ -903,6 +1019,14 @@ class PanelBiaya3D(QFrame):
 _CACHE = {}
 
 
+def _garis(e) -> "GeometriGaris | None":
+    """Garis tepi elemen 3D (None bila elemen tidak punya sisi tajam, mis. pipa bulat halus)."""
+    from model3d import garis_tepi
+
+    titik = garis_tepi(e.posisi, e.normal)
+    return GeometriGaris(titik) if len(titik) else None
+
+
 def muat_model(path: str, progress=None):
     """Model3D dari cache (kunci: path + waktu ubah file); dibaca ulang bila file IFC berubah."""
     from model3d import muat_model3d
@@ -1000,36 +1124,32 @@ class Penampil3D(QWidget):
             kepala.addWidget(self.btn_export, alignment=Qt.AlignTop)
         root.addLayout(kepala)
 
-        # --- baris alat
-        cari = QHBoxLayout()  # baris pencarian sendiri agar nama elemen (mis. "Kolom K1 30x30 Lt.1 A1") terbaca utuh
-        cari.setSpacing(10)
+        # --- baris alat: cari elemen (kiri) + lantai & mode tampilan (kanan), satu baris
+        alat = QHBoxLayout()
+        alat.setSpacing(10)
         ikon_cari = QLabel()
         ikon_cari.setPixmap(tema.ikon("cari", tema.W["teks_samar"]).pixmap(20, 20))
-        ikon_cari.setToolTip("Cari elemen: pilih jenis elemen, lalu nama elemennya (Ctrl+F)")
-        cari.addWidget(ikon_cari)
+        ikon_cari.setToolTip("Cari elemen: pilih jenis elemen, lalu nama elemennya; elemen disorot dan kamera "
+                             "mendekat (Ctrl+F)")
+        alat.addWidget(ikon_cari)
         self._daftar_cari, self._cari_per_gid = [], {}
         self.combo_jenis = QComboBox()
         self.combo_jenis.setToolTip("Jenis elemen yang dicari, mis. Kolom, Balok, Dinding, Fondasi (Ctrl+F).\n"
                                     "Daftar nama elemen di sebelahnya hanya berisi jenis ini.")
         self.combo_jenis.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.combo_jenis.setMinimumContentsLength(22)
+        self.combo_jenis.setMinimumContentsLength(18)
         self.combo_jenis.setMaxVisibleItems(24)
         self.combo_jenis.currentIndexChanged.connect(self._ganti_jenis_cari)
-        cari.addWidget(self.combo_jenis)
+        alat.addWidget(self.combo_jenis)
         self.combo_elemen = QComboBox()
         self.combo_elemen.setToolTip("Nama elemen di model, dikelompokkan per lantai, mis. Kolom K1 30x30 A1.\n"
                                      "Memilih nama menyorot elemen di 3D dan menampilkan kebutuhan biayanya.")
         self.combo_elemen.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.combo_elemen.setMinimumContentsLength(40)
+        self.combo_elemen.setMinimumContentsLength(24)
         self.combo_elemen.setMaxVisibleItems(18)
         self.combo_elemen.activated.connect(self._pilih_dari_cari)
-        cari.addWidget(self.combo_elemen, stretch=1)
-        cari.addWidget(tema.label("Pilih jenis, lalu nama elemen: elemen disorot dan kamera mendekat", "petunjuk"),
-                       stretch=1)
-        root.addLayout(cari)
-
-        alat = QHBoxLayout()
-        alat.setSpacing(10)
+        alat.addWidget(self.combo_elemen, stretch=1)
+        alat.addSpacing(8)
         self.combo_lantai = QComboBox()
         self.combo_lantai.setToolTip("Sembunyikan lantai di atasnya untuk melihat isi bangunan")
         self.combo_lantai.addItem("Semua lantai", None)
@@ -1049,11 +1169,59 @@ class Penampil3D(QWidget):
         self._tampil_lama = TAMPIL_LENGKAP
         self.combo_tampil.currentIndexChanged.connect(self._ganti_tampilan)
         alat.addWidget(self.combo_tampil)
+        root.addLayout(alat)
+
+        # --- tampilan 3D + panel
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.backend = Backend(self)
+        self.adegan = AdeganModel(self)
+        self.adegan.atur([(e.gid, Geometri3D(e.posisi, e.normal), _garis(e)) for e in model.elemen])
+        mn, mx = model.batas()
+        self.grid_lantai = GeometriGrid(float(mn[0]), float(mx[0]), float(mn[2]), float(mx[2]), model.tinggi_tanah())
+        self.adegan_besi = AdeganModel(self)  # diisi saat mode Besi beton pertama kali dipilih
+        self._besi = None  # {gid "besi:<induk>": Besi3D}; None = belum dibaca
+        self._pilih_besi = ""
+        self.path_ifc = None
+        self.quick = QQuickWidget()
+        self.quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
+        self.quick.setMinimumWidth(520)
+        # backend & adegan anak QQuickWidget: dihapus setelah mesin QML, bukan sebelumnya
+        self.backend.setParent(self.quick)
+        self.adegan.setParent(self.quick)
+        self.adegan_besi.setParent(self.quick)
+        self.grid_lantai.setParent(self.quick)
+        self.quick.rootContext().setContextProperty("gridLantai", self.grid_lantai)
+        self.quick.rootContext().setContextProperty("backend", self.backend)
+        self.quick.rootContext().setContextProperty("adegan", self.adegan)
+        self.quick.rootContext().setContextProperty("adeganBesi", self.adegan_besi)
+        with tanpa_terjemahan_python():  # cegah macet: lihat gui/galat.py
+            self.quick.setSource(QUrl.fromLocalFile(str(QML)))
+        self.galat_qml = [e.toString() for e in self.quick.errors()]
+        self.legenda = Legenda(self.quick)
+        self.legenda.dilipat.connect(lambda lipat: (set_pref(PREF_3D["legenda_lipat"], "1" if lipat else "0"),
+                                                    self._posisikan_overlay()))
+        self.petunjuk = QLabel("Seret kiri: putar  ·  Seret kanan: geser  ·  Roda: zoom  ·  Dobel klik: fokus",
+                               self.quick)
+        self.petunjuk.setObjectName("petunjuk3d")
+        self.petunjuk.setStyleSheet(_gaya_kaca("petunjuk3d", "QLabel")
+                                    + f" QLabel#petunjuk3d {{ color: {tema.W['teks_redup']}; padding: 5px 10px;"
+                                    f" font-size: 11px; }}")
+        self.petunjuk.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.petunjuk.adjustSize()
+
+        # kiri atas: warna elemen + opsi tampilan
+        self.alat_kiri = QFrame(self.quick)
+        self.alat_kiri.setObjectName("alat3d")
+        self.alat_kiri.setStyleSheet(_gaya_kaca("alat3d"))
+        lk = QHBoxLayout(self.alat_kiri)
+        lk.setContentsMargins(6, 6, 6, 6)
+        lk.setSpacing(6)
+        self.grup_warna = QButtonGroup(self)
         warna = QHBoxLayout()
         warna.setSpacing(0)
-        self.grup_warna = QButtonGroup(self)
         for i, (teks, posisi, tip) in enumerate((
-            ("Warna jenis", "kiri", "Warna menurut jenis elemen"),
+            ("Warna jenis", "kiri", "Warna menurut jenis elemen (kolom, balok, dinding, ...)"),
             ("Warna biaya", "kanan", "Biru = elemen murah, merah = elemen mahal"),
         )):
             b = QPushButton(teks)
@@ -1066,52 +1234,45 @@ class Penampil3D(QWidget):
             warna.addWidget(b)
         self.grup_warna.button(WARNA_JENIS_MODE).setChecked(True)
         self.grup_warna.idClicked.connect(lambda _i: self._warnai())
-        alat.addLayout(warna)
-        self.cb_lain = QCheckBox("Elemen tak dihitung")
+        lk.addLayout(warna)
+        self.btn_opsi = QToolButton()
+        self.btn_opsi.setObjectName("tombolKaca")
+        self.btn_opsi.setText("Opsi tampilan")
+        self.btn_opsi.setIcon(tema.ikon("parameter", tema.W["teks"]))
+        self.btn_opsi.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btn_opsi.setPopupMode(QToolButton.InstantPopup)
+        self.btn_opsi.setCursor(Qt.PointingHandCursor)
+        self.btn_opsi.setToolTip("Atur yang ditampilkan: elemen tak dihitung, garis tepi, grid lantai, bayangan")
+        menu = QMenu(self.btn_opsi)
+        self.cb_lain = menu.addAction("Tampilkan elemen tak dihitung (abu-abu)")
+        self.cb_lain.setCheckable(True)
         self.cb_lain.setChecked(True)
-        self.cb_lain.setToolTip("Tampilkan elemen model yang tidak menghasilkan item RAB (abu-abu)")
+        self.cb_lain.setToolTip("Elemen model yang tidak menghasilkan item RAB")
         self.cb_lain.toggled.connect(lambda _b: self._warnai())
-        alat.addWidget(self.cb_lain)
-        alat.addStretch(1)
-        root.addLayout(alat)
+        menu.addSeparator()
+        self.aksi_opsi = {}
+        for kunci, teks in (("tepi", "Garis tepi elemen"), ("grid", "Grid lantai (1 m)"),
+                            ("oklusi", "Bayangan di sudut (oklusi)"), ("petunjuk", "Petunjuk navigasi mouse")):
+            a = menu.addAction(teks)
+            a.setCheckable(True)
+            a.setChecked(get_pref(PREF_3D[kunci], "1") != "0")
+            a.toggled.connect(lambda on, k=kunci: self._atur_opsi(k, on))
+            self.aksi_opsi[kunci] = a
+            if kunci in ("tepi", "grid", "oklusi"):
+                self.backend.atur_opsi(kunci, a.isChecked())
+        self.legenda.atur_lipat(get_pref(PREF_3D["legenda_lipat"], "0") == "1")
+        self.btn_opsi.setMenu(menu)
+        lk.addWidget(self.btn_opsi)
+        self.alat_kiri.adjustSize()
 
-        # --- tampilan 3D + panel
-        self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.setChildrenCollapsible(False)
-        self.backend = Backend(self)
-        self.adegan = AdeganModel(self)
-        self.adegan.atur([(e.gid, Geometri3D(e.posisi, e.normal)) for e in model.elemen])
-        self.adegan_besi = AdeganModel(self)  # diisi saat mode Besi beton pertama kali dipilih
-        self._besi = None  # {gid "besi:<induk>": Besi3D}; None = belum dibaca
-        self._pilih_besi = ""
-        self.path_ifc = None
-        self.quick = QQuickWidget()
-        self.quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
-        self.quick.setMinimumWidth(520)
-        # backend & adegan anak QQuickWidget: dihapus setelah mesin QML, bukan sebelumnya
-        self.backend.setParent(self.quick)
-        self.adegan.setParent(self.quick)
-        self.adegan_besi.setParent(self.quick)
-        self.quick.rootContext().setContextProperty("backend", self.backend)
-        self.quick.rootContext().setContextProperty("adegan", self.adegan)
-        self.quick.rootContext().setContextProperty("adeganBesi", self.adegan_besi)
-        with tanpa_terjemahan_python():  # cegah macet: lihat gui/galat.py
-            self.quick.setSource(QUrl.fromLocalFile(str(QML)))
-        self.galat_qml = [e.toString() for e in self.quick.errors()]
-        self.legenda = Legenda(self.quick)
-        self.petunjuk = QLabel("Seret kiri: putar  ·  Seret kanan: geser  ·  Roda: zoom  ·  Dobel klik: fokus",
-                               self.quick)
-        latar = QColor(tema.W["permukaan"])
-        self.petunjuk.setStyleSheet(
-            f"background-color: rgba({latar.red()},{latar.green()},{latar.blue()},210); color: {tema.W['teks_redup']};"
-            f" border: 1px solid {tema.W['garis']}; border-radius: 9px; padding: 5px 10px; font-size: 11px;")
-        self.petunjuk.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.petunjuk.adjustSize()
-        self.pandang = QWidget(self.quick)
+        # kanan atas: arah pandang + zoom
+        self.pandang = QFrame(self.quick)
+        self.pandang.setObjectName("pandang3d")
+        self.pandang.setStyleSheet(_gaya_kaca("pandang3d"))
         lp = QHBoxLayout(self.pandang)
-        lp.setContentsMargins(0, 0, 0, 0)
+        lp.setContentsMargins(6, 6, 6, 6)
         lp.setSpacing(0)
-        daftar = (("Iso", "Pandangan isometrik"), ("Atas", "Pandangan dari atas (denah)"),
+        daftar = (("Iso", "Pandangan isometrik (3D)"), ("Atas", "Pandangan dari atas (denah)"),
                   ("Depan", "Pandangan depan"), ("Samping", "Pandangan samping kanan"),
                   ("Pas", "Tampilkan seluruh bangunan tanpa mengubah arah pandang"))
         for i, (teks, tip) in enumerate(daftar):
@@ -1120,10 +1281,21 @@ class Penampil3D(QWidget):
             b.setProperty("posisi", "kiri" if i == 0 else "kanan" if i == len(daftar) - 1 else "tengah")
             b.setCursor(Qt.PointingHandCursor)
             b.setToolTip(tip)
-            b.setMinimumWidth(64 if teks != "Samping" else 84)
             b.clicked.connect(lambda _c=False, t=teks: self.pandangan(t))
             lp.addWidget(b)
+        lp.addSpacing(6)
+        zoom = (("\u2212", -1, "Perkecil (roda mouse ke belakang)"), ("+", 1, "Perbesar (roda mouse ke depan)"))
+        for teks, arah, tip in zoom:
+            b = QPushButton(teks)
+            b.setObjectName("tombolKaca")
+            b.setFixedSize(32, 32)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(tip)
+            b.setAutoRepeat(True)
+            b.clicked.connect(lambda _c=False, a=arah: self.backend.zoom(120 * a))
+            lp.addWidget(b)
         self.pandang.adjustSize()
+        self.petunjuk.setVisible(self.aksi_opsi["petunjuk"].isChecked())
         self.quick.installEventFilter(self)
         self.splitter.addWidget(self.quick)
         self.panel = PanelBiaya3D()
@@ -1542,9 +1714,9 @@ class Penampil3D(QWidget):
         elif gid in self._terkait and tampil_mode == TAMPIL_BESI:
             warna, sinar, buram, klik = QColor(WARNA_TERKAIT), 0.05, 0.22, False
         elif gid == self._pilih:
-            warna, sinar = QColor(WARNA_PILIH), 0.30
+            warna, sinar = QColor(WARNA_PILIH), 0.14
         elif gid in self._terkait:
-            warna, sinar = QColor(WARNA_TERKAIT), 0.18
+            warna, sinar = QColor(WARNA_TERKAIT), 0.13
         else:
             if not dihitung:
                 warna = QColor(WARNA_TERMASUK if e.termasuk else WARNA_LAIN)
@@ -1688,14 +1860,29 @@ class Penampil3D(QWidget):
             self._posisikan_overlay()
         return super().eventFilter(obj, event)
 
+    def _atur_opsi(self, kunci: str, aktif: bool):
+        set_pref(PREF_3D[kunci], "1" if aktif else "0")
+        if kunci in ("tepi", "grid", "oklusi"):
+            self.backend.atur_opsi(kunci, aktif)
+        elif kunci == "petunjuk":
+            self.petunjuk.setVisible(aktif)
+        self._posisikan_overlay()
+
     def _posisikan_overlay(self):
-        h = self.quick.height()
-        self.legenda.move(14, max(h - self.legenda.height() - 14, 8))
-        self.petunjuk.move(max(self.quick.width() - self.petunjuk.width() - 14, 8), max(h - self.petunjuk.height() - 14, 8))
-        self.pandang.move(max(self.quick.width() - self.pandang.width() - 14, 8), 14)
-        self.legenda.raise_()
-        self.petunjuk.raise_()
-        self.pandang.raise_()
+        w, h = self.quick.width(), self.quick.height()
+        m = 12
+        self.pandang.move(max(w - self.pandang.width() - m, m), m)
+        y_kiri = m
+        if self.alat_kiri.width() + self.pandang.width() + 3 * m > w:  # sempit: alat kiri turun di bawah
+            y_kiri = m + self.pandang.height() + 8
+        self.alat_kiri.move(m, y_kiri)
+        self.legenda.move(m, max(h - self.legenda.height() - m, m))
+        self.petunjuk.move(max(w - self.petunjuk.width() - m, m), max(h - self.petunjuk.height() - m, m))
+        # petunjuk disembunyikan bila tertutup legenda (tampilan sempit)
+        tabrak = self.legenda.x() + self.legenda.width() + 8 > self.petunjuk.x()
+        self.petunjuk.setVisible(self.aksi_opsi["petunjuk"].isChecked() and not tabrak)
+        for wgt in (self.legenda, self.petunjuk, self.alat_kiri, self.pandang):
+            wgt.raise_()
 
     def render_3d_aktif(self) -> bool | None:
         """True bila Qt Quick memakai API grafis 3D (Direct3D / OpenGL / Vulkan / Metal); False bila memakai

@@ -30,7 +30,7 @@ Penandanya `versi_tema` di preferensi.
 
 **Navigasi**
 - Sidebar hitam; menu aktif ditandai garis kuning di kiri.
-- Logo aplikasi mengikuti warna tema, termasuk splash screen dan ikon jendela.
+- Logo aplikasi: emblem huruf S CostStruct (versi 1.6), lihat bagian *Logo dan sidebar yang dapat diciutkan*.
 
 **Hasil Estimasi**
 - Toolbar dibuat dua baris.
@@ -104,5 +104,23 @@ Penandanya `versi_tema` di preferensi.
 - Isian volume / harga satuan di tabel Per Elemen tampil seperti teks biasa (tanpa kotak, tanpa sorotan saat
   kursor lewat); kotak isian beraksen baru muncul setelah sel diklik.
 
-Logo perusahaan belum dimasukkan ke aplikasi (aplikasi masih untuk penelitian). Hanya warna kuning logo yang dipakai di tema.
+## Logo dan sidebar yang dapat diciutkan (versi 1.6)
+
+**Logo CostStruct**
+- Sumber: gambar logo dari pengguna (`assets/logo/coststruct-logo-asli.jpg`). Latar kotak-kotak "transparan" di
+  gambar itu ikut tercetak, jadi logo dipisahkan dari latarnya berdasarkan warna: piksel kuning (jenuh) dan putih
+  (terang) dipertahankan, kotak abu-abu dibuang. Hasil: `src/gui/aset/logo_emblem.png` (emblem S, 512 px,
+  transparan) dan `assets/logo/coststruct-logo.png` (emblem + tulisan CostStruct).
+- Logo dirancang untuk latar gelap (bagian putihnya hilang di latar terang). Di sidebar gelap emblem tampil
+  langsung; di latar terang (tema Terang Biru, splash tema terang) emblem diberi kotak gelap membulat.
+- Ikon jendela, taskbar, `CostStruct.exe`, dan installer: emblem di atas kotak gelap membulat
+  (`tools/buat_ikon.py` → `assets/coststruct.ico`, 16–256 px).
+- Nama aplikasi di sidebar dan splash ditulis seperti logo: **Cost** (putih) **Struct** (kuning).
+
+**Sidebar dapat diciutkan**
+- Tombol panel di baris *MENU UTAMA* (atau **Ctrl+M**) menciutkan sidebar dari 236 px menjadi 76 px: hanya logo dan
+  ikon menu; nama menu tampil sebagai tooltip. Tombol yang sama di bawah logo melebarkannya lagi.
+- Zona *Import file IFC* menjadi ikon saja; status *Luring* disembunyikan, nomor versi tetap.
+- Perpindahan lebar dianimasikan singkat (170 ms). Pilihan diingat untuk sesi berikutnya (`sidebar_ciut` di
+  preferensi). Toast tetap berada di tengah area konten.
 Tes: `tests/test_ui_modern.py`.

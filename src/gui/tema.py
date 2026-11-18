@@ -87,9 +87,6 @@ PALET = {
         "utama_judul": "#4a3c0f",
         "utama_ket": "#5a4a17",
         "utama_nilai": "#141414",
-        "logo_awal": KUNING_LOGO,
-        "logo_akhir": "#e2b62f",
-        "logo_batang": "#141414",
         "sidebar_aktif": "#2c2611",
     },
     # Terang dengan sidebar hitam dan tombol kuning; teks aksen memakai emas tua agar terbaca di latar putih.
@@ -138,9 +135,6 @@ PALET = {
         "tombol_utama_hover": "#fbe384",
         "tombol_utama_tekan": "#e9c440",
         "tombol_utama_teks": "#141414",
-        "logo_awal": KUNING_LOGO,
-        "logo_akhir": "#e2b62f",
-        "logo_batang": "#141414",
         "sidebar_teks": "#b9b4a8",
         "sidebar_teks_aktif": "#ffffff",
         "sidebar_hover": "#232323",
@@ -268,7 +262,6 @@ def _lengkapi(nama: str, p: dict) -> None:
     bawaan = {
         "tombol_utama": p["aksen"], "tombol_utama_hover": p["aksen_hover"], "tombol_utama_tekan": p["aksen_tekan"],
         "tombol_utama_teks": p["aksen_teks"], "utama_nilai": "#ffffff",
-        "logo_awal": "#6bb2ff", "logo_akhir": "#2b6cd4", "logo_batang": "#ffffff",
         "sidebar_teks": p["teks_redup"], "sidebar_teks_aktif": p["teks_kuat"], "sidebar_hover": p["permukaan"],
         "sidebar_aktif": p["aksen_lembut"], "sidebar_garis": p["garis"], "sidebar_judul": p["teks_kuat"],
         "sidebar_samar": p["teks_samar"],
@@ -375,6 +368,12 @@ QPushButton#navItem:checked {{
     background-color: {c['sidebar_aktif']}; color: {c['sidebar_teks_aktif']};
     border-left: 3px solid {c['tombol_utama']}; border-top-left-radius: 2px; border-bottom-left-radius: 2px;
 }}
+QPushButton#navItem[ciut="true"] {{ text-align: center; padding: 11px 0px; }}
+QPushButton#tombolSidebar {{
+    border: none; border-radius: 8px; background: transparent; padding: 0px; min-width: 30px; min-height: 30px;
+}}
+QPushButton#tombolSidebar:hover {{ background-color: {c['sidebar_hover']}; }}
+QFrame#zonaSeret[ciut="true"] {{ border-radius: 10px; }}
 
 /* ---------- tab ---------- */
 QTabWidget::pane {{ border: none; border-top: 1px solid {c['garis']}; top: -1px; }}
@@ -493,6 +492,26 @@ QPushButton#segmen:checked {{
     background-color: {c['tombol_utama']}; color: {c['tombol_utama_teks']}; border-color: {c['tombol_utama']};
 }}
 QPushButton:focus {{ outline: none; }}
+QLabel#nilaiDetail {{ font-size: 18px; font-weight: 800; color: {c['teks_kuat']}; }}
+/* pilihan yang diubah tetapi belum disimpan (dialog Ganti Bahan) */
+QComboBox[berubah="true"] {{ border: 1px solid {c['aksen']}; }}
+QPushButton#chipLompat {{
+    background-color: {c['permukaan']}; color: {c['teks_redup']}; border: 1px solid {c['garis']};
+    border-radius: 13px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+}}
+QPushButton#chipLompat:hover {{ color: {c['teks_kuat']}; border-color: {c['aksen_garis']}; }}
+/* tombol di panel mengambang tampilan 3D (lebih ringkas) */
+QFrame#alat3d QPushButton#segmen, QFrame#pandang3d QPushButton#segmen {{ padding: 6px 13px; font-size: 12px; }}
+QPushButton#tombolKaca, QToolButton#tombolKaca {{
+    background-color: {c['permukaan']}; color: {c['teks']}; border: 1px solid {c['garis_kuat']};
+    border-radius: 10px; padding: 6px 12px; font-size: 12px; font-weight: 600;
+}}
+QPushButton#tombolKaca {{ padding: 0px; font-size: 16px; }}
+QPushButton#tombolKaca:hover, QToolButton#tombolKaca:hover {{
+    background-color: {c['permukaan_2']}; color: {c['teks_kuat']}; border-color: {c['garis_hover']};
+}}
+QToolButton#tombolKaca::menu-indicator {{ image: none; width: 0; }}
+QMenu::indicator {{ width: 16px; height: 16px; margin-left: 6px; }}
 
 QToolButton#kartuTema {{
     background-color: {c['permukaan']}; border: 2px solid {c['garis']}; border-radius: 14px;
@@ -779,6 +798,11 @@ def _gambar_ikon(nama: str, p: QPainter, warna: QColor):
         p.drawLine(QPointF(6, 7.5), QPointF(10, 3.5))
         p.drawLine(QPointF(14, 7.5), QPointF(10, 3.5))
         p.drawPolyline(QPolygonF([QPointF(3.5, 12), QPointF(3.5, 16.5), QPointF(16.5, 16.5), QPointF(16.5, 12)]))
+    elif nama in ("ciut", "lebar"):  # panel sidebar + panah: ciutkan / lebarkan sidebar
+        p.drawRoundedRect(QRectF(2.5, 3.5, 15, 13), 2.5, 2.5)
+        p.drawLine(QPointF(7.5, 3.5), QPointF(7.5, 16.5))
+        a, b = (13.6, 11.2) if nama == "ciut" else (11.2, 13.6)
+        p.drawPolyline(QPolygonF([QPointF(a, 7.4), QPointF(b, 10), QPointF(a, 12.6)]))
     elif nama == "tutup":
         p.drawLine(QPointF(5.5, 5.5), QPointF(14.5, 14.5))
         p.drawLine(QPointF(14.5, 5.5), QPointF(5.5, 14.5))
@@ -1158,7 +1182,7 @@ class Toast(QFrame):
     def posisikan(self):
         """Tengah-bawah area konten (di sebelah kanan sidebar), di atas baris tombol aksi."""
         induk = self.parentWidget()
-        kiri = getattr(induk, "LEBAR_SIDEBAR", 0)
+        kiri = getattr(induk, "lebar_sidebar", 0)
         x = kiri + (induk.width() - kiri - self.width()) // 2
         self.move(x, induk.height() - self.height() - 72)
 
@@ -1182,37 +1206,73 @@ def toast(widget: QWidget, teks: str, jenis: str = "sukses") -> None:
         t.tampilkan(teks, jenis)
 
 
-class Logo(QWidget):
-    """Logo CostStruct: kotak bergradasi dengan tiga batang naik."""
+ASET = Path(__file__).with_name("aset")
+LOGO_EMBLEM = ASET / "logo_emblem.png"  # logo CostStruct (emblem S), PNG transparan 512 px
+# Logo dirancang untuk latar gelap (bagian putih logo hilang di latar terang): di latar terang logo diberi
+# kotak gelap membulat, sama dengan ikon aplikasi.
+LATAR_LOGO = ("#262628", "#0c0c0d")
+_cache_emblem: dict = {}
 
-    def __init__(self, ukuran: int = 38, parent=None):
+
+def _emblem(ukuran: int) -> QPixmap:
+    """Emblem logo ukuran `ukuran` px, diperkecil halus sekali lalu disimpan (gambar tajam di ukuran kecil)."""
+    pm = _cache_emblem.get(ukuran)
+    if pm is None:
+        asli = _cache_emblem.get(0)
+        if asli is None:
+            asli = _cache_emblem[0] = QPixmap(str(LOGO_EMBLEM))
+        pm = asli.scaled(ukuran, ukuran, Qt.KeepAspectRatio, Qt.SmoothTransformation) if not asli.isNull() else asli
+        _cache_emblem[ukuran] = pm
+    return pm
+
+
+def latar_terang(warna: str) -> bool:
+    return QColor(warna).lightness() >= 128
+
+
+class Logo(QWidget):
+    """Logo CostStruct. `kotak` None: kotak gelap hanya bila latar sidebar terang (logo dibuat untuk latar gelap)."""
+
+    def __init__(self, ukuran: int = 38, parent=None, kotak: bool | None = None):
         super().__init__(parent)
         self.setFixedSize(ukuran, ukuran)
+        self.kotak = latar_terang(W["sidebar"]) if kotak is None else kotak
 
     def paintEvent(self, event):
         p = QPainter(self)
-        gambar_logo(p, self.width())
+        gambar_logo(p, self.width(), self.kotak, self.devicePixelRatioF())
         p.end()
 
 
-def gambar_logo(p: QPainter, s: float) -> None:
-    """Gambar logo CostStruct ukuran s x s (dipakai widget Logo, ikon jendela, dan ikon .exe)."""
+def gambar_logo(p: QPainter, s: float, kotak: bool = True, rasio: float = 1.0) -> None:
+    """Gambar logo CostStruct ukuran s x s (widget Logo, splash, ikon jendela, dan ikon .exe).
+
+    kotak=True: emblem di atas kotak gelap membulat (ikon aplikasi); False: emblem saja (untuk latar gelap)."""
+    p.save()
     p.setRenderHint(QPainter.Antialiasing)
-    area = QRectF(0, 0, s, s)
-    grad = QLinearGradient(area.topLeft(), area.bottomRight())
-    grad.setColorAt(0.0, QColor(W["logo_awal"]))
-    grad.setColorAt(1.0, QColor(W["logo_akhir"]))
-    p.setPen(Qt.NoPen)
-    p.setBrush(QBrush(grad))
-    p.drawRoundedRect(area, s * 0.28, s * 0.28)
-    lebar, jarak = s * 0.15, s * 0.09
-    x0 = (s - (3 * lebar + 2 * jarak)) / 2
-    dasar = s * 0.74
-    for i, (t, a) in enumerate(zip([0.22, 0.38, 0.54], [170, 215, 255])):
-        batang = QColor(W["logo_batang"])
-        batang.setAlpha(a)
-        p.setBrush(batang)
-        p.drawRoundedRect(QRectF(x0 + i * (lebar + jarak), dasar - s * t, lebar, s * t), s * 0.05, s * 0.05)
+    p.setRenderHint(QPainter.SmoothPixmapTransform)
+    isi = s
+    if kotak:
+        area = QRectF(0, 0, s, s)
+        grad = QLinearGradient(area.topLeft(), area.bottomLeft())
+        grad.setColorAt(0.0, QColor(LATAR_LOGO[0]))
+        grad.setColorAt(1.0, QColor(LATAR_LOGO[1]))
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(grad))
+        p.drawRoundedRect(area, s * 0.22, s * 0.22)
+        isi = s * 0.84
+    piksel = max(1, round(isi * rasio))
+    pm = _emblem(piksel)
+    o = (s - isi) / 2
+    p.drawPixmap(QRectF(o, o, isi, isi), pm, QRectF(0, 0, pm.width(), pm.height()))
+    p.restore()
+
+
+def teks_merek(ukuran: int | None = None) -> str:
+    """'CostStruct' seperti logo: 'Cost' warna judul, 'Struct' kuning logo (HTML untuk QLabel)."""
+    gaya = f"font-size:{ukuran}px;" if ukuran else ""
+    kuning = "#f2b51d" if not latar_terang(W["sidebar"]) else W["aksen"]
+    return f'<span style="{gaya}">Cost<span style="color:{kuning}">Struct</span></span>'
 
 
 def pratinjau_tema(nama: str, lebar: int = 184, tinggi: int = 104) -> QPixmap:
@@ -1230,8 +1290,11 @@ def pratinjau_tema(nama: str, lebar: int = 184, tinggi: int = 104) -> QPixmap:
     p.setClipPath(bingkai)
     p.fillRect(QRectF(0, 0, lebar, tinggi), QColor(c["latar"]))
     p.fillRect(QRectF(0, 0, 44, tinggi), QColor(c["sidebar"]))
-    p.setBrush(QColor(c["logo_awal"]))
-    p.drawRoundedRect(QRectF(8, 8, 12, 12), 3, 3)
+    p.save()
+    p.translate(7, 7)
+    gambar_logo(p, 14, latar_terang(c["sidebar"]), skala)
+    p.restore()
+    p.setPen(Qt.NoPen)
     for i in range(4):  # menu sidebar, yang pertama aktif
         p.setBrush(QColor(c["sidebar_aktif"] if i == 0 else c["sidebar_hover"]))
         p.drawRoundedRect(QRectF(6, 30 + i * 13, 32, 8), 2, 2)
@@ -1257,13 +1320,13 @@ def gambar_ikon_aplikasi(ukuran: int = 256) -> QPixmap:
     pm = QPixmap(ukuran, ukuran)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
-    gambar_logo(p, ukuran)
+    gambar_logo(p, ukuran, kotak=True)
     p.end()
     return pm
 
 
 def ikon_aplikasi() -> QIcon:
-    """Ikon jendela/taskbar CostStruct (KNF-8), digambar tanpa file gambar."""
+    """Ikon jendela/taskbar CostStruct (KNF-8): emblem logo di atas kotak gelap membulat."""
     ik = QIcon()
     for u in (16, 24, 32, 48, 64, 128, 256):
         ik.addPixmap(gambar_ikon_aplikasi(u))

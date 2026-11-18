@@ -118,10 +118,14 @@ class ParameterDialog(QDialog):
                 tanda.setFixedWidth(130)
                 self.tanda[k] = (tanda, bawaan, d)
                 g.addWidget(tema.label(label, "formLabel"), i, 0)
-                g.addWidget(sp, i, 1)
                 satuan = tema.label(sat, "formLabel")
                 satuan.setFixedWidth(48)
-                g.addWidget(satuan, i, 2)
+                if k in PILIHAN:  # pilihan tanpa satuan: combo memakai kolom satuan agar teksnya terbaca utuh
+                    sp.setMinimumWidth(230)
+                    g.addWidget(sp, i, 1, 1, 2)
+                else:
+                    g.addWidget(sp, i, 1)
+                    g.addWidget(satuan, i, 2)
                 g.addWidget(tanda, i, 3)
                 self._berubah(k)
             v.addWidget(kartu)

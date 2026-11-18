@@ -1,6 +1,7 @@
 """
-Buat ikon aplikasi `assets/coststruct.ico` (dan .png) dari logo vektor di gui/tema.py (KNF-8).
-Ikon ini dipakai PyInstaller sebagai ikon CostStruct.exe.
+Buat ikon aplikasi `assets/coststruct.ico` (dan .png) dari logo CostStruct (src/gui/aset/logo_emblem.png,
+digambar di atas kotak gelap membulat oleh gui/tema.py) (KNF-8). Ikon ini dipakai PyInstaller sebagai ikon
+CostStruct.exe dan installer.
 
     python tools/buat_ikon.py
 """

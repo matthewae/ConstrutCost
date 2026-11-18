@@ -40,7 +40,7 @@ Kode program:
    |---|---|
    | Putar | seret kiri |
    | Geser | seret kanan / tengah |
-   | Zoom | roda mouse |
+   | Zoom | roda mouse, atau tombol − / + (pojok kanan atas, tahan untuk terus) |
    | Pandangan cepat | Iso, Atas, Depan, Samping, Pas (pojok kanan atas tampilan) |
 
    Label kecil di dekat kursor menyebut nama elemen, jenis, lantai, dan biayanya.
@@ -94,8 +94,20 @@ menyebut kolom tempat biayanya sudah dihitung, jadi tidak dihitung dua kali.
 | **Cari elemen** (Ctrl+F) | dua combo box, tanpa mengetik: **Jenis elemen** (Kolom, Balok, Dinding, Fondasi, Pelat lantai, Atap, …, beserta jumlahnya) lalu **Nama elemen** jenis itu, dikelompokkan per lantai, mis. *Kolom K1 30x30 A1*. Memilih nama menyorot dan memfokuskan elemen. Elemen yang diklik di 3D ikut tampil di kedua combo. Nama kembar di satu lantai diberi nomor #1, #2, … menurut letaknya di denah |
 | **Lantai: s.d. …** | sembunyikan lantai di atasnya, mis. *s.d. 00 Fondasi* menampilkan denah fondasi dan sloof saja |
 | **Tampilan lengkap / Arsitektur tembus pandang / Struktur saja / Besi beton** | Tembus pandang: dinding, atap, pintu, dan jendela dibuat transparan, dan klik menembus ke kolom/balok di baliknya. Struktur saja: hanya kolom, balok, pelat, fondasi, tangga, dan pekerjaan tanah. Besi beton: beton dibuat tembus pandang sehingga besi beton yang dimodelkan (IfcReinforcingBar) di dalamnya terlihat; lihat bagian di bawah |
-| **Warna jenis / Warna biaya** | Warna biaya: biru = elemen murah, merah = elemen mahal (peringkat persentil); legenda menampilkan biaya terendah, median, dan tertinggi |
-| **Elemen tak dihitung** | tampilkan atau sembunyikan elemen yang tidak masuk RAB |
+| **Warna jenis / Warna biaya** (pojok kiri atas tampilan) | Warna biaya: biru = elemen murah, merah = elemen mahal (peringkat persentil); legenda menampilkan biaya terendah, median, dan tertinggi |
+| **Opsi tampilan** (pojok kiri atas) | menu centang: **elemen tak dihitung** (abu-abu), **garis tepi elemen**, **grid lantai 1 m**, **bayangan di sudut** (oklusi ambien), dan **petunjuk navigasi**. Pilihan diingat untuk sesi berikutnya |
+| **Legenda** (pojok kiri bawah) | klik judulnya untuk melipat / membuka; keadaannya diingat |
+
+Tata letak tampilan (versi 1.6):
+
+- Satu baris alat di atas tampilan: cari elemen (Jenis → Nama) di kiri, **Lantai** dan **mode tampilan** di kanan.
+- Tombol lain mengambang di atas tampilan 3D (panel tembus pandang): warna & opsi di kiri atas, arah pandang &
+  zoom di kanan atas, legenda di kiri bawah, petunjuk mouse di kanan bawah. Di layar sempit, panel kiri atas turun
+  ke bawah panel kanan atas agar tidak bertumpuk, dan petunjuk disembunyikan bila tertutup legenda.
+- Latar bergradasi (terang di atas, gelap di bawah), grid lantai di muka tanah ±0,00 yang memudar ke tepi (garis
+  tebal tiap 5 m), garis tepi gelap tipis di setiap elemen, dan oklusi ambien di sudut pertemuan elemen. Model
+  tampak lebih berdimensi dan bentuk elemen terbaca seperti gambar kerja.
+- Elemen terpilih berwarna kuning logo CostStruct (`#EEAC16`), garis tepinya cokelat tua.
 
 ## Mode besi beton (pembesian)
 
@@ -124,6 +136,14 @@ tampilan kembali ke pilihan sebelumnya.
   (x, y, z)<sub>IFC</sub> → (x, z, −y). Tulangan, lubang, dan ruang tidak ditampilkan.
 - **Kinerja.** Rumah 1 lantai: 360 elemen / 11.456 segitiga, 6,4 detik. Rumah 3 lantai: 571 elemen /
   19.588 segitiga, 2,8 detik.
+- **Garis tepi** (`model3d.garis_tepi`). Sisi segitiga digambar bila hanya dimiliki satu segitiga (tepi terbuka)
+  atau bila dua bidang yang bertemu di sisi itu membentuk sudut > 28°, sehingga diagonal hasil pemecahan bidang
+  datar tidak ikut tergambar. Garis diangkat 8 mm ke luar bidang agar tidak berkedip (z-fighting). Rumah 3 lantai:
+  16.671 garis, dihitung 0,14 detik. Garis digambar sebagai `Model` anak dari setiap elemen, jadi ikut tersembunyi,
+  tembus pandang, atau tersorot bersama elemennya.
+- **Grid lantai** (`GeometriGrid`). Garis 1 m di bidang muka tanah: elevasi lantai yang paling dekat ke ±0,00
+  (`Model3D.tinggi_tanah`, mis. *01 LANTAI 1*, bukan *00 FONDASI*). Garis dibuat sendiri (tanpa modul
+  QtQuick3D.Helpers), jadi ukuran build .exe tidak bertambah.
 - **Grafis.** Penampil memakai Direct3D 11 di Windows; OpenGL / Vulkan / Metal di sistem lain. Bila driver grafis
   tidak menyediakannya, jendela menampilkan pesan dan panel biaya tetap dapat dipakai lewat combo pencarian elemen.
 - **File IFC.** Penampil membutuhkan file IFC asli proyek. Bila file dipindahkan, aplikasi memberi pesan.
@@ -142,10 +162,12 @@ tampilan kembali ke pilihan sebelumnya.
 
 ## Pengujian
 
-`tests/test_penampil3d.py` (21 tes) memakai model IFC buatan. Isinya: kolom = pedestal + kolom di atas footplate
+`tests/test_penampil3d.py` (25 tes) memakai model IFC buatan. Isinya: kolom = pedestal + kolom di atas footplate
 dan lantai kerja, dinding di atas sloof, dan perabot. Yang diuji:
 
 - **Geometri:** lantai, koordinat dunia vs koordinat tampilan, dan penghapusan segitiga tanpa luas.
+- **Tampilan (1.6):** garis tepi kubus = 12 rusuk tanpa diagonal, muka tanah = lantai dekat ±0,00, grid lantai
+  di muka tanah, opsi tampilan dan lipatan legenda diingat, tombol zoom.
 - **Elemen yang ikut dihitung:**
   - kolom → pedestal, footplate, lantai kerja (urut);
   - fondasi → lantai kerja;

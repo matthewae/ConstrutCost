@@ -293,6 +293,10 @@ def test_item_tambahan_dari_katalog(db_sementara, tmp_path):
     assert len(data) == len(AHSP)
     kloset = cari_katalog(data, "closet duduk")
     assert kloset and kloset[0]["kode"] == "3.18.3.1" and kloset[0]["kategori"] == "Sanitair"
+    # ejaan lain ikut dicari: "kloset" juga menemukan "closet" di HSPK, ejaan yang diketik didahulukan
+    ejaan = cari_katalog(data, "kloset duduk")
+    assert "3.18.3.1" in [d["kode"] for d in ejaan] and "kloset" in ejaan[0]["uraian"].lower()
+    assert any("keran" in d["uraian"].lower() for d in cari_katalog(data, "kran"))
     assert all(d["bab"] == "5" for d in cari_katalog(data, "", "5"))
 
     pid = _proyek_ac20()

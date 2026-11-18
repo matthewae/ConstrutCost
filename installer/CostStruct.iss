@@ -3,7 +3,7 @@
 ; Dibangun dari folder hasil PyInstaller (dist\CostStruct) dengan:
 ;     python tools\build_installer.py            (mencari ISCC.exe, membaca versi, lalu menguji installer)
 ; atau langsung:
-;     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersiApp=1.5.0 installer\CostStruct.iss
+;     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersiApp=1.6.0 installer\CostStruct.iss
 ; Hasil: dist\installer\CostStruct-Setup-<versi>.exe
 ;
 ; Data pengguna (database, log, cadangan) ada di %APPDATA%\CostStruct dan TIDAK dihapus saat aplikasi dicopot,
@@ -11,7 +11,7 @@
 
 #define NamaApp "CostStruct"
 #ifndef VersiApp
-  #define VersiApp "1.5.0"
+  #define VersiApp "1.6.0"
 #endif
 #define ExeApp "CostStruct.exe"
 

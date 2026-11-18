@@ -4,7 +4,7 @@ Semua halaman tinggal di satu jendela, sehingga berpindah halaman tidak membuka 
 Saat tema diganti (KF-10), isi jendela dibangun ulang dan pengguna kembali ke halaman yang sama.
 """
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEasingCurve, Qt, QVariantAnimation
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -25,12 +25,14 @@ from gui.harga_page import HargaPage
 from gui.pengaturan_page import PengaturanPage
 from gui.proyek_page import ProyekPage
 
-VERSI_APLIKASI = "v1.5.0"
+VERSI_APLIKASI = "v1.6.0"
 NAV_PROYEK, NAV_HARGA, NAV_PENGATURAN, NAV_AKTIVITAS = 0, 1, 2, 3
+PREF_SIDEBAR_CIUT = "sidebar_ciut"  # "1" = sidebar diciutkan (ikon saja); diingat antar sesi
 
 
 class MainWindow(QMainWindow):
     LEBAR_SIDEBAR = 236
+    LEBAR_SIDEBAR_CIUT = 76
 
     def __init__(self):
         super().__init__()
@@ -49,7 +51,14 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+3"), self, activated=self.tampilkan_pengaturan)
         QShortcut(QKeySequence("Ctrl+,"), self, activated=self.tampilkan_pengaturan)
         QShortcut(QKeySequence("Ctrl+4"), self, activated=self.tampilkan_aktivitas)
+        QShortcut(QKeySequence("Ctrl+M"), self, activated=lambda: self.atur_sidebar(not self.sidebar_ciut))
         self.tampilkan_proyek()
+
+    @property
+    def lebar_sidebar(self) -> int:
+        """Lebar sidebar saat ini (posisi toast mengikuti sidebar yang diciutkan / dilebarkan)."""
+        bar = getattr(self, "sidebar", None)
+        return bar.width() if bar is not None else self.LEBAR_SIDEBAR
 
     def _bangun_isi(self):
         """Buat sidebar dan semua halaman. Dipanggil ulang saat tema berganti."""
@@ -81,28 +90,49 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------------- sidebar
 
     def _buat_sidebar(self) -> QFrame:
+        if getattr(self, "_anim_sidebar", None) is not None:  # tema diganti saat animasi: hentikan animasi lama
+            self._anim_sidebar.stop()
         bar = QFrame()
         bar.setObjectName("sidebar")
         bar.setFixedWidth(self.LEBAR_SIDEBAR)
+        self.sidebar = bar
+        self._anim_sidebar = None
         lay = QVBoxLayout(bar)
         lay.setContentsMargins(16, 22, 16, 18)
         lay.setSpacing(6)
 
         merek = QHBoxLayout()
         merek.setSpacing(10)
-        merek.addWidget(tema.Logo(40))
-        teks = QVBoxLayout()
+        self.logo = tema.Logo(40)
+        self.logo.setToolTip("CostStruct — QTO & RAB dari model IFC")
+        merek.addWidget(self.logo)
+        self._teks_merek = QWidget()
+        teks = QVBoxLayout(self._teks_merek)
+        teks.setContentsMargins(0, 0, 0, 0)
         teks.setSpacing(0)
-        teks.addWidget(tema.label("CostStruct", "namaAplikasi"))
+        teks.addWidget(tema.label(tema.teks_merek(), "namaAplikasi"))
         teks.addWidget(tema.label("QTO & RAB dari model IFC", "taglineAplikasi"))
-        merek.addLayout(teks)
+        merek.addWidget(self._teks_merek, stretch=1)
         lay.addLayout(merek)
-        lay.addSpacing(26)
-        lay.addWidget(tema.label("MENU UTAMA", "bagian"))
-        lay.addSpacing(2)
+        lay.addSpacing(22)
+
+        # baris "MENU UTAMA" + tombol ciutkan; saat diciutkan diganti tombol lebarkan selebar menu
+        self._baris_menu = QWidget()
+        bm = QHBoxLayout(self._baris_menu)
+        bm.setContentsMargins(0, 0, 0, 0)
+        bm.addWidget(tema.label("MENU UTAMA", "bagian"))
+        bm.addStretch(1)
+        self.btn_ciut = self._tombol_sidebar("ciut", "Ciutkan menu: tampilkan ikon saja (Ctrl+M)")
+        self.btn_ciut.clicked.connect(lambda: self.atur_sidebar(True))
+        bm.addWidget(self.btn_ciut)
+        lay.addWidget(self._baris_menu)
+        self.btn_lebar = self._tombol_sidebar("lebar", "Lebarkan menu (Ctrl+M)")
+        self.btn_lebar.clicked.connect(lambda: self.atur_sidebar(False))
+        lay.addWidget(self.btn_lebar)
 
         self.grup_nav = QButtonGroup(self)
         self.grup_nav.setExclusive(True)
+        self._teks_nav = {}
         for idx, (teks_nav, nama_ikon, pintas) in (
             (NAV_PROYEK, ("Proyek", "proyek", "Ctrl+1")),
             (NAV_HARGA, ("Harga Satuan", "harga", "Ctrl+2")),
@@ -116,6 +146,7 @@ class MainWindow(QMainWindow):
             b.setIcon(tema.ikon(nama_ikon, tema.W["sidebar_teks_aktif"]))
             b.setToolTip(f"{teks_nav} ({pintas})")
             self.grup_nav.addButton(b, idx)
+            self._teks_nav[idx] = f"  {teks_nav}"
             lay.addWidget(b)
         self.grup_nav.idClicked.connect(self._nav_diklik)
 
@@ -127,25 +158,92 @@ class MainWindow(QMainWindow):
         zona.setCursor(Qt.PointingHandCursor)
         zona.setToolTip("Klik atau seret file .ifc ke jendela ini (Ctrl+N)")
         zona.mouseReleaseEvent = lambda _e: self._ke_proyek_lalu_import()
+        self._zona = zona
         z = QHBoxLayout(zona)
         z.setContentsMargins(12, 10, 12, 10)
         z.setSpacing(10)
-        z.addWidget(tema.LencanaIkon("import", "aksen", 30))
-        zk = QVBoxLayout()
+        z.addWidget(tema.LencanaIkon("import", "aksen", 30), alignment=Qt.AlignCenter)
+        self._teks_zona = QWidget()
+        zk = QVBoxLayout(self._teks_zona)
+        zk.setContentsMargins(0, 0, 0, 0)
         zk.setSpacing(0)
         zk.addWidget(tema.label("Import file IFC", "zonaJudul"))
         zk.addWidget(tema.label("Seret .ifc ke sini · Ctrl+N", "infoSidebar"))
-        z.addLayout(zk, stretch=1)
+        z.addWidget(self._teks_zona, stretch=1)
         lay.addWidget(zona)
         lay.addSpacing(10)
 
         kaki = QHBoxLayout()
         kaki.setContentsMargins(4, 0, 4, 0)
-        kaki.addWidget(tema.label("● Luring · data lokal", "chipOffline"))
+        self._chip_luring = tema.label("● Luring · data lokal", "chipOffline")
+        self._chip_luring.setToolTip("Semua data tersimpan di komputer ini; tidak perlu internet")
+        kaki.addWidget(self._chip_luring)
         kaki.addStretch()
         kaki.addWidget(tema.label(VERSI_APLIKASI, "versiAplikasi"))
         lay.addLayout(kaki)
+
+        from database.preferensi_repository import get_pref
+
+        self.sidebar_ciut = False
+        self._isi_sidebar(get_pref(PREF_SIDEBAR_CIUT) == "1")
+        bar.setFixedWidth(self.LEBAR_SIDEBAR_CIUT if self.sidebar_ciut else self.LEBAR_SIDEBAR)
         return bar
+
+    def _tombol_sidebar(self, nama_ikon: str, tip: str) -> QPushButton:
+        b = QPushButton()
+        b.setObjectName("tombolSidebar")
+        b.setIcon(tema.ikon(nama_ikon, tema.W["sidebar_teks"]))
+        b.setCursor(Qt.PointingHandCursor)
+        b.setToolTip(tip)
+        b.setAccessibleName(tip.split(" (")[0])
+        return b
+
+    def _isi_sidebar(self, ciut: bool) -> None:
+        """Isi sidebar penuh (ikon + teks) atau ciut (ikon saja, nama menu tampil sebagai tooltip)."""
+        self.sidebar_ciut = ciut
+        self._teks_merek.setVisible(not ciut)
+        self._baris_menu.setVisible(not ciut)
+        self.btn_lebar.setVisible(ciut)
+        self._teks_zona.setVisible(not ciut)
+        self._chip_luring.setVisible(not ciut)
+        self._zona.layout().setContentsMargins(*((6, 8, 6, 8) if ciut else (12, 10, 12, 10)))
+        for w in [self._zona, *self.grup_nav.buttons()]:
+            w.setProperty("ciut", ciut)
+            w.style().unpolish(w)
+            w.style().polish(w)
+        for idx, teks in self._teks_nav.items():
+            self.grup_nav.button(idx).setText("" if ciut else teks)
+
+    def atur_sidebar(self, ciut: bool, animasi: bool = True) -> None:
+        """Ciutkan / lebarkan sidebar (Ctrl+M). Pilihan diingat untuk sesi berikutnya."""
+        from database.preferensi_repository import set_pref
+
+        set_pref(PREF_SIDEBAR_CIUT, "1" if ciut else "0")
+        tujuan = self.LEBAR_SIDEBAR_CIUT if ciut else self.LEBAR_SIDEBAR
+        if self._anim_sidebar is not None:
+            self._anim_sidebar.stop()
+            self._anim_sidebar = None
+        if ciut:
+            self._isi_sidebar(True)  # teks disembunyikan dulu agar tidak terhimpit selama animasi
+        if not animasi:
+            self.sidebar.setFixedWidth(tujuan)
+            self._isi_sidebar(ciut)
+            self._setelah_sidebar()
+            return
+        anim = QVariantAnimation(self)
+        anim.setDuration(170)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.setStartValue(self.sidebar.width())
+        anim.setEndValue(tujuan)
+        anim.valueChanged.connect(lambda v: self.sidebar.setFixedWidth(int(v)))
+        anim.finished.connect(lambda: (self._isi_sidebar(ciut), self._setelah_sidebar()))
+        self._anim_sidebar = anim
+        anim.start()
+
+    def _setelah_sidebar(self):
+        self._anim_sidebar = None
+        if self.toast is not None and self.toast.isVisible():
+            self.toast.posisikan()
 
     def _nav_diklik(self, idx: int):
         if idx == NAV_PROYEK:

@@ -86,12 +86,26 @@ class KatalogDialog(QDialog):
         k.setContentsMargins(18, 14, 18, 14)
         k.setSpacing(8)
         k.addWidget(tema.label("ITEM TERPILIH", "bagian"))
-        self.label_item = tema.label("Pilih satu item di tabel.", "subjudul", wrap=True)
-        k.addWidget(self.label_item)
+        # belum ada item dipilih: petunjuk singkat; setelah dipilih: rincian analisa + isian volume
+        self.kosong = tema.KondisiKosong(
+            "Belum ada item dipilih",
+            "Ketik nama pekerjaan di kotak pencarian, lalu klik satu baris di tabel. Klik dua kali untuk langsung "
+            "mengisi volume.", simbol="cari")
+        self.kosong.setStyleSheet("QFrame#kartuKosong { border: none; background: transparent; }")
+        k.addWidget(self.kosong, stretch=1)
+        self.detail = QWidget()
+        kd = QVBoxLayout(self.detail)
+        kd.setContentsMargins(0, 0, 0, 0)
+        kd.setSpacing(8)
+        self.label_item = tema.label("", "subjudul", wrap=True)
+        kd.addWidget(self.label_item)
+        self.label_harga = tema.label("", "nilaiDetail")
+        kd.addWidget(self.label_harga)
         self.label_analisa = tema.label("", "infoKecil", wrap=True)
         self.label_analisa.setTextFormat(Qt.RichText)
-        k.addWidget(self.label_analisa)
-        k.addStretch()
+        kd.addWidget(self.label_analisa)
+        kd.addStretch()
+        k.addWidget(self.detail, stretch=1)
         form = QGridLayout()
         form.setHorizontalSpacing(10)
         form.setVerticalSpacing(8)
@@ -178,8 +192,12 @@ class KatalogDialog(QDialog):
         self._terpilih = it.data(Qt.UserRole) if it else None
         self.btn_tambah.setEnabled(self._terpilih is not None)
         self.label_galat.hide()
+        self.kosong.setVisible(self._terpilih is None)
+        self.detail.setVisible(self._terpilih is not None)
+        for w in (self.spin_volume, self.combo_lantai, self.edit_catatan):
+            w.setEnabled(self._terpilih is not None)
         if self._terpilih is None:
-            self.label_item.setText("Pilih satu item di tabel.")
+            self.label_item.setText("")
             self.label_analisa.setText("")
             self.label_satuan.setText("")
             self.label_jumlah.setText("")
@@ -188,6 +206,12 @@ class KatalogDialog(QDialog):
         d = next(x for x in self._data if x["kode"] == self._terpilih)
         self.label_item.setText(f"<b>{kode_dasar(self._terpilih)}</b> · {d['kategori']}<br>{uraian}")
         self.label_satuan.setText(satuan_tampil(d["satuan"]) or "unit")
+        sat = satuan_tampil(d["satuan"]) or "unit"
+        harga_rab = sum(kf * h for *_x, kf, h in komponen) * (1 + BUK_RATE)
+        self.label_harga.setText(f"{tema.format_rupiah(harga_rab)} / {sat}")
+        self.label_harga.setToolTip(
+            f"Harga satuan yang masuk RAB: koefisien analisa dikali harga dasar saat ini + biaya umum & keuntungan "
+            f"{BUK_RATE:.0%}.\nHarga di dokumen HSPK: {tema.format_rupiah(d['harga'])} / {sat}.")
         baris_k = []
         for judul, tipe in (("Bahan", "bahan"), ("Tenaga kerja", "upah"), ("Alat", "alat")):
             isi = [f"{angka_bahan(kf)} {sat} {nm}" for tp, nm, sat, kf, _h in komponen if tp == tipe]

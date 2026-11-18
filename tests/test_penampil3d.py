@@ -113,6 +113,22 @@ def test_model3d_geometri_lantai_dan_koordinat(tmp_path):
     assert nama["Meja Kerja"].batas()[1][2] < 0
 
 
+def test_garis_tepi_kubus_dan_bidang_datar():
+    """Kubus: 12 rusuk (diagonal bidang tidak digambar), diangkat sedikit ke luar bidang. Persegi datar: 4 tepi."""
+    from model3d import garis_tepi, segitiga_rata
+
+    v = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], float)
+    f = np.array([[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
+                  [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]])
+    pos, nrm = segitiga_rata(v, f)
+    g = garis_tepi(pos, nrm, angkat=0.01)
+    assert g.shape == (24, 3)
+    assert g.min() < 0 and g.max() > 1  # diangkat ke luar kubus
+    persegi, n2 = segitiga_rata(v[:4], f[:2])
+    assert len(garis_tepi(persegi, n2)) == 8
+    assert garis_tepi(np.zeros((0, 3), np.float32), np.zeros((0, 3), np.float32)).shape == (0, 3)
+
+
 def test_segitiga_rata_membuang_segitiga_tanpa_luas():
     from model3d import ke_y_atas, segitiga_rata
 
@@ -324,6 +340,49 @@ def _jendela(hal):
     w.resize(1300, 820)
     w.show()
     return w
+
+
+def test_tampilan_3d_garis_tepi_grid_legenda_dan_opsi(qapp, proyek):
+    """Elemen punya garis tepi, grid lantai di muka tanah, opsi tampilan dan lipatan legenda diingat."""
+    from database.preferensi_repository import get_pref
+    from gui.penampil3d import PREF_3D, Penampil3D
+
+    pid, _path, m = proyek
+    d = Penampil3D(pid, "Uji 3D", m)
+    try:
+        assert d.galat_qml == []
+        k1 = _gid(d._peta, "Kolom K1")
+        i = d.adegan._indeks[k1]
+        assert d.adegan.data(d.adegan.index(i), d.adegan.GARIS) is not None
+        assert d.grid_lantai.boundsMin().y() == pytest.approx(m.tinggi_tanah())
+        assert d.backend.tepi and d.backend.grid and d.backend.oklusi
+        d.aksi_opsi["tepi"].setChecked(False)
+        assert not d.backend.tepi and get_pref(PREF_3D["tepi"]) == "0"
+        d.aksi_opsi["tepi"].setChecked(True)
+        d.cb_lain.setChecked(False)  # elemen tak dihitung disembunyikan lewat menu Opsi tampilan
+        d.cb_lain.setChecked(True)
+        assert not d.legenda.terlipat
+        tinggi = d.legenda.height()
+        d.legenda.atur_lipat(True)
+        d.legenda.dilipat.emit(True)
+        assert d.legenda.height() < tinggi and get_pref(PREF_3D["legenda_lipat"]) == "1"
+        d.legenda.atur_lipat(False)
+        d.legenda.dilipat.emit(False)
+        jarak = d.backend.jarak
+        zoom_masuk = next(b for b in d.pandang.children() if getattr(b, "text", lambda: "")() == "+")
+        zoom_masuk.click()
+        assert d.backend.jarak < jarak
+    finally:
+        d.close()
+        d.deleteLater()
+
+
+def test_tinggi_tanah_mengikuti_lantai_dekat_nol():
+    from model3d import Model3D
+
+    m = Model3D(lantai=[("00 FONDASI", -1.85), ("01 LANTAI 1", 0.0), ("02 LANTAI 2", 3.5)], geser=(0, 0, -4.35))
+    assert m.tinggi_tanah() == pytest.approx(4.35)
+    assert Model3D(geser=(0, 0, -1.0)).tinggi_tanah() == 0.0
 
 
 def test_mode_3d_di_halaman_estimasi_kembali_dan_urungkan(qapp, proyek):

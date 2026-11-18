@@ -74,6 +74,20 @@ def teks_ringkas(bahan: list, satuan: str, volume: float = 0.0) -> str:
     return teks
 
 
+LEBAR_LABEL = 196
+
+
+def tandai(cb: QComboBox, label, berubah: bool) -> None:
+    """Tandai pilihan yang berbeda dari pilihan tersimpan: combo bergaris kuning, label diberi titik."""
+    if bool(cb.property("berubah")) != berubah:
+        cb.setProperty("berubah", berubah)
+        cb.style().unpolish(cb)
+        cb.style().polish(cb)
+    if label is not None:
+        teks = label.text().removeprefix("● ")
+        label.setText(f"● {teks}" if berubah else teks)
+
+
 class MaterialDialog(QDialog):
     def __init__(self, proyek_id: int, baris: list | None = None, parent=None):
         super().__init__(parent)
@@ -111,6 +125,8 @@ class MaterialDialog(QDialog):
         gulir = QScrollArea()
         gulir.setWidgetResizable(True)
         gulir.setFrameShape(QFrame.NoFrame)
+        gulir.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._gulir = gulir
         isi = QWidget()
         gulir.setWidget(isi)
         v = QVBoxLayout(isi)
@@ -118,6 +134,8 @@ class MaterialDialog(QDialog):
         v.setSpacing(12)
         self.combo = {}
         self._info = {}
+        self._label_slot = {}
+        self._kartu_kelompok = {}
         # Bagian utama: pekerjaan yang ada di proyek ini (dinding, lantai, atap, ...). Mutu beton, fondasi, dan
         # pekerjaan yang belum ada di proyek disimpan di bagian Lanjutan agar daftar awal tidak membingungkan.
         dipakai = set(self._volume) if baris is not None else set(SLOT)
@@ -128,7 +146,8 @@ class MaterialDialog(QDialog):
                   for k in KELOMPOK]
         for kelompok, slots in utama:
             if slots:
-                v.addWidget(self._kartu(kelompok, slots))
+                self._kartu_kelompok[kelompok] = self._kartu(kelompok, slots)
+                v.addWidget(self._kartu_kelompok[kelompok])
         self.btn_lanjutan = tema.tombol("▸ Pengaturan lanjutan: mutu beton, fondasi, dan pekerjaan lain", "ghost")
         self.btn_lanjutan.setCheckable(True)
         v.addWidget(self.btn_lanjutan, alignment=Qt.AlignLeft)
@@ -144,6 +163,18 @@ class MaterialDialog(QDialog):
         self.btn_lanjutan.toggled.connect(self._tampil_lanjutan)
         v.addWidget(self.wadah_lanjutan)
         v.addStretch()
+        # lompat ke kelompok pekerjaan (daftar bahan proyek bisa panjang)
+        if len(self._kartu_kelompok) > 2:
+            lompat = QHBoxLayout()
+            lompat.setSpacing(6)
+            lompat.addWidget(tema.label("Lompat ke:", "infoKecil"))
+            for kelompok, kartu in self._kartu_kelompok.items():
+                b = tema.tombol(kelompok.replace("&", "&&"), "ghost", None, f"Tampilkan bahan {kelompok.lower()}")
+                b.setObjectName("chipLompat")
+                b.clicked.connect(lambda _=False, k=kartu: self._gulir.verticalScrollBar().setValue(k.y() - 4))
+                lompat.addWidget(b)
+            lompat.addStretch()
+            lay.addLayout(lompat)
         lay.addWidget(gulir, stretch=1)
 
         self.label_selisih = tema.label("", "infoKecil", wrap=True)
@@ -176,6 +207,7 @@ class MaterialDialog(QDialog):
         g.setHorizontalSpacing(12)
         g.setVerticalSpacing(4)
         g.setColumnStretch(1, 1)
+        g.setColumnMinimumWidth(0, LEBAR_LABEL)  # kolom combo semua kelompok sejajar
         g.addWidget(tema.label(judul.upper(), "bagian"), 0, 0, 1, 2)
         if samakan:
             b = tema.tombol("Samakan semua dengan kolom", "ghost", None,
@@ -185,7 +217,7 @@ class MaterialDialog(QDialog):
         baris_g = 1
         for s in slots:
             cb = QComboBox()
-            cb.setMinimumWidth(420)
+            cb.setMinimumWidth(380)
             for o in s.opsi:
                 data = self._opsi.get(kode_varian(s.kode, o.kunci))
                 nilai = data.get("dasar", data["harga"]) if data else 0  # kayu / triplek: harga dasar (tanpa BUK)
@@ -197,7 +229,10 @@ class MaterialDialog(QDialog):
             self.combo[s.kode] = cb
             info = tema.label("", "infoKecil", wrap=True)
             self._info[s.kode] = info
-            g.addWidget(tema.label(s.judul, "formLabel"), baris_g, 0)
+            label = tema.label(s.judul, "formLabel", wrap=True)
+            label.setFixedWidth(LEBAR_LABEL)
+            self._label_slot[s.kode] = label
+            g.addWidget(label, baris_g, 0)
             g.addWidget(cb, baris_g, 1)
             g.addWidget(info, baris_g + 1, 1)
             baris_g += 2
@@ -281,6 +316,8 @@ class MaterialDialog(QDialog):
 
     def _perbarui(self):
         berubah = [k for k, cb in self.combo.items() if cb.currentData() != self._awal[k]]
+        for k, cb in self.combo.items():  # pilihan yang diubah ditandai (garis kuning + titik di labelnya)
+            tandai(cb, self._label_slot.get(k), k in berubah)
         self.btn_simpan.setEnabled(bool(berubah))
         self.label_galat.hide()
         if not berubah:

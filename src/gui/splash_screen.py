@@ -51,8 +51,8 @@ DURASI_FADE_MS = 350
 class LogoCostStruct(QWidget):
     """Logo CostStruct dengan dua cincin tipis berwarna aksen di sekelilingnya."""
 
-    UKURAN = 104
-    LOGO = 56
+    UKURAN = 112
+    LOGO = 72
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -69,7 +69,8 @@ class LogoCostStruct(QWidget):
             p.setPen(QPen(warna, 1))
             p.drawEllipse(QRectF(tengah - jari, tengah - jari, jari * 2, jari * 2))
         p.translate(tengah - self.LOGO / 2, tengah - self.LOGO / 2)
-        tema.gambar_logo(p, self.LOGO)  # warna mengikuti tema
+        # latar splash = warna sidebar; logo dibuat untuk latar gelap, di latar terang diberi kotak gelap
+        tema.gambar_logo(p, self.LOGO, tema.latar_terang(tema.W["sidebar"]), self.devicePixelRatioF())
         p.end()
 
 
@@ -193,7 +194,7 @@ class SplashScreen(QWidget):
 
         layout.addWidget(LogoCostStruct(), alignment=Qt.AlignHCenter)
         layout.addSpacing(8)
-        judul = QLabel("CostStruct")
+        judul = QLabel(tema.teks_merek())
         judul.setObjectName("judul")
         judul.setAlignment(Qt.AlignCenter)
         layout.addWidget(judul)

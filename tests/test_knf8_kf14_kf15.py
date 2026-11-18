@@ -97,6 +97,7 @@ def test_spec_pyinstaller_membawa_berkas_wajib():
     assert "express/express_parser.py" in spec
     assert "console=False" in spec
     assert "penampil3d.qml" in spec and "PySide6.QtQuick3D" in spec  # penampil Model 3D (QML ikut dibundel)
+    assert "logo_emblem.png" in spec and (AKAR / "src" / "gui" / "aset" / "logo_emblem.png").is_file()  # logo
     assert (AKAR / "assets" / "coststruct.ico").is_file()
 
 

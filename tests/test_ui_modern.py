@@ -20,7 +20,7 @@ def app():
 
 @pytest.mark.parametrize("nama", ["cari", "panel", "info", "galat", "sukses", "tanya", "peringatan", "folder",
                                   "parameter", "dimensi", "kubus", "besi", "kalender", "import", "tutup", "rupiah",
-                                  "persen"])
+                                  "persen", "ciut", "lebar"])
 def test_ikon_baru_tergambar(app, nama):
     from PySide6.QtGui import QColor
 
@@ -215,3 +215,68 @@ def test_atur_lebar_baru_tidak_ditimpa_penjaga_lebar_lama(app):
     assert h.sectionSize(0) < 170
     t.close()
     t.deleteLater()
+
+
+def test_sidebar_bisa_diciutkan_dan_diingat(app, db_sementara):
+    """Sidebar diciutkan (ikon saja, nama menu jadi tooltip), dilebarkan lagi, dan pilihannya diingat."""
+    from database.preferensi_repository import get_pref
+    from gui.main_window import MainWindow
+
+    w = MainWindow()
+    try:
+        assert not w.sidebar_ciut and w.sidebar.width() == w.LEBAR_SIDEBAR
+        assert w.btn_lebar.isHidden() and not w._teks_merek.isHidden()
+        w.atur_sidebar(True, animasi=False)
+        assert w.sidebar_ciut and w.sidebar.width() == w.LEBAR_SIDEBAR_CIUT == w.lebar_sidebar
+        nav = w.grup_nav.buttons()
+        assert all(b.text() == "" and b.toolTip() for b in nav) and w._teks_merek.isHidden()
+        assert not w.btn_lebar.isHidden() and w._teks_zona.isHidden()
+        assert get_pref("sidebar_ciut") == "1"
+    finally:
+        w.close()
+        w.deleteLater()
+    w2 = MainWindow()  # dibuka lagi: tetap ciut
+    try:
+        assert w2.sidebar_ciut and w2.sidebar.width() == w2.LEBAR_SIDEBAR_CIUT
+        w2.btn_lebar.click()  # dengan animasi
+        from PySide6.QtCore import QCoreApplication, QElapsedTimer
+
+        t = QElapsedTimer()
+        t.start()
+        while w2._anim_sidebar is not None and t.elapsed() < 3000:
+            QCoreApplication.processEvents()
+        assert not w2.sidebar_ciut and w2.sidebar.width() == w2.LEBAR_SIDEBAR
+        assert all(b.text().strip() for b in w2.grup_nav.buttons())
+        assert get_pref("sidebar_ciut") == "0"
+    finally:
+        w2.close()
+        w2.deleteLater()
+
+
+def test_logo_dari_gambar_dan_teks_merek(app):
+    from gui import tema
+
+    assert tema.LOGO_EMBLEM.is_file()
+    pm = tema._emblem(40)
+    assert not pm.isNull() and max(pm.width(), pm.height()) == 40
+    assert "Struct" in tema.teks_merek() and "Cost" in tema.teks_merek()
+    assert not tema.ikon_aplikasi().isNull()
+
+
+def test_dialog_ganti_bahan_menandai_pilihan_yang_diubah(app, db_sementara):
+    from database.proyek_repository import create_proyek
+    from gui.material_dialog import MaterialDialog
+
+    pid = create_proyek("Uji Bahan", "uji.ifc")
+    d = MaterialDialog(pid, None)
+    try:
+        kode, cb = next(iter(d.combo.items()))
+        label = d._label_slot[kode]
+        assert not cb.property("berubah") and not label.text().startswith("●")
+        cb.setCurrentIndex((cb.currentIndex() + 1) % cb.count())
+        assert cb.property("berubah") and label.text().startswith("● ")
+        assert d.btn_simpan.isEnabled()
+        d._bawaan()
+        assert not cb.property("berubah") and not label.text().startswith("●")
+    finally:
+        d.deleteLater()

@@ -83,6 +83,7 @@ class ExportDialog(QDialog):
         gulir = QScrollArea()
         gulir.setWidgetResizable(True)
         gulir.setFrameShape(QFrame.NoFrame)
+        gulir.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # isi selalu menyesuaikan lebar dialog
         badan = QWidget()
         badan.setObjectName("badanDialog")
         badan.setStyleSheet("QWidget#badanDialog { background: transparent; }")
@@ -362,8 +363,8 @@ class ExportDialog(QDialog):
             baris_desk.addSpacing(28 if isinstance(cek, QCheckBox) else 2)  # sejajar dengan teks kotak centang
             info = QLabel(deskripsi)
             info.setObjectName("infoKecil")
-            baris_desk.addWidget(info)
-            baris_desk.addStretch()
+            info.setWordWrap(True)  # keterangan panjang membungkus, tidak melebarkan dialog
+            baris_desk.addWidget(info, stretch=1)
             lay.addLayout(baris_desk)
         lay.addStretch()
         kolom.addWidget(kartu, stretch=1)

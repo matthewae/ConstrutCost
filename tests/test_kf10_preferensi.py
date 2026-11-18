@@ -133,8 +133,13 @@ def test_pratinjau_tema_dan_logo(monkeypatch):
         assert not pm.isNull() and pm.width() > 0
         assert nama in tema.NAMA_TEMA
     try:
-        tema.pilih_tema("hitam_kuning")
-        warna = tema.gambar_ikon_aplikasi(64).toImage().pixelColor(4, 32)  # tepi kiri logo
-        assert warna.red() > 200 and warna.green() > 170 and warna.blue() < 140  # kuning
+        for nama in ("hitam_kuning", "terang"):  # logo gambar: sama di semua tema
+            tema.pilih_tema(nama)
+            img = tema.gambar_ikon_aplikasi(64).toImage()
+            assert img.pixelColor(0, 0).alpha() == 0  # sudut kotak membulat transparan
+            latar = img.pixelColor(32, 3)  # kotak gelap di belakang emblem
+            assert latar.alpha() == 255 and latar.lightness() < 60
+            kuning = [img.pixelColor(x, y) for x in range(64) for y in range(64)]
+            assert sum(c.red() > 200 and 140 < c.green() < 220 and c.blue() < 90 for c in kuning) > 60  # huruf S
     finally:
         tema.pilih_tema(tema.TEMA_BAWAAN)

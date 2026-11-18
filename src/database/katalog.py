@@ -73,14 +73,32 @@ def daftar_katalog() -> list:
     return hasil
 
 
+# Ejaan yang sering berbeda antara pengguna dan dokumen HSPK: kata di satu kelompok dianggap sama saat mencari,
+# mis. "kloset" juga menemukan "Closet duduk", "kran" juga menemukan "keran".
+SINONIM = (
+    ("kloset", "closet"), ("kran", "keran"), ("saklar", "sakelar"), ("wastafel", "washtafel", "westafel"),
+    ("urinoir", "urinal"), ("toren", "tangki"), ("keramik", "kramik"), ("plafon", "plafond"),
+    ("bak cuci", "kitchen sink", "sink"), ("stop kontak", "stopkontak"), ("kusen", "kosen"),
+)
+
+
+def _alternatif(kata: str) -> tuple:
+    return next((grup for grup in SINONIM if kata in grup), (kata,))
+
+
 def cari_katalog(data: list, kata: str = "", bab: str | None = None) -> list:
-    """Saring katalog: semua kata (tanpa membedakan huruf besar) harus ada di kode atau uraian."""
+    """Saring katalog: semua kata (tanpa membedakan huruf besar) harus ada di kode atau uraian. Ejaan lain di
+    SINONIM ikut dicari (kloset = closet, kran = keran, ...)."""
     kata_kata = kata.lower().split()
-    return [
-        d for d in data
-        if (bab is None or d["bab"] == bab)
-        and all(k in f"{d['kode']} {d['uraian']}".lower() for k in kata_kata)
-    ]
+    hasil = []
+    for d in data:
+        if bab is not None and d["bab"] != bab:
+            continue
+        teks = f"{d['kode']} {d['uraian']}".lower()
+        if all(any(a in teks for a in _alternatif(k)) for k in kata_kata):
+            hasil.append((-sum(k in teks for k in kata_kata), d))  # ejaan yang diketik persis didahulukan
+    hasil.sort(key=lambda x: x[0])  # stabil: urutan kode tetap di dalam kelompok yang sama
+    return [d for _skor, d in hasil]
 
 
 def _kunci(tipe: str, nama: str, satuan: str):

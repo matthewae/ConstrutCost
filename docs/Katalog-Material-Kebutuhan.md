@@ -27,7 +27,7 @@ Ada 31 analisa yang jumlah koefisien × harga di sheet analisanya **tidak sama**
 (mis. 3.18.3.1 kloset duduk, beberapa pipa tembaga dan pipa DCI). Ini ketidakkonsistenan di dalam workbook
 HSPK itu sendiri. Aplikasi memakai hitungan komponen, dan daftar lengkapnya dicetak oleh `tools/impor_hspk.py`.
 
-### Tambah item dari katalog (Hasil Estimasi → "+ Item Katalog")
+### Tambah item dari katalog (Hasil Estimasi → "+ Tambah Pekerjaan")
 
 Pekerjaan yang tidak bisa diturunkan dari model IFC (instalasi listrik, plambing, sanitair, lisplang, pagar,
 dan seterusnya) ditambahkan dengan langkah berikut:
@@ -44,11 +44,24 @@ Sifat item tambahan:
 Pekerjaan katalog dibuat di database saat pertama dipakai (kode `HSPK-<kode>`), lengkap dengan komponennya,
 sehingga perubahan harga dasar di Harga Satuan juga berlaku untuk item tambahan.
 
+Kemudahan di dialog (versi 1.6):
+- **Ejaan lain ikut dicari** (`database/katalog.py`, `SINONIM`): *kloset* juga menemukan *closet*, *kran* juga
+  *keran*, *saklar* juga *sakelar*, *wastafel / washtafel*, *toren / tangki*, *kusen / kosen*, dan seterusnya.
+  Hasil yang memuat ejaan persis seperti yang diketik ditampilkan lebih dulu.
+- Panel **Item terpilih**: sebelum memilih, panel berisi petunjuk singkat. Setelah memilih, panel menampilkan
+  **harga satuan yang masuk RAB** (koefisien analisa dikali harga dasar saat ini + BUK 10%). Harga di dokumen HSPK
+  tampil di tooltip, karena untuk 31 analisa di atas keduanya berbeda.
+
 ## 2. Pilihan material per pekerjaan (Hasil Estimasi → "Ganti Bahan")
 
 Dialog menampilkan pekerjaan yang ada di proyek: dinding, lantai, atap, plafon, cat, pintu & jendela. Mutu beton,
 fondasi, dan pekerjaan yang belum ada di proyek disimpan di **Pengaturan lanjutan** agar daftar awal tidak
 membingungkan. Panduan pemakaian 5 langkah ada di `docs/Panduan-Singkat.md`.
+
+- Tombol **Lompat ke:** (Bekisting, Dinding, Lantai, Atap, ...) di bawah judul langsung menggulir ke kelompok itu.
+- Label pekerjaan di semua kelompok selebar sama, jadi combo bahan tersusun lurus.
+- Pilihan yang diubah tetapi belum disimpan ditandai: combo bergaris kuning dan titik ● di depan nama pekerjaan.
+  Perkiraan selisih biaya langsung tampil di bawah daftar.
 
 Rule engine menghitung **volume** pekerjaan dari model: dinding dalam m², kolom dalam m³. **Bahan** yang dipilih
 menentukan analisa HSPK yang dipakai, sehingga harga satuan dan kebutuhan bahannya ikut berubah. Setiap pilihan
