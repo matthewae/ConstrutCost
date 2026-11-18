@@ -25,7 +25,7 @@ from gui.harga_page import HargaPage
 from gui.pengaturan_page import PengaturanPage
 from gui.proyek_page import ProyekPage
 
-VERSI_APLIKASI = "v1.4.0"
+VERSI_APLIKASI = "v1.5.0"
 NAV_PROYEK, NAV_HARGA, NAV_PENGATURAN, NAV_AKTIVITAS = 0, 1, 2, 3
 
 

@@ -89,8 +89,9 @@ II. BETON
 
 Sesuai subbab 2.4.2.5, biaya tidak langsung tidak dihitung otomatis, tetapi diisi pengguna per proyek lewat
 tombol **Biaya Tidak Langsung**. Setiap item berupa **persentase biaya langsung** atau **nilai tetap (Rp)**.
-Usulan uraian yang tersedia: perencanaan teknis, pengawasan, pengelolaan/operasional, perizinan (PBG/SLF),
-penerapan SMKK, serta administrasi dan dokumentasi.
+Usulan uraian yang tersedia: perencanaan teknis, pengawasan, pengelolaan/operasional, perizinan (PBG/SLF), serta
+administrasi dan dokumentasi. Biaya penerapan SMKK tidak termasuk lingkup aplikasi: fokusnya RAB kebutuhan material
+dan biaya pekerjaan fisik (bahan, tenaga kerja, dan alat menurut analisa HSPK).
 
 ```
 A. Biaya langsung        = Σ volume × harga satuan     (BUK 10% sudah di dalam harga satuan)

@@ -3,7 +3,7 @@
 ; Dibangun dari folder hasil PyInstaller (dist\CostStruct) dengan:
 ;     python tools\build_installer.py            (mencari ISCC.exe, membaca versi, lalu menguji installer)
 ; atau langsung:
-;     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersiApp=1.4.0 installer\CostStruct.iss
+;     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersiApp=1.5.0 installer\CostStruct.iss
 ; Hasil: dist\installer\CostStruct-Setup-<versi>.exe
 ;
 ; Data pengguna (database, log, cadangan) ada di %APPDATA%\CostStruct dan TIDAK dihapus saat aplikasi dicopot,
@@ -11,7 +11,7 @@
 
 #define NamaApp "CostStruct"
 #ifndef VersiApp
-  #define VersiApp "1.4.0"
+  #define VersiApp "1.5.0"
 #endif
 #define ExeApp "CostStruct.exe"
 
@@ -51,6 +51,7 @@ CloseApplications=yes
 Name: "id"; MessagesFile: "compiler:Default.isl,Indonesian.isl"
 
 [Tasks]
+; shortcut desktop tercentang sejak awal (dapat dihapus centangnya saat instalasi)
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "asosiasi"; Description: "{cm:AsosiasiProyek}"; GroupDescription: "{cm:AsosiasiFile}"
 Name: "bukaifc"; Description: "{cm:AsosiasiIFC}"; GroupDescription: "{cm:AsosiasiFile}"

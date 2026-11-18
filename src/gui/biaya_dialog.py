@@ -1,6 +1,6 @@
 """
 Dialog Biaya Tidak Langsung (KF-13): item biaya di luar pekerjaan fisik (perencanaan, pengawasan,
-perizinan, SMKK, operasional) yang diisi pengguna sebagai persentase biaya langsung atau nilai
+perizinan, operasional) yang diisi pengguna sebagai persentase biaya langsung atau nilai
 rupiah, beserta ringkasan biaya proyek: A biaya langsung, B biaya tidak langsung, PPN, total.
 """
 
@@ -48,7 +48,7 @@ class BiayaDialog(QDialog):
         lay.setSpacing(12)
         lay.addWidget(tema.kepala_dialog(
             "Biaya Tidak Langsung",
-            "Biaya di luar pekerjaan fisik, mis. perencanaan, pengawasan, perizinan, dan penerapan SMKK. "
+            "Biaya di luar pekerjaan fisik, mis. perencanaan, pengawasan, dan perizinan. "
             "Nilainya mengikuti kontrak atau ketentuan proyek, sehingga diisi sendiri (tidak dihitung otomatis).",
             "rupiah",
         )[0])
@@ -58,7 +58,7 @@ class BiayaDialog(QDialog):
         kiri = QVBoxLayout()
         kiri.setSpacing(10)
         self.tabel = QTableWidget()
-        tema.pasang_teks_kosong(self.tabel, "Belum ada biaya tidak langsung", "Tambahkan item di panel kanan, mis. perencanaan, pengawasan, atau SMKK.")
+        tema.pasang_teks_kosong(self.tabel, "Belum ada biaya tidak langsung", "Tambahkan item di panel kanan, mis. perencanaan, pengawasan, atau perizinan.")
         self.tabel.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tabel.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tabel.itemSelectionChanged.connect(self._pilih)

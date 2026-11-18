@@ -73,9 +73,27 @@ def _baca_registri(subkey: str) -> str | None:
         return None
 
 
+def _folder_shell(csidl: int) -> Path:
+    """Folder khusus Windows pengguna ini, mis. 0x10 = Desktop, 0x02 = Start Menu\\Programs (ikut OneDrive dsb.)."""
+    import ctypes
+
+    buf = ctypes.create_unicode_buffer(1024)
+    ctypes.windll.shell32.SHGetFolderPathW(None, csidl, None, 0, buf)
+    return Path(buf.value)
+
+
+def _target_shortcut(lnk: Path) -> str:
+    """Target file .lnk (WScript.Shell lewat PowerShell)."""
+    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                        f"(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}').TargetPath"],
+                       capture_output=True, text=True, timeout=120, check=False)
+    return r.stdout.strip()
+
+
 def uji(setup: Path) -> int:
-    """Pasang untuk pengguna ini ke folder sementara, jalankan uji mandiri dari hasil instalasi, periksa asosiasi
-    file, lalu copot dan periksa folder serta registri bersih. Return 0 bila semua lulus."""
+    """Pasang untuk pengguna ini ke folder sementara, jalankan uji mandiri dari hasil instalasi, periksa shortcut
+    desktop & Start Menu serta asosiasi file, lalu copot dan periksa folder, shortcut, dan registri bersih.
+    Return 0 bila semua lulus."""
     gagal = []
     folder = Path(tempfile.mkdtemp(prefix="coststruct_pasang_")) / "CostStruct"
     log = AKAR / "build" / "uji_installer"
@@ -84,7 +102,8 @@ def uji(setup: Path) -> int:
 
     print(f">> Memasang (diam-diam, pengguna ini) ke {folder}", flush=True)
     r = subprocess.run([str(setup), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER",
-                        f"/DIR={folder}", "/TASKS=asosiasi,bukaifc", f"/LOG={log / 'pasang.log'}"], timeout=900)
+                        f"/DIR={folder}", "/TASKS=desktopicon,asosiasi,bukaifc", f"/LOG={log / 'pasang.log'}"],
+                       timeout=900)
     exe = folder / "CostStruct.exe"
     if r.returncode != 0 or not exe.is_file():
         print(f"GAGAL memasang (kode {r.returncode}); lihat {log / 'pasang.log'}")
@@ -95,6 +114,17 @@ def uji(setup: Path) -> int:
     print(laporan.read_text(encoding="utf-8") if laporan.is_file() else "Laporan uji mandiri tidak dibuat.")
     if r.returncode != 0:
         gagal.append("uji mandiri aplikasi terpasang gagal")
+
+    shortcut = {"desktop": _folder_shell(0x10) / "CostStruct.lnk", "Start Menu": _folder_shell(0x02) / "CostStruct.lnk"}
+    for tempat, lnk in shortcut.items():
+        if not lnk.is_file():
+            gagal.append(f"shortcut {tempat} tidak dibuat ({lnk})")
+            continue
+        target = _target_shortcut(lnk)
+        if target.lower() != str(exe).lower():
+            gagal.append(f"shortcut {tempat} tidak mengarah ke {exe} (target: {target!r})")
+        else:
+            print(f">> Shortcut {tempat}: {lnk} -> {target}")
 
     perintah = _baca_registri(r"Software\Classes\CostStruct.Proyek\shell\open\command") or ""
     if _baca_registri(r"Software\Classes\.coststruct") != "CostStruct.Proyek" or str(exe).lower() not in perintah.lower():
@@ -117,10 +147,14 @@ def uji(setup: Path) -> int:
             gagal.append("CostStruct.exe masih ada setelah dicopot")
         if _baca_registri(r"Software\Classes\CostStruct.Proyek") is not None:
             gagal.append("kunci registri CostStruct.Proyek masih ada setelah dicopot")
+        for tempat, lnk in shortcut.items():
+            if lnk.exists():
+                gagal.append(f"shortcut {tempat} masih ada setelah dicopot ({lnk})")
     if gagal:
         print("UJI INSTALLER GAGAL:\n - " + "\n - ".join(gagal))
         return 1
-    print(">> UJI INSTALLER BERHASIL: pasang, uji mandiri, asosiasi file, dan copot bersih.")
+    print(">> UJI INSTALLER BERHASIL: pasang, uji mandiri, shortcut desktop & Start Menu, asosiasi file, dan copot "
+          "bersih.")
     return 0
 
 

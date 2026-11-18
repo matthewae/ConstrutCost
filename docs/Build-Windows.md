@@ -69,15 +69,28 @@ Isi installer (`installer\CostStruct.iss`, teks bahasa Indonesia di `installer\I
 | Fitur | Keterangan |
 |---|---|
 | Tanpa hak administrator | Bawaan dipasang untuk pengguna ini di `%LOCALAPPDATA%\Programs\CostStruct`; dialog menawarkan pasang untuk semua pengguna (Program Files) |
-| Shortcut | Start Menu; shortcut desktop opsional |
+| Shortcut | **Desktop** (tercentang sejak awal) dan Start Menu, keduanya membuka `CostStruct.exe` |
 | Asosiasi file | File proyek `.coststruct` dibuka dengan klik dua kali; CostStruct ditambahkan ke **Buka dengan** untuk file `.ifc` (aplikasi bawaan `.ifc` tidak diganti). Keduanya dapat dimatikan saat instalasi |
 | Pembaruan | Versi baru memperbarui instalasi lama (AppId tetap), data tidak hilang |
 | Copot | Lewat **Settings → Apps** atau Start Menu. Data pengguna di `%APPDATA%\CostStruct` (database proyek, harga, log, cadangan) **tidak dihapus**, sehingga proyek tetap ada bila dipasang ulang |
 
 Versi installer diambil otomatis dari `VERSI_APLIKASI` di `src\gui\main_window.py`. Di CI, installer dibangun
-dan diuji pada setiap push: dipasang diam-diam, uji mandiri dijalankan dari folder instalasi, asosiasi
-`.coststruct` diperiksa, lalu dicopot dan diperiksa bersih. Unduh dari **Actions → run terbaru → Artifacts →
-CostStruct-Setup**.
+dan diuji pada setiap push: dipasang diam-diam, uji mandiri dijalankan dari folder instalasi, shortcut desktop dan
+Start Menu (target `CostStruct.exe`) serta asosiasi `.coststruct` diperiksa, lalu dicopot dan diperiksa bersih
+(shortcut ikut terhapus). Unduh dari **Actions → run terbaru → Artifacts → CostStruct-Setup**.
+
+### Memasang di laptop
+
+1. Buka repositori di GitHub → tab **Actions** → pilih run **Windows - tes & build .exe** terbaru yang berstatus
+   hijau → bagian **Artifacts** → klik **CostStruct-Setup**. Yang terunduh adalah file `.zip` (± 270 MB).
+   Artifact disimpan 14 hari; setelah itu ambil dari run yang lebih baru.
+2. Ekstrak zip, lalu klik dua kali `CostStruct-Setup-<versi>.exe`.
+3. Bila muncul **Windows protected your PC** (SmartScreen), klik **More info → Run anyway**.
+4. Pilih **Pasang hanya untuk saya** (tanpa hak administrator). Biarkan **Buat shortcut di desktop** tercentang,
+   lalu **Lanjut → Pasang**.
+5. Setelah selesai, buka CostStruct dari shortcut **CostStruct** di desktop atau dari Start Menu.
+
+Memasang versi baru di atas versi lama cukup dengan menjalankan installer baru; proyek dan harga tetap ada.
 
 Installer belum ditandatangani digital, jadi Windows SmartScreen akan memperingatkan saat installer dibuka.
 Klik **More info → Run anyway**. Tanda tangan digital (code signing certificate) dapat ditambahkan nanti tanpa

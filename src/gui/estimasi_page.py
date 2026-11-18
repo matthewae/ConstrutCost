@@ -329,7 +329,7 @@ class EstimasiPage(QWidget):
         self.btn_tulangan.clicked.connect(self._buka_penulangan)
         self.btn_biaya = tema.tombol(
             "Biaya Tidak Langsung", "secondary", None,
-            "Perencanaan, pengawasan, perizinan, SMKK, dan biaya lain di luar pekerjaan fisik (KF-13)",
+            "Perencanaan, pengawasan, perizinan, dan biaya lain di luar pekerjaan fisik (KF-13)",
         )
         self.btn_biaya.clicked.connect(self._buka_biaya)
         self.btn_material = tema.tombol(

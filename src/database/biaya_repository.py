@@ -21,7 +21,6 @@ USULAN = (
     "Biaya pengawasan konstruksi",
     "Biaya pengelolaan kegiatan / operasional",
     "Biaya perizinan (PBG / SLF)",
-    "Biaya penerapan SMKK",
     "Biaya administrasi & dokumentasi",
 )
 
