@@ -1,117 +1,1142 @@
 """
-Parser IFC -> daftar elemen struktural (siap disimpan ke tabel elemen_proyek).
-Tidak ada kode yang jalan saat di-import; dipanggil dari estimasi_service.jalankan_estimasi().
+KF-1 (import & validasi file IFC) dan KF-2 (parser, klasifikasi, ekstraksi dimensi).
+
+Alur:
+    info = buka_dan_validasi(path)              # KF-1: cek file + ringkasan untuk ditampilkan
+    elemen, peringatan = ekstrak_elemen(info.model, progress)   # KF-2
+
+Setiap elemen menghasilkan himpunan dimensi G = {L, B, H, t, A, V} (Rumus BAB 2.4.9) dalam meter, m2, m3:
+    panjang (L), lebar (B), tinggi (H), tebal (t), luas (A), volume (V)
+ditambah keliling, kemiringan (atap) dan luas_bukaan (dinding).
+
+Sumber nilai, berurutan:
+    1. Quantity set IFC (Qto_*BaseQuantities / BaseQuantities ArchiCAD / PSet_Revit_Dimensions)
+       -> nilai resmi dari perangkat lunak BIM, dikonversi dengan satuan proyek
+          (panjang, luas, dan volume punya faktor satuan masing-masing).
+    2. Geometri 3D (IfcOpenShell, koordinat lokal elemen, sudah dalam meter) bila quantity set kosong.
+Asal setiap nilai dicatat di 'sumber_dimensi' supaya bisa ditelusuri (KF-18).
 """
+
+import math
+import re
+import multiprocessing
+import os
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+from dataclasses import dataclass, field
+from pathlib import Path
 
 import ifcopenshell
 import ifcopenshell.geom as geom
+import numpy as np
 import ifcopenshell.util.element as element_util
 import ifcopenshell.util.shape as shape_util
 import ifcopenshell.util.unit as unit_util
 
-STRUCTURAL_TYPES = ["IfcColumn", "IfcBeam", "IfcSlab", "IfcWall", "IfcFooting"]
+from klasifikasi import LABEL, ElementType, hitung_tidak_dihitung, kumpulkan_elemen, predefined_type, teks_tidak_dihitung
+from kolom import FUNGSI_UTAMA, kaki_kolom
+from kolom import analisis as analisis_kolom_segmen
+from kolom import analisis_model as analisis_kolom
+from kolom import baca_model as baca_kolom
+from kolom import teks_ringkasan as teks_ringkasan_kolom
+from relasi import KELAS_GEOMETRI, analisis_balok, fondasi_di_bawah_kolom, kotak_dunia
+import elemen_lain
 
-PSET_CANDIDATES = {
-    "IfcWall": ["Qto_WallBaseQuantities", "PSet_Revit_Dimensions"],
-    "IfcSlab": ["Qto_SlabBaseQuantities", "PSet_Revit_Dimensions"],
-    "IfcBeam": ["Qto_BeamBaseQuantities", "PSet_Revit_Dimensions"],
-    "IfcFooting": ["Qto_FootingBaseQuantities", "PSet_Revit_Dimensions"],
-    "IfcColumn": ["Qto_ColumnBaseQuantities", "PSet_Revit_Dimensions"],
+SKEMA_DIDUKUNG = {"IFC2X3": "IFC2x3", "IFC4": "IFC4"}
+PESAN_TIDAK_VALID = "File tidak valid. Pastikan file berformat IFC2x3 atau IFC4."
+
+DIMENSI = ("panjang", "lebar", "tinggi", "tebal", "luas", "volume", "keliling")
+
+_NAMA_SATUAN = {
+    1.0: "meter",
+    0.1: "desimeter",
+    0.01: "sentimeter",
+    0.001: "milimeter",
+    0.3048: "kaki (feet)",
+    0.0254: "inci",
 }
 
 
-def _buat_settings():
-    settings = geom.settings()
+class FileIFCTidakValid(Exception):
+    """File gagal divalidasi (KF-1). Pesannya siap ditampilkan ke pengguna."""
+
+
+@dataclass
+class InfoFileIFC:
+    """Ringkasan file IFC yang ditampilkan sebelum pengguna menekan "Import" (UC-01 langkah 7)."""
+
+    path: str
+    nama_file: str
+    ukuran_byte: int
+    skema: str
+    aplikasi: str | None
+    satuan_panjang: str
+    lantai: list  # [(nama, elevasi_meter)] urut dari bawah
+    jumlah_per_kelas: dict  # ElementType -> jumlah
+    model: object = field(default=None, repr=False)
+    tidak_dihitung: dict = field(default_factory=dict)  # '94 batang rangka (IfcMember)' -> {jumlah, contoh, catatan}
+    ringkasan_kolom: dict = field(default_factory=dict)  # kolom.py: kolom fisik per fungsi, segmen digabung
+
+    @property
+    def total_elemen(self) -> int:
+        return sum(self.jumlah_per_kelas.values())
+
+    @property
+    def ukuran_teks(self) -> str:
+        ukuran = float(self.ukuran_byte)
+        for satuan in ("B", "KB", "MB"):
+            if ukuran < 1024 or satuan == "MB":
+                return f"{ukuran:,.0f} {satuan}" if satuan == "B" else f"{ukuran:,.1f} {satuan}"
+            ukuran /= 1024
+        return f"{ukuran:,.1f} GB"
+
+
+# ======================================================================
+# KF-1: validasi file
+# ======================================================================
+
+
+def _tidak_valid(alasan: str) -> FileIFCTidakValid:
+    return FileIFCTidakValid(f"{PESAN_TIDAK_VALID}\n\n{alasan}")
+
+
+def buka_dan_validasi(path, terisolasi: bool = False) -> InfoFileIFC:
+    """Validasi ekstensi, header, integritas, dan versi IFC. Raise FileIFCTidakValid bila gagal.
+
+    terisolasi=True: file dibuka lebih dulu di proses terpisah. Pustaka IfcOpenShell bisa
+    crash (segmentation fault) pada file yang terpotong; dengan cara ini yang berhenti hanya
+    proses anak, aplikasi tetap berjalan dan menampilkan pesan (KNF-4). Setelah lolos, file
+    dibuka lagi di proses ini untuk dipakai parsing.
+    """
+    p = Path(path)
+    _cek_berkas(p)
+    if terisolasi:
+        _validasi_di_proses_anak(p)
+    return _validasi(p)
+
+
+def _cek_berkas(p: Path) -> None:
+    """Pemeriksaan cepat sebelum file dibaca IfcOpenShell."""
+    if not p.is_file():
+        raise FileIFCTidakValid(f"File tidak ditemukan:\n{p}")
+    if p.suffix.lower() != ".ifc":
+        raise _tidak_valid(f"Ekstensi file '{p.suffix or '(tanpa ekstensi)'}' bukan .ifc.")
+    if p.stat().st_size == 0:
+        raise _tidak_valid("File kosong (0 byte).")
+
+    with open(p, "rb") as f:
+        awal = f.read(256).lstrip(b"\xef\xbb\xbf \t\r\n")
+        f.seek(max(0, p.stat().st_size - 512))
+        akhir = f.read().rstrip()
+    if not awal.startswith(b"ISO-10303-21"):
+        raise _tidak_valid(
+            "Header file bukan format IFC-SPF (ISO-10303-21). "
+            "File kemungkinan rusak, atau berupa ifcXML / ifcZIP yang belum didukung."
+        )
+    if not akhir.endswith(b"END-ISO-10303-21;"):
+        raise _tidak_valid(
+            "Penutup file (END-ISO-10303-21;) tidak ditemukan. File kemungkinan terpotong, "
+            "misalnya karena proses unduh atau salin yang tidak selesai. Ekspor ulang file dari aplikasi BIM."
+        )
+
+
+def _validasi(p: Path) -> InfoFileIFC:
     try:
-        settings.set("use-world-coords", True)  # IfcOpenShell >= 0.8
+        model = ifcopenshell.open(str(p))
+    except Exception as e:  # sintaks STEP rusak
+        raise _tidak_valid(f"File tidak dapat dibaca, kemungkinan rusak.\nDetail: {e}") from e
+
+    skema = (model.schema or "").upper()
+    if skema not in SKEMA_DIDUKUNG:
+        raise _tidak_valid(f"Versi skema '{model.schema}' belum didukung.")
+    if not model.by_type("IfcProject"):
+        raise _tidak_valid("File tidak memiliki IfcProject (struktur IFC tidak lengkap).")
+
+    jumlah = {}
+    for _entity, _tipe, kelas in kumpulkan_elemen(model):
+        jumlah[kelas] = jumlah.get(kelas, 0) + 1
+    # jumlah_per_kelas = jumlah objek IFC (sama dengan elemen yang diekstrak); jumlah kolom fisik per fungsi
+    # (pedestal + kolom di atasnya = satu kolom) ada di ringkasan_kolom dan ditampilkan di dialog import
+    ringkasan_kolom = _ringkasan_kolom(model)
+
+    skala = unit_util.calculate_unit_scale(model)
+    lantai = sorted(
+        (
+            (s.Name or "(tanpa nama)", (s.Elevation or 0.0) * skala)
+            for s in model.by_type("IfcBuildingStorey")
+        ),
+        key=lambda x: x[1],
+    )
+    return InfoFileIFC(
+        path=str(p),
+        nama_file=p.name,
+        ukuran_byte=p.stat().st_size,
+        skema=SKEMA_DIDUKUNG[skema],
+        aplikasi=_nama_aplikasi(model),
+        satuan_panjang=_nama_satuan(skala),
+        lantai=lantai,
+        jumlah_per_kelas=jumlah,
+        model=model,
+        tidak_dihitung=hitung_tidak_dihitung(model),
+        ringkasan_kolom=ringkasan_kolom,
+    )
+
+
+def _ringkasan_kolom(model) -> dict:
+    """Ringkasan kolom fisik untuk dialog import; {} bila gagal (validasi file tidak boleh gagal karenanya)."""
+    try:
+        return analisis_kolom(model).ringkasan
     except Exception:
-        settings.set(settings.USE_WORLD_COORDS, True)  # versi lama
-    return settings
+        return {}
 
 
-def _get_dimension(element, prop_name, pset_candidates):
-    psets = element_util.get_psets(element)
-    for pset_name in pset_candidates:
-        if pset_name in psets and prop_name in psets[pset_name]:
-            value = psets[pset_name][prop_name]
-            if isinstance(value, (int, float)):
-                return float(value)
+def _validasi_anak(path: str) -> bool:
+    """Dijalankan di proses anak; hanya hasil lolos/gagal yang dikirim balik."""
+    _validasi(Path(path))
+    return True
+
+
+def _validasi_di_proses_anak(p: Path, fungsi=None) -> None:
+    """`fungsi` hanya untuk pengujian (pengganti _validasi_anak, harus fungsi tingkat modul)."""
+    konteks = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=1, mp_context=konteks) as ex:
+        try:
+            ex.submit(fungsi or _validasi_anak, str(p)).result()
+        except BrokenProcessPool as e:
+            raise _tidak_valid(
+                "Pembaca IFC berhenti tidak normal saat membuka file ini. "
+                "File kemungkinan terpotong atau korup; ekspor ulang file dari aplikasi BIM."
+            ) from e
+
+
+def _nama_aplikasi(model):
+    for app in model.by_type("IfcApplication"):
+        nama = " ".join(x for x in (app.ApplicationFullName, app.Version) if x)
+        if nama:
+            return nama
     return None
 
 
-def _volume_from_geometry(element, settings):
-    """Fallback: volume dari mesh 3D. Geometri IfcOpenShell sudah dalam METER."""
-    try:
-        shape = geom.create_shape(settings, element)
-        return shape_util.get_volume(shape.geometry)
-    except Exception:
+def _nama_satuan(skala: float) -> str:
+    for nilai, nama in _NAMA_SATUAN.items():
+        if math.isclose(skala, nilai, rel_tol=1e-6):
+            return nama
+    return f"{skala:g} meter"
+
+
+# ======================================================================
+# KF-2: ekstraksi dimensi
+# ======================================================================
+
+# Prioritas quantity set: standar IFC dulu, lalu ekspor vendor.
+def _prioritas_set(nama: str):
+    if nama.startswith("Qto_"):
+        return 0
+    if nama == "BaseQuantities":  # ArchiCAD
+        return 1
+    if nama == "PSet_Revit_Dimensions":
+        return 2
+    if nama == "PSet_Revit_Type_Dimensions":
+        return 3
+    return None
+
+
+@dataclass
+class _Geometri:
+    volume: float
+    ext: tuple  # rentang bounding box lokal (x, y, z), meter
+    sisi_x: float  # luas satu sisi yang menghadap +X
+    sisi_y: float  # luas satu sisi yang menghadap +Y
+    atas: float  # luas permukaan atas sebenarnya (miring tetap dihitung miring)
+    tapak: float  # luas proyeksi horizontal
+    keliling_tapak: float
+    kemiringan: float | None = None  # derajat, bidang atas dominan (khusus atap)
+    luas_miring: float | None = None  # luas bidang atas dengan kemiringan dominan (khusus atap)
+
+
+class _PerluGeometri(Exception):
+    """Mode cek siapkan_geometri: elemen ini membutuhkan perhitungan geometri."""
+
+
+class _Pengukur:
+    def __init__(self, model):
+        self.model = model
+        self.s_panjang = unit_util.calculate_unit_scale(model, "LENGTHUNIT")
+        self.s_luas = unit_util.calculate_unit_scale(model, "AREAUNIT")
+        self.s_volume = unit_util.calculate_unit_scale(model, "VOLUMEUNIT")
+        self.set_lokal = self._settings()
+        self._cache_lantai = {}
+        self._bentuk = {}  # entity id -> _Geometri hasil siapkan_geometri (paralel)
+        self._mode_cek = False
+        self._lain = {}  # entity id -> (teks, jenis) elemen kelas LAINNYA (elemen_lain.py)
+        self.jenis_manual = {}  # GlobalId -> kunci jenis pilihan pengguna (elemen_lain.pilihan_jenis)
+
+    def jenis_otomatis(self, entity) -> tuple:
+        """(teks, jenis yang dikenali dari nama/teks) elemen lain, dihitung sekali per entitas."""
+        if entity.id() not in self._lain:
+            teks = elemen_lain.teks_elemen(entity)
+            self._lain[entity.id()] = (teks, elemen_lain.kenali(entity, teks))
+        return self._lain[entity.id()]
+
+    def jenis_lain(self, entity) -> tuple:
+        """(teks, jenis yang dipakai): koreksi pengguna (`jenis_manual`, per GlobalId) didahulukan."""
+        teks, jenis = self.jenis_otomatis(entity)
+        manual = self.jenis_manual.get(entity.GlobalId)
+        return teks, (manual.split(":", 1)[0] if manual else jenis)
+
+    def angka_pset(self, entity) -> dict:
+        """Angka dari Pset non-Qto yang lazim ditulis perencana: panjang, tinggi, tebal, luas waterproofing,
+        volume galian (nama berakhiran _m / _m2 / _m3 dianggap meter; lainnya memakai satuan panjang model), serta
+        Pset_CoveringCommon.IsExternal."""
+        hasil = {}
+        try:
+            psets = element_util.get_psets(entity)
+        except Exception:
+            return hasil
+        pola = (("panjang", r"^(panjang|length)(_m)?$", r"^(panjang|length)"), ("tinggi", r"^(tinggi|height)(_m)?$",
+                r"^(tinggi|height)"), ("tebal", r"^(tebal|thickness)(_m)?$", r"^(tebal|thickness)"),
+                ("luas_waterproofing", r"luas.?water", None), ("volume_galian", r"volume.?galian|excavat", None))
+        for nama_set, isi in psets.items():
+            if _prioritas_set(nama_set) is not None:
+                continue  # quantity set dibaca terpisah
+            if nama_set == "Pset_CoveringCommon" and isinstance(isi.get("IsExternal"), bool):
+                hasil["eksternal"] = isi["IsExternal"]
+            for kunci, pasti, awalan in pola:
+                for k, v in isi.items():
+                    if kunci in hasil or not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+                        continue
+                    nk = k.lower()
+                    if re.search(pasti, nk) or (awalan and re.match(awalan, nk) and "standar" not in nk
+                                                  and "bilah" not in nk and "batang" not in nk):
+                        meter = re.search(r"_m[23]?$", nk) or kunci in ("luas_waterproofing", "volume_galian")
+                        hasil[kunci] = float(v) if meter else float(v) * self.s_panjang
+        return hasil
+
+    @staticmethod
+    def _settings():
+        # Koordinat lokal elemen: sumbu X dinding = arah panjang, Y = tebal (konvensi IFC),
+        # sehingga luas sisi dinding benar untuk dinding ke arah mana pun.
+        settings = geom.settings()
+        try:
+            settings.set("use-world-coords", False)  # IfcOpenShell >= 0.8
+        except Exception:
+            settings.set(settings.USE_WORLD_COORDS, False)  # versi lama
+        return settings
+
+    # ---------- profil ekstrusi ----------
+
+    def profil_ekstrusi(self, entity):
+        """(XDim, YDim, panjang ekstrusi) dalam meter dari representasi Body berupa profil persegi yang
+        diekstrusi (SweptSolid), atau None. Dipakai untuk balok/kolom miring: bounding box elemen miring
+        tidak mewakili penampang, sedangkan profil ekstrusi selalu memuat ukuran penampang sebenarnya."""
+        rep = getattr(entity, "Representation", None)
+        if rep is None:
+            return None
+
+        def cari(item):
+            if item.is_a("IfcMappedItem"):
+                for x in item.MappingSource.MappedRepresentation.Items:
+                    yield from cari(x)
+            elif item.is_a("IfcBooleanResult"):  # mis. balok yang dipotong (IfcBooleanClippingResult)
+                yield from cari(item.FirstOperand)
+            elif item.is_a("IfcExtrudedAreaSolid"):
+                yield item
+
+        for r in rep.Representations or []:
+            if (r.RepresentationIdentifier or "") not in ("Body", ""):
+                continue
+            for item in r.Items or []:
+                for solid in cari(item):
+                    prof = solid.SweptArea
+                    if prof.is_a("IfcRectangleProfileDef") and prof.XDim and prof.YDim and solid.Depth:
+                        s = self.s_panjang
+                        return prof.XDim * s, prof.YDim * s, solid.Depth * s
         return None
 
+    # ---------- quantity set ----------
 
-def _area_from_geometry(element, ifc_type, settings):
-    """Fallback luas (m2) dari mesh: pelat/fondasi = luas tapak, dinding = luas sisi."""
-    try:
-        shape = geom.create_shape(settings, element)
-        if ifc_type == "IfcWall":
-            return shape_util.get_side_area(shape.geometry)
-        if ifc_type in ("IfcSlab", "IfcFooting"):
-            return shape_util.get_footprint_area(shape.geometry)
-    except Exception:
-        pass
-    return None
+    def kuantitas(self, entity) -> list:
+        psets = element_util.get_psets(entity)
+        terpilih = [(p, n) for n in psets if (p := _prioritas_set(n)) is not None]
+        return [psets[n] for _p, n in sorted(terpilih)]
 
+    @staticmethod
+    def ambil(sets: list, *nama):
+        """Nilai positif pertama. Urutan nama lebih diutamakan daripada urutan set."""
+        for n in nama:
+            for s in sets:
+                v = s.get(n)
+                if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+                    return float(v)
+        return None
 
-def _nama_lantai(element):
-    node = element_util.get_container(element)
-    while node is not None and not node.is_a("IfcBuildingStorey"):
-        node = element_util.get_container(node)
-    return node.Name if node is not None else None
+    def panjang(self, sets, *nama):
+        v = self.ambil(sets, *nama)
+        return v * self.s_panjang if v is not None else None
 
+    def luas(self, sets, *nama):
+        v = self.ambil(sets, *nama)
+        return v * self.s_luas if v is not None else None
 
-def extract_elements(ifc_path: str):
-    """
-    Return (elemen, peringatan).
-    Semua nilai dikonversi ke meter / m2 / m3, sehingga nilai pset & geometri konsisten.
-    """
-    model = ifcopenshell.open(ifc_path)
-    skala = unit_util.calculate_unit_scale(model)  # meter per 1 satuan panjang proyek
-    settings = _buat_settings()
+    def volume(self, sets, *nama):
+        v = self.ambil(sets, *nama)
+        return v * self.s_volume if v is not None else None
 
-    elemen, peringatan = [], []
-    for ifc_type in STRUCTURAL_TYPES:
-        kandidat = PSET_CANDIDATES[ifc_type]
-        for el in model.by_type(ifc_type):
-            panjang = _get_dimension(el, "Length", kandidat)
-            luas = _get_dimension(el, "Area", kandidat)
-            volume = _get_dimension(el, "Volume", kandidat)
+    # ---------- geometri ----------
 
-            panjang = panjang * skala if panjang is not None else None
-            if luas is not None:
-                luas = luas * skala**2
-            else:
-                luas = _area_from_geometry(el, ifc_type, settings)  # sudah dalam m2
+    def siapkan_geometri(self, kandidat, progress=None) -> int:
+        """KNF-1: hitung geometri elemen yang membutuhkannya sekaligus, paralel di semua inti CPU.
 
-            if volume is not None:
-                volume, sumber = volume * skala**3, "pset"
-            else:
-                volume = _volume_from_geometry(el, settings)
-                sumber = "geometry" if volume is not None else "gagal"
-                if volume is None:
-                    peringatan.append(
-                        f"Volume gagal dihitung: {ifc_type} {el.Name} ({el.GlobalId})"
-                    )
+        Tahap 1 (cepat): `_ukur` dijalankan dalam mode cek untuk mendata elemen yang Qto-nya tidak lengkap
+        (hanya elemen ini yang nanti memanggil `geometri`). Tahap 2: geometri elemen tersebut dihitung oleh
+        iterator IfcOpenShell multi-thread. Hasilnya sama dengan `create_shape` per elemen; bila iterator
+        gagal, `geometri` kembali menghitung satu per satu. Return jumlah elemen yang dihitung geometrinya."""
+        self._mode_cek = True
+        perlu, atap = [], set()
+        try:
+            for entity, _tipe, kelas in kandidat:
+                try:
+                    _ukur(self, entity, kelas)
+                except _PerluGeometri:
+                    perlu.append(entity)
+                    if kelas == ElementType.ROOF:
+                        atap.add(entity.id())
+                except Exception:
+                    pass  # galat sebenarnya dilaporkan saat pengukuran
+        finally:
+            self._mode_cek = False
+        if len(perlu) < 4:
+            return 0
+        total = len(perlu) + len(kandidat)  # sama dengan total di ekstrak_elemen: indikator tidak mundur
+        try:
+            it = geom.iterator(self.set_lokal, self.model, max(1, min(os.cpu_count() or 1, 8)), include=perlu)
+            ids = {e.id() for e in perlu}
+            if it.initialize():
+                while True:
+                    # Bentuk dari iterator hanya sah sampai it.next(): langsung diukur, yang disimpan angkanya.
+                    shape = it.get()
+                    if shape.id in ids:
+                        self._bentuk[shape.id] = self._ukur_bentuk(shape, shape.id in atap)
+                    if progress:
+                        progress(len(self._bentuk), total, f"Menghitung geometri elemen ({len(self._bentuk)}/{len(perlu)})")
+                    if not it.next():
+                        break
+        except Exception:
+            pass  # elemen tanpa bentuk siap dihitung satu per satu oleh geometri()
+        return len(perlu)
 
-            elemen.append(
-                {
-                    "global_id": el.GlobalId,
-                    "ifc_type": ifc_type,
-                    "predefined_type": getattr(el, "PredefinedType", None),
-                    "nama": el.Name,
-                    "lantai": _nama_lantai(el),
-                    "panjang": panjang,
-                    "luas": luas,
-                    "volume": volume,
-                    "sumber_volume": sumber,
-                }
+    def geometri(self, entity, atap=False) -> _Geometri:
+        siap = self._bentuk.pop(entity.id(), None)
+        if siap is not None:
+            return siap
+        if self._mode_cek:
+            raise _PerluGeometri
+        return self._ukur_bentuk(geom.create_shape(self.set_lokal, entity), atap)
+
+    @staticmethod
+    def _ukur_bentuk(shape, atap=False) -> _Geometri:
+        g = shape.geometry  # `shape` tetap dipegang selama g dipakai
+        mn, mx = shape_util.get_bbox(shape_util.get_vertices(g))
+        ext = tuple(float(v) for v in (mx - mn))
+        hasil = _Geometri(
+            volume=float(shape_util.get_volume(g)),
+            ext=ext,
+            sisi_x=float(shape_util.get_side_area(g, axis="X")),
+            sisi_y=float(shape_util.get_side_area(g, axis="Y")),
+            atas=float(shape_util.get_top_area(g)),
+            tapak=float(shape_util.get_footprint_area(g)),
+            keliling_tapak=float(shape_util.get_footprint_perimeter(g)),
+        )
+        if atap:
+            hasil.kemiringan, hasil.luas_miring = _bidang_atap(shape, g)
+        return hasil
+
+    # ---------- lantai ----------
+
+    def lantai(self, entity):
+        """IfcBuildingStorey tempat elemen berada (lewat containment, agregasi, atau dinding induk)."""
+        node = entity
+        for _ in range(12):
+            induk = element_util.get_container(node) or element_util.get_aggregate(node)
+            if induk is None:
+                induk = self._dinding_induk(node)
+            if induk is None:
+                return None
+            if induk.is_a("IfcBuildingStorey"):
+                return induk
+            node = induk
+        return None
+
+    @staticmethod
+    def _dinding_induk(entity):
+        """Pintu/jendela tanpa containment: ikuti bukaan -> dinding yang dilubangi."""
+        for rel in getattr(entity, "FillsVoids", None) or []:
+            for v in getattr(rel.RelatingOpeningElement, "VoidsElements", None) or []:
+                return v.RelatingBuildingElement
+        return None
+
+    def info_lantai(self, entity):
+        storey = self.lantai(entity)
+        if storey is None:
+            return None, None
+        if storey.id() not in self._cache_lantai:
+            elev = storey.Elevation
+            self._cache_lantai[storey.id()] = (
+                storey.Name,
+                elev * self.s_panjang if elev is not None else None,
             )
+        return self._cache_lantai[storey.id()]
+
+    # ---------- bukaan dinding ----------
+
+    def luas_bukaan(self, dinding) -> float:
+        """Total luas bukaan (pintu/jendela/lubang) pada dinding, untuk Rumus 2.17."""
+        total = 0.0
+        for rel in getattr(dinding, "HasOpenings", None) or []:
+            bukaan = rel.RelatedOpeningElement
+            luas = None
+            for isi in getattr(bukaan, "HasFillings", None) or []:
+                el = isi.RelatedBuildingElement
+                w, h = getattr(el, "OverallWidth", None), getattr(el, "OverallHeight", None)
+                if w and h:
+                    luas = w * h * self.s_panjang**2
+                    break
+            if luas is None:
+                sets = self.kuantitas(bukaan)
+                w, h = self.panjang(sets, "Width"), self.panjang(sets, "Height")
+                if w and h:
+                    luas = w * h
+            total += luas or 0.0
+        return total
+
+
+def _bidang_atap(shape, g):
+    """Kemiringan (derajat) dan luas bidang atas atap.
+
+    Normal tiap segitiga diputar ke koordinat dunia, lalu segitiga yang menghadap ke atas
+    dikelompokkan menurut komponen vertikal normalnya (n_z = cos theta). Kelompok dengan luas
+    terbesar = bidang atap; sisi tebal pelat (n_z berbeda) tidak ikut terhitung.
+    Atap pelana/perisai dengan kemiringan sama tetap satu kelompok (Rumus 2.22 / 2.23).
+    """
+    v = shape_util.get_vertices(g)
+    f = shape_util.get_faces(g)
+    silang = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    luas = 0.5 * np.linalg.norm(silang, axis=1)
+    sah = luas > 1e-12
+    normal = silang[sah] / (2 * luas[sah])[:, None]
+    putar = np.array(shape_util.get_shape_matrix(shape))[:3, :3]
+    nz = (normal @ putar.T)[:, 2]
+    luas = luas[sah]
+    atas = nz > 0.01
+    if not atas.any():
+        return None, None
+    kelompok = {}
+    for z, a in zip(np.round(nz[atas], 2), luas[atas]):
+        kelompok[z] = kelompok.get(z, 0.0) + a
+    nz_dominan = max(kelompok, key=kelompok.get)
+    pilih = atas & (np.abs(nz - nz_dominan) <= 0.015)
+    cos_t = float(np.average(nz[pilih], weights=luas[pilih]))
+    return math.degrees(math.acos(min(1.0, cos_t))), float(luas[pilih].sum())
+
+
+class _Dimensi:
+    """Mengumpulkan dimensi + asal nilainya. Nilai pertama yang valid yang dipakai."""
+
+    def __init__(self):
+        self.nilai = {}
+        self.sumber = {}
+
+    def isi(self, kunci, nilai, asal):
+        if kunci in self.nilai or nilai is None:
+            return
+        if isinstance(nilai, float) and (math.isnan(nilai) or nilai <= 0):
+            return
+        self.nilai[kunci] = float(nilai)
+        self.sumber[kunci] = asal
+
+    def kurang(self, *kunci) -> bool:
+        return any(k not in self.nilai for k in kunci)
+
+    def buang(self, kunci):
+        self.nilai.pop(kunci, None)
+        self.sumber.pop(kunci, None)
+
+    def buang_keliling_tidak_wajar(self):
+        """Keliling bidang tidak mungkin < sqrt(4*pi*A) (lingkaran). Nilai di bawah itu
+        berarti quantity set salah satuan (mis. Revit menulis feet pada file milimeter)."""
+        k, a = self.nilai.get("keliling"), self.nilai.get("luas")
+        if k and a and k < 0.9 * math.sqrt(4 * math.pi * a):
+            self.buang("keliling")
+
+
+def _cocok(a, b, toleransi=0.10) -> bool:
+    return abs(a - b) <= toleransi * max(a, b)
+
+
+# Tinggi railing tipikal (m): selisih tinggi bounding box railing tangga di atas angka ini = tinggi naik tangga.
+TINGGI_RAILING = 0.90
+
+
+def _isi_penampang_profil(p: _Pengukur, entity, d: _Dimensi, k_lebar: str, k_tinggi: str, k_panjang: str,
+                          urutkan: bool = False):
+    """Penampang balok/kolom dari profil persegi yang diekstrusi bila quantity set tidak memuatnya
+    (mis. ring balok miring pada gevel).
+
+    Arah ekstrusi tidak selalu searah bentang. Konvensi IFC (dan Revit untuk balok miring): profil =
+    penampang b × h, Depth = panjang. Tetapi banyak model menggambar balok sebagai *denah* L × b yang
+    diekstrusi setinggi h (Depth = tinggi balok). Maka sisi yang mewakili panjang ditentukan dulu:
+    panjang dari quantity set bila ada, selain itu sisi terpanjang dari ketiganya. Dua sisi sisanya
+    adalah penampang. Bila sisi panjang = Depth, konvensi XDim = lebar, YDim = tinggi dipakai; selain
+    itu sisi kecil = lebar, sisi besar = tinggi. Kolom (urutkan=True): sisi kecil = lebar, sisi besar =
+    tebal."""
+    if not d.kurang(k_lebar, k_tinggi):
+        return
+    try:
+        prof = p.profil_ekstrusi(entity)
+    except Exception:
+        prof = None
+    if prof is None:
+        return
+    x, y, depth = prof
+    sisi = [x, y, depth]
+    acuan = d.nilai.get(k_panjang, max(sisi))
+    # sisi yang paling dekat dengan panjang elemen; bila seri, utamakan Depth (konvensi IFC)
+    i_panjang = min((2, 0, 1), key=lambda i: abs(sisi[i] - acuan))
+    if i_panjang == 2:
+        b, h = x, y
+    else:
+        b, h = sisi[1 - i_panjang], depth
+    if urutkan or i_panjang != 2:
+        b, h = min(b, h), max(b, h)
+    d.isi(k_lebar, b, "profil")
+    d.isi(k_tinggi, h, "profil")
+    d.isi(k_panjang, sisi[i_panjang], "profil")
+
+
+# Penampang di nama elemen, konvensi gambar kerja Indonesia: "Ring Balok 13/15", "Kolom K1 20/25" (cm).
+_PENAMPANG_NAMA = re.compile(r"(?<![\d.,])(\d{1,3})\s*/\s*(\d{1,3})(?![\d.,])")
+
+
+def _isi_penampang_nama(entity, d: _Dimensi, k_lebar: str, k_tinggi: str):
+    """Cadangan terakhir: ukuran penampang dari nama elemen (cm), mis. 'Ring Balok Miring Gevel 13/15'."""
+    if not d.kurang(k_lebar, k_tinggi):
+        return
+    m = _PENAMPANG_NAMA.search(entity.Name or "")
+    if not m:
+        return
+    b, h = (int(x) / 100 for x in m.groups())
+    if 0.05 <= b <= 1.5 and 0.05 <= h <= 1.5:
+        d.isi(k_lebar, min(b, h), "nama")
+        d.isi(k_tinggi, max(b, h), "nama")
+
+
+def _cocokkan_penampang_nama(entity, d: _Dimensi, k_lebar: str, k_tinggi: str, k_panjang: str):
+    """Pengaman: penampang dari profil/geometri yang tidak cocok dengan volume (V jauh < b × h × L)
+    diganti ukuran di nama elemen bila ukuran nama itu cocok dengan volume. Mencegah balok beton
+    "Sloof S1 25/40" salah dianggap profil baja berongga karena sumbu ekstrusinya terbaca keliru."""
+    if d.kurang(k_lebar, k_tinggi, k_panjang, "volume"):
+        return
+    if d.sumber[k_lebar] in ("qto", "nama") and d.sumber[k_tinggi] in ("qto", "nama"):
+        return
+    m = _PENAMPANG_NAMA.search(entity.Name or "")
+    if not m:
+        return
+    bn, hn = sorted(int(x) / 100 for x in m.groups())
+    if not (0.05 <= bn <= 1.5 and 0.05 <= hn <= 1.5):
+        return
+    n = d.nilai
+    v, L = n["volume"], n[k_panjang]
+    if v / (n[k_lebar] * n[k_tinggi] * L) >= 0.5 or not 0.7 <= v / (bn * hn * L) <= 1.3:
+        return
+    d.buang(k_lebar)
+    d.buang(k_tinggi)
+    d.isi(k_lebar, bn, "nama")
+    d.isi(k_tinggi, hn, "nama")
+
+
+def _ukur(p: _Pengukur, entity, kelas: ElementType) -> _Dimensi:
+    d = _Dimensi()
+    q = p.kuantitas(entity)
+    vol = ("NetVolume", "GrossVolume", "Volume")
+
+    if kelas == ElementType.WALL:
+        d.isi("panjang", p.panjang(q, "Length"), "qto")
+        d.isi("tinggi", p.panjang(q, "Height"), "qto")
+        d.isi("tebal", p.panjang(q, "Width", "Thickness"), "qto")
+        d.isi("luas", p.luas(q, "NetSideArea", "Area", "GrossSideArea"), "qto")
+        d.isi("volume", p.volume(q, *vol), "qto")
+        if d.kurang("panjang", "tinggi", "tebal", "luas", "volume"):
+            g = p.geometri(entity)
+            ex, ey, ez = g.ext
+            # sumbu tebal dinding = sisi horizontal terpendek (standar IFC: sumbu Y lokal)
+            tebal_di_y = ey <= ex
+            d.isi("panjang", ex if tebal_di_y else ey, "geometri")
+            d.isi("tinggi", ez, "geometri")
+            d.isi("tebal", ey if tebal_di_y else ex, "geometri")
+            d.isi("luas", g.sisi_y if tebal_di_y else g.sisi_x, "geometri")
+            d.isi("volume", g.volume, "geometri")
+
+    elif kelas == ElementType.COLUMN:
+        d.isi("tinggi", p.panjang(q, "Length", "Height"), "qto")
+        d.isi("lebar", p.panjang(q, "Width", "b"), "qto")
+        d.isi("tebal", p.panjang(q, "Depth", "h"), "qto")
+        d.isi("volume", p.volume(q, *vol), "qto")
+        _isi_penampang_profil(p, entity, d, "lebar", "tebal", "tinggi", urutkan=True)
+        if d.kurang("tinggi", "lebar", "tebal", "volume"):
+            g = p.geometri(entity)
+            kecil, sedang, besar = sorted(g.ext)
+            d.isi("tinggi", besar, "geometri")
+            if _cocok(besar, d.nilai["tinggi"]):  # kolom miring: bbox tidak mewakili penampang
+                d.isi("lebar", kecil, "geometri")
+                d.isi("tebal", sedang, "geometri")
+            d.isi("volume", g.volume, "geometri")
+        _isi_penampang_nama(entity, d, "lebar", "tebal")
+        _cocokkan_penampang_nama(entity, d, "lebar", "tebal", "tinggi")
+
+    elif kelas == ElementType.BEAM:
+        d.isi("panjang", p.panjang(q, "Length"), "qto")
+        d.isi("lebar", p.panjang(q, "Width", "b"), "qto")
+        d.isi("tinggi", p.panjang(q, "Depth", "Height", "h"), "qto")
+        d.isi("volume", p.volume(q, *vol), "qto")
+        _isi_penampang_profil(p, entity, d, "lebar", "tinggi", "panjang")
+        if d.kurang("panjang", "lebar", "tinggi", "volume"):
+            g = p.geometri(entity)
+            kecil, sedang, besar = sorted(g.ext)
+            d.isi("panjang", besar, "geometri")
+            if _cocok(besar, d.nilai["panjang"]):  # balok miring/diagonal: bbox tidak mewakili penampang
+                d.isi("lebar", kecil, "geometri")
+                d.isi("tinggi", sedang, "geometri")
+            d.isi("volume", g.volume, "geometri")
+        _isi_penampang_nama(entity, d, "lebar", "tinggi")
+        _cocokkan_penampang_nama(entity, d, "lebar", "tinggi", "panjang")
+
+    elif kelas == ElementType.SLAB:
+        d.isi("luas", p.luas(q, "NetArea", "GrossArea", "Area"), "qto")
+        d.isi("tebal", p.panjang(q, "Depth", "Thickness", "Width"), "qto")
+        d.isi("keliling", p.panjang(q, "Perimeter"), "qto")
+        d.isi("volume", p.volume(q, *vol), "qto")
+        d.buang_keliling_tidak_wajar()
+        if d.kurang("luas", "tebal", "keliling", "volume"):
+            g = p.geometri(entity)
+            d.isi("luas", g.atas, "geometri")
+            d.isi("keliling", g.keliling_tapak, "geometri")
+            d.isi("volume", g.volume, "geometri")
+            d.isi("panjang", max(g.ext[0], g.ext[1]), "geometri")
+            d.isi("lebar", min(g.ext[0], g.ext[1]), "geometri")
+        if "tebal" not in d.nilai and d.nilai.get("luas") and d.nilai.get("volume"):
+            d.isi("tebal", d.nilai["volume"] / d.nilai["luas"], "turunan")
+
+    elif kelas == ElementType.ROOF:
+        d.isi("luas", p.luas(q, "NetArea", "GrossArea", "Area"), "qto")
+        d.isi("volume", p.volume(q, *vol), "qto")
+        g = p.geometri(entity, atap=True)  # kemiringan selalu diukur dari geometri
+        d.isi("luas", g.luas_miring, "geometri")
+        d.isi("volume", g.volume, "geometri")
+        d.isi("keliling", g.keliling_tapak, "geometri")
+        d.isi("panjang", max(g.ext[0], g.ext[1]), "geometri")
+        d.isi("lebar", min(g.ext[0], g.ext[1]), "geometri")
+        if g.kemiringan is not None:
+            d.nilai["kemiringan"] = g.kemiringan
+            d.sumber["kemiringan"] = "geometri"
+        if d.nilai.get("luas") and d.nilai.get("volume"):
+            d.isi("tebal", d.nilai["volume"] / d.nilai["luas"], "turunan")
+
+    elif kelas == ElementType.FOOTING:
+        d.isi("panjang", p.panjang(q, "Length"), "qto")
+        d.isi("lebar", p.panjang(q, "Width"), "qto")
+        d.isi("tebal", p.panjang(q, "Height", "Depth", "Foundation Thickness"), "qto")
+        d.isi("volume", p.volume(q, *vol), "qto")
+        if d.kurang("panjang", "lebar", "tebal", "volume"):
+            g = p.geometri(entity)
+            d.isi("panjang", max(g.ext[0], g.ext[1]), "geometri")
+            d.isi("lebar", min(g.ext[0], g.ext[1]), "geometri")
+            d.isi("tebal", g.ext[2], "geometri")
+            d.isi("volume", g.volume, "geometri")
+        if "panjang" in d.nilai and "lebar" in d.nilai:
+            d.isi("keliling", 2 * (d.nilai["panjang"] + d.nilai["lebar"]), "turunan")
+
+    elif kelas == ElementType.PILE:
+        d.isi("panjang", p.panjang(q, "Length"), "qto")
+        d.isi("lebar", p.panjang(q, "Diameter", "Width"), "qto")
+        d.isi("volume", p.volume(q, *vol), "qto")
+        if d.kurang("panjang", "lebar", "volume"):
+            g = p.geometri(entity)
+            d.isi("panjang", max(g.ext), "geometri")
+            d.isi("lebar", min(g.ext), "geometri")
+            d.isi("volume", g.volume, "geometri")
+
+    elif kelas in (ElementType.DOOR, ElementType.WINDOW):
+        w, h = getattr(entity, "OverallWidth", None), getattr(entity, "OverallHeight", None)
+        d.isi("lebar", w * p.s_panjang if w else None, "atribut")
+        d.isi("tinggi", h * p.s_panjang if h else None, "atribut")
+        d.isi("lebar", p.panjang(q, "Width"), "qto")
+        d.isi("tinggi", p.panjang(q, "Height"), "qto")
+        if "lebar" in d.nilai and "tinggi" in d.nilai:
+            d.isi("luas", d.nilai["lebar"] * d.nilai["tinggi"], "turunan")
+        d.isi("luas", p.luas(q, "Area"), "qto")
+
+    elif kelas == ElementType.STAIR:
+        # tangga / bentang tangga: L = panjang horizontal, B = lebar, H = tinggi naik, V = volume beton
+        d.isi("volume", p.volume(q, *vol), "qto")
+        d.isi("panjang", p.panjang(q, "Length"), "qto")
+        g = p.geometri(entity)
+        ex, ey, ez = g.ext
+        d.isi("panjang", max(ex, ey), "geometri")
+        d.isi("lebar", min(ex, ey), "geometri")
+        d.isi("tinggi", ez, "geometri")
+        d.isi("volume", g.volume, "geometri")
+
+    elif kelas == ElementType.RAILING:
+        # panjang railing (m'); railing tangga miring: panjang = √(L_horizontal² + naik²)
+        d.isi("panjang", p.panjang(q, "Length"), "qto")
+        g = p.geometri(entity)
+        ex, ey, ez = g.ext
+        naik = max(ez - TINGGI_RAILING, 0.0)
+        d.isi("panjang", math.hypot(max(ex, ey), naik), "geometri")
+        d.isi("tinggi", ez, "geometri")  # > tinggi railing: railing miring mengikuti tangga
+
+    elif kelas in (ElementType.FLOOR, ElementType.CEILING):
+        d.isi("luas", p.luas(q, "NetArea", "GrossArea", "Area"), "qto")
+        d.isi("keliling", p.panjang(q, "Perimeter"), "qto")
+        d.buang_keliling_tidak_wajar()
+        if d.kurang("luas"):
+            g = p.geometri(entity)
+            d.isi("luas", g.tapak, "geometri")
+            d.isi("keliling", g.keliling_tapak, "geometri")
+
+    elif kelas == ElementType.WALL_TILE:
+        # keramik dinding (bidang tegak): luas dari quantity set, atau sisi terbesar geometri
+        d.isi("luas", p.luas(q, "NetArea", "GrossArea", "NetSurfaceArea", "Area"), "qto")
+        if d.kurang("luas"):
+            g = p.geometri(entity)
+            d.isi("luas", max(g.sisi_x, g.sisi_y), "geometri")
+
+    elif kelas == ElementType.EARTHWORK:
+        # urugan pasir / lantai kerja / aanstamping: volume dan luas tapak
+        d.isi("volume", p.volume(q, *vol), "qto")
+        d.isi("luas", p.luas(q, "NetSurfaceArea", "NetArea", "GrossArea", "Area"), "qto")
+        if d.kurang("volume") or d.kurang("luas"):
+            g = p.geometri(entity)
+            d.isi("volume", g.volume, "geometri")
+            d.isi("luas", g.tapak, "geometri")
+
+    elif kelas == ElementType.LAINNYA:
+        # cladding, kisi, lisplang, nok, talang, waterproofing, beton lansekap, ... (elemen_lain.py)
+        d.isi("luas", p.luas(q, "NetArea", "GrossArea", "NetSurfaceArea", "GrossSurfaceArea", "NetSideArea",
+                             "GrossSideArea", "Area"), "qto")
+        d.isi("panjang", p.panjang(q, "Length"), "qto")
+        d.isi("tinggi", p.panjang(q, "Height"), "qto")
+        d.isi("volume", p.volume(q, *vol), "qto")
+        a = p.angka_pset(entity)
+        d.isi("panjang", a.get("panjang"), "atribut")
+        d.isi("tinggi", a.get("tinggi"), "atribut")
+        lebar = p.panjang(q, "Width")
+        if d.kurang("panjang") and not d.kurang("luas") and lebar and lebar >= 0.05:
+            d.isi("panjang", d.nilai["luas"] / lebar, "qto")  # mis. nok genteng: luas / lebar
+        if d.kurang("luas") and not d.kurang("panjang", "tinggi"):
+            d.isi("luas", d.nilai["panjang"] * d.nilai["tinggi"], "qto")  # mis. kisi: Length x Height
+        _teks, jenis = p.jenis_lain(entity)
+        if jenis == "beton_lansekap" or d.kurang("luas", "panjang", "volume"):
+            g = p.geometri(entity)
+            d.isi("luas", max(g.sisi_x, g.sisi_y, g.tapak), "geometri")
+            d.isi("panjang", max(g.ext), "geometri")
+            d.isi("tinggi", g.ext[2], "geometri")
+            d.isi("volume", g.volume, "geometri")
+            d.nilai["tapak"] = g.tapak  # alas beton lansekap (tidak disimpan sebagai dimensi)
+
+    elif kelas == ElementType.SPACE:
+        d.isi("luas", p.luas(q, "NetFloorArea", "GrossFloorArea", "Area"), "qto")
+        d.isi("keliling", p.panjang(q, "NetPerimeter", "GrossPerimeter", "Perimeter"), "qto")
+        d.isi("tinggi", p.panjang(q, "Height", "ClearHeight", "Unbounded Height"), "qto")
+        d.buang_keliling_tidak_wajar()
+        if d.kurang("luas", "keliling"):
+            g = p.geometri(entity)
+            d.isi("luas", g.tapak, "geometri")
+            d.isi("keliling", g.keliling_tapak, "geometri")
+            d.isi("tinggi", g.ext[2], "geometri")
+
+    return d
+
+
+def _cladding_dan_dinding(model, elemen: list, kotak: dict) -> None:
+    """Luas cat dinding yang tertutup cladding: cladding tegak yang menempel pada dinding mengurangi cat sisi
+    luar (cladding luar) atau sisi dalam dinding itu (info_lain dinding: tertutup_luar / tertutup_dalam).
+
+    Kontribusi semua elemen lain berbentuk pelat tipis disimpan per elemen (`tutup`: {gid: [luas, sisi, nama]}),
+    tetapi hanya yang berjenis cladding yang mengurangi cat. Bila pengguna mengoreksi jenis elemen (mis. panel
+    yang terbaca kisi menjadi cladding), luas tertutup dinding dihitung ulang tanpa membaca IFC
+    (`elemen_lain.hitung_tertutup`)."""
+    calon = [e for e in elemen if e["kelas"] == ElementType.LAINNYA.value and e.get("luas") and e.get("info_lain")]
+    dinding = {e["global_id"]: e for e in elemen if e["kelas"] == ElementType.WALL.value and e["global_id"] in kotak}
+    if not calon or not dinding:
+        return
+    gid = {e["global_id"] for e in calon}
+    ent = [x for x in model.by_type("IfcElement") if x.GlobalId in gid]
+    kotak_c = kotak_dunia(model, ent)
+    per = elemen_lain.luas_tertutup_cladding(
+        {e["global_id"]: (kotak_c[e["global_id"]], e["luas"]) for e in calon if e["global_id"] in kotak_c},
+        {g: kotak[g] for g in dinding})
+    per_gid = {e["global_id"]: e for e in calon}
+    for gc, bagian in per.items():
+        c = per_gid[gc]
+        c["info_lain"]["dinding"] = [dinding[gw]["nama"] for gw, _l in bagian]
+        luar_c = (c["info_lain"].get("pset") or {}).get("eksternal", c["info_lain"].get("eksternal"))
+        for gw, luas in bagian:
+            w = dinding[gw]
+            luar = luar_c if luar_c is not None else bool(w.get("eksternal"))
+            sisi = "tertutup_luar" if luar and w.get("eksternal") else "tertutup_dalam"
+            info = w.get("info_lain") or {}
+            info.setdefault("tutup", {})[gc] = [round(luas, 4), sisi, c.get("nama")]
+            w["info_lain"] = info
+    aktif = {e["global_id"] for e in calon if elemen_lain.jenis_tertutup(e["info_lain"])}
+    for w in dinding.values():
+        if (w.get("info_lain") or {}).get("tutup"):
+            w["info_lain"] = elemen_lain.hitung_tertutup(w["info_lain"], aktif)
+
+
+def _dinding_luar(entity) -> bool | None:
+    """Pset_WallCommon.IsExternal: True/False, atau None bila model tidak mengisinya."""
+    try:
+        nilai = element_util.get_psets(entity).get("Pset_WallCommon", {}).get("IsExternal")
+    except Exception:
+        return None
+    return bool(nilai) if isinstance(nilai, bool) else None
+
+
+def _nama(entity, kelas):
+    if kelas == ElementType.SPACE:
+        bagian = [x for x in (entity.Name, getattr(entity, "LongName", None)) if x]
+        return " - ".join(dict.fromkeys(bagian)) or None
+    return entity.Name
+
+
+def _jenis(entity, kelas):
+    """PredefinedType; untuk elemen generik bertipe USERDEFINED dipakai ObjectType (mis. URUGAN_PASIR)."""
+    pre = predefined_type(entity)
+    if kelas == ElementType.EARTHWORK and pre in (None, "USERDEFINED", "NOTDEFINED") and entity.ObjectType:
+        return entity.ObjectType.strip().upper()
+    return pre
+
+
+def _host_tulangan(bar, model):
+    """Elemen induk sebuah IfcReinforcingBar: relasi agregasi/nesting IFC, atau properti HostGlobalId
+    (dipakai sebagian eksportir). Rakitan tulangan (IfcElementAssembly) ditelusuri sampai elemen di atasnya."""
+    host = None
+    for atribut in ("Decomposes", "Nests"):
+        for rel in getattr(bar, atribut, None) or ():
+            host = rel.RelatingObject
+    if host is None:
+        for props in element_util.get_psets(bar).values():
+            gid = next((v for k, v in props.items() if k.lower() == "hostglobalid" and isinstance(v, str)), None)
+            if gid:
+                try:
+                    host = model.by_guid(gid)
+                except RuntimeError:
+                    host = None
+                break
+    while host is not None and host.is_a("IfcElementAssembly") and getattr(host, "Decomposes", None):
+        host = host.Decomposes[0].RelatingObject
+    return host
+
+
+def baca_tulangan(model, s_panjang: float):
+    """Tulangan yang dimodelkan (IfcReinforcingBar), dikelompokkan per elemen induk dan diameter.
+
+    Return (per_host, lepas): per_host = {GlobalId induk: {"13": {"berat", "panjang", "n"}, ...}},
+    lepas = (jumlah batang, berat kg) tulangan yang induknya tidak diketahui. Berat dihitung dari diameter
+    dan panjang batang (W_m = π d²/4 × 7850), sehingga tidak bergantung satuan massa file."""
+    per_host, lepas_n, lepas_berat = {}, 0, 0.0
+    try:
+        bars = model.by_type("IfcReinforcingBar")
+    except RuntimeError:
+        return per_host, (0, 0.0)
+    for bar in bars:
+        d = getattr(bar, "NominalDiameter", None)
+        panjang = getattr(bar, "BarLength", None)
+        tipe = element_util.get_type(bar)
+        if d is None and tipe is not None:
+            d = getattr(tipe, "NominalDiameter", None)
+        if panjang is None:
+            q = element_util.get_psets(bar, qtos_only=True)
+            panjang = next((v.get("Length") for v in q.values() if v.get("Length")), None)
+        if not d or not panjang:
+            continue
+        d_mm = round(d * s_panjang * 1000, 1)
+        p_m = panjang * s_panjang
+        berat = math.pi * (d_mm / 1000) ** 2 / 4 * 7850 * p_m
+        host = _host_tulangan(bar, model)
+        if host is None or not getattr(host, "GlobalId", None):
+            lepas_n += 1
+            lepas_berat += berat
+            continue
+        kunci = f"{d_mm:g}"
+        x = per_host.setdefault(host.GlobalId, {}).setdefault(kunci, {"berat": 0.0, "panjang": 0.0, "n": 0})
+        x["berat"] += berat
+        x["panjang"] += p_m
+        x["n"] += 1
+    return per_host, (lepas_n, lepas_berat)
+
+
+def ekstrak_elemen(model, progress=None, jenis_manual: dict | None = None):
+    """
+    Return (elemen, peringatan). `progress(i, n, teks)` dipanggil per elemen bila diberikan.
+    Nilai yang gagal dibaca dibiarkan None; rule engine yang memutuskan item mana dilewati.
+    `jenis_manual`: {GlobalId: kunci jenis} koreksi jenis elemen lain oleh pengguna (dipakai lagi saat IFC dibaca
+    ulang).
+    """
+    p = _Pengukur(model)
+    p.jenis_manual = dict(jenis_manual or {})
+    kandidat = list(kumpulkan_elemen(model))
+    n = len(kandidat)
+    elemen, peringatan = [], []
+    # Indikator proses (KNF-5): langkah geometri paralel lalu langkah pengukuran tiap elemen.
+    if progress:
+        progress(0, n, "Memeriksa data kuantitas elemen...")
+    awal = p.siapkan_geometri(kandidat, progress)
+    total = awal + n
+
+    for i, (entity, _tipe, kelas) in enumerate(kandidat):
+        nama = _nama(entity, kelas)
+        if progress:
+            progress(awal + i, total, f"{LABEL[kelas]}: {nama or entity.GlobalId}")
+        try:
+            d = _ukur(p, entity, kelas)
+        except Exception as e:  # geometri rusak / representasi tidak didukung
+            d = _Dimensi()
+            peringatan.append(
+                f"Dimensi gagal dihitung: {LABEL[kelas]} '{nama}' ({entity.GlobalId}): {e}"
+            )
+
+        luas_bukaan = eksternal = None
+        if kelas == ElementType.WALL:
+            try:
+                luas_bukaan = p.luas_bukaan(entity)
+            except Exception:
+                luas_bukaan = None
+            eksternal = _dinding_luar(entity)
+
+        lantai, elevasi = p.info_lantai(entity)
+        if "volume" in d.sumber:
+            sumber_volume = d.sumber["volume"]
+        elif kelas in (ElementType.COLUMN, ElementType.BEAM, ElementType.SLAB, ElementType.WALL,
+                       ElementType.FOOTING, ElementType.PILE):
+            sumber_volume = "gagal"
+            peringatan.append(
+                f"Volume tidak ditemukan: {LABEL[kelas]} '{nama}' ({entity.GlobalId})"
+            )
+        else:
+            sumber_volume = None
+
+        info_lain = None
+        if kelas == ElementType.LAINNYA:
+            teks, jenis = p.jenis_otomatis(entity)
+            info_lain = elemen_lain.info(entity, teks, jenis, p.angka_pset(entity))
+            if d.nilai.get("tapak"):
+                info_lain["tapak"] = d.nilai["tapak"]
+            if p.jenis_manual.get(entity.GlobalId):
+                info_lain = elemen_lain.ganti_jenis(info_lain, p.jenis_manual[entity.GlobalId])
+        elif kelas in (ElementType.COLUMN, ElementType.BEAM, ElementType.SLAB, ElementType.ROOF, ElementType.STAIR):
+            try:  # bahan untuk elemen yang bukan beton bertulang (baja per kg / kayu per m³)
+                bahan = [m.Name for m in element_util.get_materials(entity) or [] if getattr(m, "Name", None)]
+            except Exception:
+                bahan = []
+            if bahan:
+                info_lain = {"material": ", ".join(dict.fromkeys(bahan))[:200]}
+
+        elemen.append(
+            {
+                "global_id": entity.GlobalId,
+                "ifc_type": entity.is_a(),
+                "kelas": kelas.value,
+                "predefined_type": _jenis(entity, kelas),
+                "nama": nama,
+                "lantai": lantai,
+                "elevasi_lantai": elevasi,
+                **{k: d.nilai.get(k) for k in DIMENSI},
+                "kemiringan": d.nilai.get("kemiringan"),
+                "luas_bukaan": luas_bukaan,
+                "eksternal": eksternal,
+                "sumber_volume": sumber_volume,
+                "sumber_dimensi": dict(d.sumber),
+                "info_lain": info_lain,
+            }
+        )
+
+    # Tulangan yang dimodelkan menggantikan asumsi tipe penulangan untuk elemen induknya (model > asumsi).
+    per_host, (lepas_n, lepas_berat) = baca_tulangan(model, p.s_panjang)
+    gid_elemen = set()
+    for e in elemen:
+        gid_elemen.add(e["global_id"])
+        e["besi_model"] = per_host.get(e["global_id"])
+    tanpa_elemen = [v for gid, v in per_host.items() if gid not in gid_elemen]
+    lepas_n += sum(x["n"] for v in tanpa_elemen for x in v.values())
+    lepas_berat += sum(x["berat"] for v in tanpa_elemen for x in v.values())
+    if lepas_n:
+        peringatan.append(
+            f"{lepas_n} batang tulangan model ({lepas_berat:,.0f} kg) tidak dihitung karena elemen induknya tidak "
+            "diketahui atau bukan elemen beton yang dihitung. Periksa relasi tulangan di aplikasi BIM.".replace(",", ".")
+        )
+
+    # Relasi geometri (koordinat dunia, satu kali hitung): kolom fisik (kolom.py), balok di atas dinding / di bawah
+    # pelat, dan fondasi setempat di bawah tiap kolom (relasi.py).
+    try:
+        kotak = kotak_dunia(model, [x for t in KELAS_GEOMETRI for x in model.by_type(t)])
+        segmen, dinding_lantai, elev_dasar = baca_kolom(model, kotak)
+        hasil_kolom = analisis_kolom_segmen(segmen, dinding_lantai, elev_dasar)
+    except Exception as e:  # geometri gagal: tiap IfcColumn dihitung sebagai satu kolom, tanpa relasi
+        kotak, segmen, hasil_kolom = {}, [], None
+        peringatan.append(f"Analisis letak elemen gagal ({e}); setiap IfcColumn dihitung sebagai satu kolom.")
+    if hasil_kolom is not None:
+        ent = {e.GlobalId: e for t in ("IfcFooting", "IfcPile") for e in model.by_type(t)}
+        fondasi = {g: kotak[g] for g, x in ent.items() if g in kotak
+                   and str(getattr(x, "PredefinedType", "") or "") not in ("STRIP_FOOTING", "FOOTING_BEAM")}
+        di_bawah = fondasi_di_bawah_kolom(kaki_kolom(hasil_kolom, segmen), fondasi)
+        per_grup = {}
+        for g, grup in di_bawah.items():
+            per_grup.setdefault(grup, []).append(g)
+        kotak_bidang = dict(kotak)
+        kotak_bidang.update(kotak_dunia(model, model.by_type("IfcCovering") + model.by_type("IfcSpace")))
+        balok = analisis_balok(
+            {e.GlobalId: kotak[e.GlobalId] for e in model.by_type("IfcBeam") if e.GlobalId in kotak},
+            [kotak[w.GlobalId] for w in model.by_type("IfcWall") if w.GlobalId in kotak],
+            [kotak[x.GlobalId] for x in model.by_type("IfcSlab") if x.GlobalId in kotak],
+        )
+        for e in elemen:
+            if e["kelas"] == ElementType.COLUMN.value:
+                info = hasil_kolom.info.get(e["global_id"])
+                if info:
+                    info = {**info, "fondasi": per_grup.get(info["grup"], [])}
+                e["info_kolom"] = info
+                e["kolom_grup"] = info["grup"] if info else None
+            elif e["global_id"] in di_bawah:
+                grup = di_bawah[e["global_id"]]
+                e["info_fondasi"] = {"kolom": grup, "nama_kolom": hasil_kolom.info.get(grup, {}).get("nama_grup")}
+            if e["global_id"] in balok and e["kelas"] == ElementType.BEAM.value:
+                e["info_balok"] = balok[e["global_id"]]
+            if e["kelas"] in (ElementType.SLAB.value, ElementType.FLOOR.value, ElementType.SPACE.value) \
+                    and e["global_id"] in kotak_bidang:
+                # perkerasan luar (carport, jalan masuk, area servis) bukan bagian denah bangunan
+                e["di_luar_bangunan"] = hasil_kolom.di_luar(kotak_bidang[e["global_id"]])
+        teks = teks_ringkasan_kolom(hasil_kolom.ringkasan)
+        if teks and (hasil_kolom.ringkasan["digabung"] or hasil_kolom.ringkasan["duplikat"] or hasil_kolom.ringkasan["tumpang"]
+                     or any(n for f, n in hasil_kolom.ringkasan["per_fungsi"].items() if f != FUNGSI_UTAMA)):
+            peringatan.append(f"Kolom: {teks}.")
+
+    try:
+        _cladding_dan_dinding(model, elemen, kotak)
+    except Exception as e:  # relasi gagal: cat dinding di balik cladding tidak dikurangi
+        peringatan.append(f"Letak cladding terhadap dinding tidak terbaca ({e}); cat di balik cladding tidak dikurangi.")
+
+    lain = [e for e in elemen if (e.get("info_lain") or {}).get("jenis") == "lain"]
+    if lain:
+        contoh = sorted({e["info_lain"].get("nama_tipe") or e["nama"] or e["ifc_type"] for e in lain})[:4]
+        peringatan.append(
+            f"{len(lain)} elemen model belum punya padanan analisa HSPK dan masuk RAB dengan harga 0, isi harga "
+            f"satuannya: {', '.join(contoh)}{'...' if len(lain) > 4 else ''}."
+        )
+    tidak = hitung_tidak_dihitung(model)
+    if tidak:
+        peringatan.append(f"Tidak dihitung tersendiri: {teks_tidak_dihitung(tidak)}.")
+    if progress:
+        progress(total, total, "Ekstraksi selesai")
     return elemen, peringatan
