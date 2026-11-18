@@ -304,8 +304,8 @@ Contoh Tipe 120 3 lantai (bahan, harga dasar):
 | | Rp |
 |---|---|
 | Kebutuhan (RAB) | 811,9 jt |
-| Beli sekaligus seluruh proyek | 833,3 jt |
-| Beli bertahap per tahap & lantai (stok berpindah) | 828,5 jt |
+| Beli sekaligus seluruh proyek | 833,0 jt |
+| Beli bertahap per tahap & lantai (stok berpindah) | 828,2 jt |
 
 Selisih beli dengan kebutuhan adalah sisa kemasan. Beli bertahap dapat sedikit lebih murah daripada beli sekaligus,
 karena tambahan kecil di tahap akhir cukup diangkut pick-up atau dibeli eceran.
